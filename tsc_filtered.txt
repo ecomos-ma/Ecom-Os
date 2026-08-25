@@ -1,0 +1,800 @@
+﻿
+  Property 'Order ID' 
+does not exist on 
+type 'OrderResult'.
+  Property 'Order ID' 
+does not exist on 
+type 'OrderResult'.
+src/hooks/useOrders.ts
+(52,79): error 
+TS2345: Argument of 
+type 'string | 
+string[] | undefined' 
+is not assignable to 
+parameter of type 
+'string | null | 
+undefined'.
+  Type 'string[]' is 
+not assignable to 
+type 'string'.
+  Type 'undefined' is 
+not assignable to 
+type 'string'.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type 'Int8Array<Arra
+yBufferLike>' is not 
+assignable to type 
+'BlobPart'.
+    Type 'Int8Array<Ar
+rayBufferLike>' is 
+not assignable to 
+type 'ArrayBufferView<
+ArrayBuffer>'.
+      Types of 
+property 'buffer' are 
+incompatible.
+        Type 
+'ArrayBufferLike' is 
+not assignable to 
+type 'ArrayBuffer'.
+          Type 
+'SharedArrayBuffer' 
+is not assignable to 
+type 'ArrayBuffer'.
+            Types of 
+property '[Symbol.toSt
+ringTag]' are 
+incompatible.
+              Type 
+'"SharedArrayBuffer"' 
+is not assignable to 
+type '"ArrayBuffer"'.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+  Type '{ success: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+error: (message: 
+string, duration?: 
+number | undefined) 
+=> string; warning: 
+(message: string, 
+duration?: number | 
+undefined) => string; 
+info: (message: 
+string, duration?: 
+number | undefined) 
+=> string; dismiss: 
+(id: string) => void; 
+}' has no call 
+signatures.
+src/pages/Delivering.t
+sx(115,59): error 
+TS2339: Property 
+'updated_at' does not 
+exist on type 'Order'.
+src/pages/Delivering.t
+sx(128,52): error 
+TS2339: Property 
+'updated_at' does not 
+exist on type 'Order'.
+src/pages/Delivering.t
+sx(141,53): error 
+TS2339: Property 
+'updated_at' does not 
+exist on type 'Order'.
+src/pages/Delivering.t
+sx(543,54): error 
+TS2345: Argument of 
+type 'string | null' 
+is not assignable to 
+parameter of type 
+'string'.
+  Type 'null' is not 
+assignable to type 
+'string'.
+src/pages/Delivering.t
+sx(931,25): error 
+TS2339: Property 
+'primary_color' does 
+not exist on type 
+'Workspace'.
+src/pages/Delivering.t
+sx(2208,54): error 
+TS2339: Property 
+'primary_color' does 
+not exist on type 
+'Workspace'.
+src/pages/Orders.tsx(7
+47,54): error TS2339: 
+Property 
+'ozon_city_id' does 
+not exist on type 
+'Order'.
+src/pages/Orders.tsx(7
+81,26): error TS2367: 
+This comparison 
+appears to be 
+unintentional because 
+the types 
+'CanonicalStatus' and 
+'""' have no overlap.
+src/pages/Orders.tsx(8
+12,30): error TS2367: 
+This comparison 
+appears to be 
+unintentional because 
+the types 
+'CanonicalStatus' and 
+'""' have no overlap.
+src/pages/settings/com
+ponents/GoogleSheetsIn
+tegrationCard.tsx(374,
+53): error TS18047: 
+'workspace' is 
+possibly 'null'.
+src/pages/settings/com
+ponents/GoogleSheetsMa
+ppingModal.tsx(173,9):
+ error TS2698: Spread 
+types may only be 
+created from object 
+types.
+  Property 'title' 
+does not exist on 
+type 
+'IntrinsicAttributes 
+& StatusSelectProps'.
+  Type '() => Promise<
+RealtimeChannelSendRes
+ponse>' is not 
+assignable to type 
+'void | Destructor'.
+    Type '() => Promis
+e<RealtimeChannelSendR
+esponse>' is not 
+assignable to type 
+'Destructor'.
+      Type 'Promise<Re
+altimeChannelSendRespo
+nse>' is not 
+assignable to type 
+'void | { [UNDEFINED_V
+OID_ONLY]: never; }'.
+  Type '"custom"' is 
+not assignable to 
+type '"gemini"'.
+  Type '(prev: 
+AIProvider[]) => 
+(AIProvider | { 
+status: "testing"; 
+id: string; name: 
+string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+... 13 more ...; 
+updated_at: string; 
+})[]' is not 
+assignable to type 
+'(prevState: 
+AIProvider[]) => 
+AIProvider[]'.
+    Type '(AIProvider 
+| { status: 
+"testing"; id: 
+string; name: string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+model_id: string; 
+priority: number; ... 
+11 more ...; 
+updated_at: string; 
+})[]' is not 
+assignable to type 
+'AIProvider[]'.
+      Type 
+'AIProvider | { 
+status: "testing"; 
+id: string; name: 
+string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+model_id: string; 
+priority: number; ... 
+11 more ...; 
+updated_at: string; 
+}' is not assignable 
+to type 'AIProvider'.
+        Type '{ 
+status: "testing"; 
+id: string; name: 
+string; 
+provider_type: 
+"gemini" | "openai" | 
+"anthropic" | 
+"custom"; project_id: 
+string; model_id: 
+string; priority: 
+number; 
+encrypted_credential: 
+string; ... 10 more 
+...; updated_at: 
+string; }' is not 
+assignable to type 
+'AIProvider'.
+          Types of 
+property 'status' are 
+incompatible.
+            Type 
+'"testing"' is not 
+assignable to type 
+'ProviderStatus'. Did 
+you mean '"TESTING"'?
+  Type '(prev: 
+AIProvider[]) => 
+(AIProvider | { 
+status: "failed" | 
+"healthy"; last_used: 
+string; id: string; 
+name: string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; ... 14 
+more ...; updated_at: 
+string; })[]' is not 
+assignable to type 
+'(prevState: 
+AIProvider[]) => 
+AIProvider[]'.
+    Type '(AIProvider 
+| { status: "failed" 
+| "healthy"; 
+last_used: string; 
+id: string; name: 
+string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+... 13 more ...; 
+updated_at: string; 
+})[]' is not 
+assignable to type 
+'AIProvider[]'.
+      Type 
+'AIProvider | { 
+status: "failed" | 
+"healthy"; last_used: 
+string; id: string; 
+name: string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+... 13 more ...; 
+updated_at: string; 
+}' is not assignable 
+to type 'AIProvider'.
+        Type '{ 
+status: "failed" | 
+"healthy"; last_used: 
+string; id: string; 
+name: string; 
+provider_type: 
+"gemini" | "openai" | 
+"anthropic" | 
+"custom"; project_id: 
+string; model_id: 
+string; priority: 
+number; ... 11 more 
+...; updated_at: 
+string; }' is not 
+assignable to type 
+'AIProvider'.
+          Types of 
+property 'status' are 
+incompatible.
+            Type 
+'"failed" | 
+"healthy"' is not 
+assignable to type 
+'ProviderStatus'.
+              Type 
+'"failed"' is not 
+assignable to type 
+'ProviderStatus'. Did 
+you mean '"FAILED"'?
+  Type '(prev: 
+AIProvider[]) => 
+(AIProvider | { 
+status: "healthy"; 
+rate_limit_until: 
+null; id: string; 
+name: string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; ... 14 
+more ...; updated_at: 
+string; })[]' is not 
+assignable to type 
+'(prevState: 
+AIProvider[]) => 
+AIProvider[]'.
+    Type '(AIProvider 
+| { status: 
+"healthy"; 
+rate_limit_until: 
+null; id: string; 
+name: string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+model_id: string; ... 
+12 more ...; 
+updated_at: string; 
+})[]' is not 
+assignable to type 
+'AIProvider[]'.
+      Type 
+'AIProvider | { 
+status: "healthy"; 
+rate_limit_until: 
+null; id: string; 
+name: string; 
+provider_type: 
+"custom" | "gemini" | 
+"openai" | 
+"anthropic"; 
+project_id: string; 
+model_id: string; ... 
+12 more ...; 
+updated_at: string; 
+}' is not assignable 
+to type 'AIProvider'.
+        Type '{ 
+status: "healthy"; 
+rate_limit_until: 
+null; id: string; 
+name: string; 
+provider_type: 
+"gemini" | "openai" | 
+"anthropic" | 
+"custom"; project_id: 
+string; model_id: 
+string; priority: 
+number; ... 11 more 
+...; updated_at: 
+string; }' is not 
+assignable to type 
+'AIProvider'.
+          Types of 
+property 'status' are 
+incompatible.
+            Type 
+'"healthy"' is not 
+assignable to type 
+'ProviderStatus'. Did 
+you mean '"HEALTHY"'?
+  No index signature 
+with a parameter of 
+type 'string' was 
+found on type '{ sku: 
+string; name: any; 
+revenue: any; orders: 
+any; delivered: any; 
+confirmationRate: 
+number; returnRate: 
+number; refusedRate: 
+number; }'.
+  No index signature 
+with a parameter of 
+type 'string' was 
+found on type '{ sku: 
+string; name: any; 
+revenue: any; orders: 
+any; delivered: any; 
+confirmationRate: 
+number; returnRate: 
+number; refusedRate: 
+number; }'.
+  No index signature 
+with a parameter of 
+type 'string' was 
+found on type '{ 
+workspaceId: string; 
+name: any; revenue: 
+any; orders: any; 
+delivered: any; 
+confirmationRate: 
+number; returnRate: 
+number; refusedRate: 
+number; productCount: 
+number; }'.
+  No index signature 
+with a parameter of 
+type 'string' was 
+found on type '{ 
+workspaceId: string; 
+name: any; revenue: 
+any; orders: any; 
+delivered: any; 
+confirmationRate: 
+number; returnRate: 
+number; refusedRate: 
+number; productCount: 
+number; }'.
+  Type '() => Promise<
+RealtimeChannelSendRes
+ponse>' is not 
+assignable to type 
+'void | Destructor'.
+    Type '() => Promis
+e<RealtimeChannelSendR
+esponse>' is not 
+assignable to type 
+'Destructor'.
+      Type 'Promise<Re
+altimeChannelSendRespo
+nse>' is not 
+assignable to type 
+'void | { [UNDEFINED_V
+OID_ONLY]: never; }'.
+src/services/shippingP
+ricingEngine.ts(155,50
+): error TS18047: 
+'data' is possibly 
+'null'.
+src/services/shippingP
+ricingEngine.ts(173,52
+): error TS18047: 
+'data' is possibly 
+'null'.
+src/services/shippingP
+ricingEngine.ts(195,63
+): error TS18047: 
+'data' is possibly 
+'null'.
+src/services/shippingP
+ricingEngine.ts(196,59
+): error TS18047: 
+'data' is possibly 
+'null'.
+
+

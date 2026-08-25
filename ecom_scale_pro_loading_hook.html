@@ -1,0 +1,269 @@
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+  .es-stage {
+    width: 100%;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2.5rem 1rem 2rem;
+    position: relative;
+    overflow: hidden;
+    font-family: 'Inter', var(--font-sans), system-ui, sans-serif;
+  }
+
+  .es-row {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    opacity: 0;
+    animation: esAppear 0.01s 0.15s forwards;
+  }
+  @keyframes esAppear { to { opacity: 1; } }
+
+  .es-logo {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+    clip-path: inset(0 100% 0 0 round 4px);
+    animation: esLogoReveal 0.72s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+  }
+  @keyframes esLogoReveal {
+    to { clip-path: inset(0 0% 0 0 round 4px); }
+  }
+
+  .es-text-block {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    line-height: 1;
+  }
+
+  .es-line1 {
+    font-family: 'Inter', var(--font-sans), system-ui, sans-serif;
+    font-size: 42px;
+    font-weight: 300;
+    letter-spacing: -1.5px;
+    color: var(--text-primary);
+    clip-path: inset(0 100% 0 0);
+    animation: esTextReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.58s forwards;
+    white-space: nowrap;
+  }
+
+  .es-line2 {
+    font-family: 'Inter', var(--font-sans), system-ui, sans-serif;
+    font-size: 42px;
+    font-weight: 600;
+    letter-spacing: -2px;
+    color: #3DCB85;
+    clip-path: inset(0 100% 0 0);
+    animation: esTextReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.78s forwards;
+    white-space: nowrap;
+  }
+
+  @keyframes esTextReveal {
+    to { clip-path: inset(0 0% 0 0); }
+  }
+
+  .es-tag {
+    font-family: 'Inter', var(--font-sans), system-ui, sans-serif;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-top: 6px;
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    animation: esTagReveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1.05s forwards;
+  }
+  @keyframes esTagReveal {
+    to { opacity: 1; clip-path: inset(0 0% 0 0); }
+  }
+
+  .es-bar-wrap {
+    width: 340px;
+    max-width: 90%;
+    margin-top: 30px;
+    opacity: 0;
+    animation: esAppear 0.01s 1.1s forwards;
+  }
+
+  .es-bar-track {
+    height: 1.5px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .es-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: #3DCB85;
+    border-radius: 2px;
+    animation: esFill 2s cubic-bezier(0.4,0,0.2,1) 1.15s forwards;
+  }
+  @keyframes esFill {
+    0%   { width: 0% }
+    30%  { width: 42% }
+    60%  { width: 70% }
+    80%  { width: 84% }
+    95%  { width: 95% }
+    100% { width: 100% }
+  }
+
+  .es-status {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+  }
+  .es-status-txt {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    opacity: 0;
+    animation: esAppear 0.01s 1.2s forwards;
+  }
+  .es-pct {
+    font-size: 11px;
+    font-weight: 500;
+    color: #3DCB85;
+    opacity: 0;
+    animation: esAppear 0.01s 1.2s forwards;
+  }
+
+  .es-scan {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .es-scan::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -80px;
+    width: 80px; height: 100%;
+    background: linear-gradient(90deg, transparent 0%, rgba(61,203,133,0.07) 50%, transparent 100%);
+    animation: esScan 0.9s cubic-bezier(0.16,1,0.3,1) 0.18s forwards;
+  }
+  @keyframes esScan { to { left: 120%; } }
+
+  .es-replay {
+    margin-top: 22px;
+    font-family: 'Inter', var(--font-sans), system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: none;
+    border: 0.5px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 5px 14px;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+    opacity: 0;
+    animation: esAppear 0.01s 3.2s forwards;
+    transition: background 0.15s;
+  }
+  .es-replay:hover { background: var(--surface-1); }
+</style>
+
+<h2 class="sr-only">Ecom Scale platform loading animation with horizontal reveal</h2>
+
+<div class="es-stage" id="esStage">
+  <div class="es-scan"></div>
+
+  <div class="es-row">
+    <img
+      class="es-logo"
+      src="/mnt/user-data/uploads/Enhance_image_clarity_and_detail_202607141431.jpeg"
+      alt="Ecom Scale logo"
+      width="80"
+      height="80"
+      onerror="this.style.display='none';document.getElementById('esFallback').style.display='block'"
+    />
+    <svg id="esFallback" style="display:none;width:80px;height:80px;" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="6" y="30" width="42" height="58" rx="10" fill="#3DCB85"/>
+      <rect x="18" y="44" width="20" height="9" rx="3" fill="white"/>
+      <rect x="18" y="62" width="20" height="9" rx="3" fill="white"/>
+      <path d="M28 30 L28 18 Q28 7 38 7 L44 7 Q56 7 56 18 L56 30" fill="none" stroke="#3DCB85" stroke-width="11" stroke-linecap="round"/>
+      <path d="M60 8 Q93 8 93 36 Q93 54 73 57 Q93 62 93 80 Q93 97 60 97" fill="none" stroke="#3DCB85" stroke-width="13" stroke-linecap="round"/>
+      <path d="M55 67 L73 57 L55 47" fill="none" stroke="#3DCB85" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <div class="es-text-block">
+      <span class="es-line1">Ecom</span>
+      <span class="es-line2">Scale</span>
+      <span class="es-tag">CRM · Ecommerce Platform</span>
+    </div>
+  </div>
+
+  <div class="es-bar-wrap">
+    <div class="es-bar-track">
+      <div class="es-bar-fill" id="esBarFill"></div>
+    </div>
+    <div class="es-status">
+      <span class="es-status-txt">Loading your dashboard</span>
+      <span class="es-pct" id="esPct">0%</span>
+    </div>
+  </div>
+
+  <button class="es-replay" onclick="replayES()">↺ Replay</button>
+</div>
+
+<script>
+(function() {
+  var pctEl = document.getElementById('esPct');
+  var start = null;
+  var dur = 2000;
+  var delay = 1150;
+  function ease(t) {
+    return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+  }
+  function curve(t) {
+    if (t < 0.3) return ease(t/0.3) * 0.42;
+    if (t < 0.6) return 0.42 + ease((t-0.3)/0.3) * 0.28;
+    if (t < 0.8) return 0.70 + ease((t-0.6)/0.2) * 0.14;
+    return 0.84 + ease((t-0.8)/0.2) * 0.16;
+  }
+  function tick(ts) {
+    if (!start) start = ts;
+    var elapsed = ts - start;
+    var t = Math.min(elapsed / dur, 1);
+    var pct = Math.round(curve(t) * 100);
+    if (pctEl) pctEl.textContent = pct + '%';
+    if (t < 1) requestAnimationFrame(tick);
+    else if (pctEl) pctEl.textContent = '100%';
+  }
+  setTimeout(function() { requestAnimationFrame(tick); }, delay);
+})();
+
+function replayES() {
+  var stage = document.getElementById('esStage');
+  var clone = stage.cloneNode(true);
+  clone.querySelector('.es-replay').onclick = replayES;
+  stage.parentNode.replaceChild(clone, stage);
+  (function() {
+    var pctEl = clone.querySelector('#esPct');
+    var start = null;
+    var dur = 2000;
+    var delay = 1150;
+    function ease(t) { return t < 0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+    function curve(t) {
+      if (t<0.3) return ease(t/0.3)*0.42;
+      if (t<0.6) return 0.42+ease((t-0.3)/0.3)*0.28;
+      if (t<0.8) return 0.70+ease((t-0.6)/0.2)*0.14;
+      return 0.84+ease((t-0.8)/0.2)*0.16;
+    }
+    function tick(ts) {
+      if(!start) start=ts;
+      var t=Math.min((ts-start)/dur,1);
+      if(pctEl) pctEl.textContent=Math.round(curve(t)*100)+'%';
+      if(t<1) requestAnimationFrame(tick);
+      else if(pctEl) pctEl.textContent='100%';
+    }
+    setTimeout(function(){requestAnimationFrame(tick);},delay);
+  })();
+}
+</script>

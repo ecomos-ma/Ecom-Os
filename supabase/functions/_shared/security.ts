@@ -1,0 +1,93 @@
+import { createClient, type SupabaseClient, type User } from "npm:@supabase/supabase-js@2.111.0";
+
+export class HttpError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+  }
+}
+
+function requiredEnv(name: string): string {
+  const value = Deno.env.get(name)?.trim();
+  if (!value) throw new HttpError("Service configuration is incomplete", 503);
+  return value;
+}
+
+export function serviceClient(): SupabaseClient {
+  return createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+export function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin") ?? "";
+  const allowedOrigins = (Deno.env.get("ALLOWED_FRONTEND_ORIGINS") ??
+    "https://ecomscale.vercel.app,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return {
+    ...(allowedOrigins.includes(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json",
+    "Vary": "Origin",
+  };
+}
+
+export function json(req: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: corsHeaders(req) });
+}
+
+export function errorResponse(req: Request, error: unknown): Response {
+  const normalized = error instanceof HttpError ? error : new HttpError("Request failed", 500);
+  return json(req, { error: normalized.message }, normalized.status);
+}
+
+export async function authenticate(req: Request, client: SupabaseClient): Promise<User> {
+  const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) throw new HttpError("Authentication required", 401);
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data.user) throw new HttpError("Authentication required", 401);
+  return data.user;
+}
+
+export function requireUuid(value: unknown, field: string): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+    throw new HttpError(`${field} is invalid`, 400);
+  }
+  return normalized;
+}
+
+export async function authorizeWorkspace(
+  client: SupabaseClient,
+  userId: string,
+  workspaceId: string,
+  allowedRoles: string[] = ["owner", "admin", "manager"],
+): Promise<{ role: string }> {
+  const [{ data: profile, error: profileError }, { data: workspace, error: workspaceError }, { data: membership, error: membershipError }] = await Promise.all([
+    client.from("profiles").select("id, is_active, deleted_at, status, role").eq("id", userId).maybeSingle(),
+    client.from("workspaces").select("id, is_active, deleted_at, status").eq("id", workspaceId).maybeSingle(),
+    client.from("profile_workspaces").select("id, role, is_owner, status").eq("profile_id", userId).eq("workspace_id", workspaceId).maybeSingle(),
+  ]);
+  if (profileError || workspaceError || membershipError) throw new HttpError("Workspace authorization failed", 403);
+  const profileStatus = String(profile?.status ?? "active").toLowerCase();
+  const workspaceStatus = String(workspace?.status ?? "active").toLowerCase();
+  if (
+    !profile || profile.is_active === false || profile.deleted_at || ["suspended", "removed", "deleted", "inactive"].includes(profileStatus) ||
+    !workspace || workspace.is_active === false || workspace.deleted_at || ["suspended", "removed", "deleted", "inactive"].includes(workspaceStatus) ||
+    !membership || String(membership.status ?? "active").toLowerCase() !== "active"
+  ) throw new HttpError("Workspace access denied", 403);
+
+  const role = String(membership.is_owner ? "owner" : membership.role ?? profile.role ?? "user").toLowerCase();
+  if (!allowedRoles.map((value) => value.toLowerCase()).includes(role)) {
+    throw new HttpError("Workspace administrator permission required", 403);
+  }
+  return { role };
+}
+
+export function assertOnlyKeys(body: Record<string, unknown>, allowed: string[]): void {
+  if (Object.keys(body).some((key) => !allowed.includes(key))) {
+    throw new HttpError("Request contains unsupported fields", 400);
+  }
+}

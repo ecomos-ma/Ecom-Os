@@ -1,0 +1,159 @@
+﻿src/components/EnhancedMobileHeader.tsx(142,16): error TS2304: Cannot find name 'Zap'.
+src/components/ReturnToStockModal.tsx(234,60): error TS7053: Element implicitly has an 'any' type because expression of type '"Order ID"' can't be used to index type 'OrderResult'.
+  Property 'Order ID' does not exist on type 'OrderResult'.
+src/components/ReturnToStockModal.tsx(234,129): error TS18047: 'workspace' is possibly 'null'.
+src/components/ReturnToStockModal.tsx(258,37): error TS7053: Element implicitly has an 'any' type because expression of type '"Order ID"' can't be used to index type 'OrderResult'.
+  Property 'Order ID' does not exist on type 'OrderResult'.
+src/contexts/OrdersContext.tsx(375,67): error TS7053: Element implicitly has an 'any' type because expression of type '"Order ID"' can't be used to index type 'Order'.
+  Property 'Order ID' does not exist on type 'Order'.
+src/hooks/useOrders.ts(52,79): error TS2345: Argument of type 'string | string[] | undefined' is not assignable to parameter of type 'string | null | undefined'.
+  Type 'string[]' is not assignable to type 'string'.
+src/lib/ai/providers/ProviderManager.ts(274,35): error TS18048: 'response.tokens.input' is possibly 'undefined'.
+src/lib/ai/providers/ProviderManager.ts(274,60): error TS18048: 'response.tokens.output' is possibly 'undefined'.
+src/lib/aiCache.ts(205,3): error TS1205: Re-exporting a type when 'isolatedModules' is enabled requires using 'export type'.
+src/lib/returnToStock.ts(264,13): error TS2353: Object literal may only specify known properties, and 'newStock' does not exist in type 'ReturnToStockResult'.
+src/lib/returnToStock.ts(274,13): error TS2353: Object literal may only specify known properties, and 'newStock' does not exist in type 'ReturnToStockResult'.
+src/lib/statusEngine.ts(117,14): error TS2741: Property 'new' is missing in type '{ pending: number; confirmed: number; scheduled: number; shipped: number; delivered: number; returned: number; cancelled: number; no_answer: number; unreachable: number; wrong_number: number; refused: number; out_of_stock: number; blacklisted: number; duplicate: number; busy: number; }' but required in type 'Record<CanonicalStatus, number>'.
+src/lib/statusEngine.ts(286,3): error TS2322: Type '"shipping"' is not assignable to type 'CanonicalStatus'.
+src/lib/statusEngine.ts(354,3): error TS1117: An object literal cannot have multiple properties with the same name.
+src/lib/statusEngine.ts(360,3): error TS1117: An object literal cannot have multiple properties with the same name.
+src/lib/statusEngine.ts(474,3): error TS2322: Type '"unavailable"' is not assignable to type 'CanonicalStatus'.
+src/pages/admin/admin-pro/OperationsSupport.tsx(51,1072): error TS2552: Cannot find name 'update'. Did you mean 'Date'?
+src/pages/admin/AdminUsers.tsx(84,54): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/pages/admin/GlobalAnalytics.tsx(144,24): error TS2322: Type 'string | null | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/Amine.tsx(76,64): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(80,38): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(81,48): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(87,314): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(95,90): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(97,38): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(97,144): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(104,142): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(115,109): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(115,181): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(121,51): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(121,1241): error TS2345: Argument of type 'Int8Array<ArrayBufferLike>[]' is not assignable to parameter of type 'BlobPart[]'.
+  Type 'Int8Array<ArrayBufferLike>' is not assignable to type 'BlobPart'.
+    Type 'Int8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+      Types of property 'buffer' are incompatible.
+        Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+          Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+            Types of property '[Symbol.toStringTag]' are incompatible.
+              Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/pages/Amine.tsx(121,1291): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(121,1350): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(127,59): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(134,466): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(134,551): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(135,1362): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(135,2184): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Amine.tsx(154,206): error TS2349: This expression is not callable.
+  Type '{ success: (message: string, duration?: number | undefined) => string; error: (message: string, duration?: number | undefined) => string; warning: (message: string, duration?: number | undefined) => string; info: (message: string, duration?: number | undefined) => string; dismiss: (id: string) => void; }' has no call signatures.
+src/pages/Delivering.tsx(115,59): error TS2339: Property 'updated_at' does not exist on type 'Order'.
+src/pages/Delivering.tsx(128,52): error TS2339: Property 'updated_at' does not exist on type 'Order'.
+src/pages/Delivering.tsx(141,53): error TS2339: Property 'updated_at' does not exist on type 'Order'.
+src/pages/Delivering.tsx(543,54): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+src/pages/Delivering.tsx(931,25): error TS2339: Property 'primary_color' does not exist on type 'Workspace'.
+src/pages/Delivering.tsx(1759,5): error TS2552: Cannot find name 'resetAutoRefreshTimer'. Did you mean 'setAutoRefreshError'?
+src/pages/Delivering.tsx(2209,54): error TS2339: Property 'primary_color' does not exist on type 'Workspace'.
+src/pages/Inventory.tsx(219,27): error TS18047: 'workspace' is possibly 'null'.
+src/pages/MobileDashboard.tsx(68,31): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(77,16): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(86,16): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(95,16): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(104,16): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(113,16): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(139,78): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(146,63): error TS2339: Property 'stats' does not exist on type 'DashboardData'.
+src/pages/MobileDashboard.tsx(228,14): error TS2339: Property 'recentOrders' does not exist on type 'DashboardData'.
+src/pages/Orders.tsx(747,54): error TS2339: Property 'ozon_city_id' does not exist on type 'Order'.
+src/pages/Orders.tsx(781,26): error TS2367: This comparison appears to be unintentional because the types 'CanonicalStatus' and '""' have no overlap.
+src/pages/Orders.tsx(812,30): error TS2367: This comparison appears to be unintentional because the types 'CanonicalStatus' and '""' have no overlap.
+src/pages/settings/components/GoogleSheetsIntegrationCard.tsx(374,53): error TS18047: 'workspace' is possibly 'null'.
+src/pages/settings/components/GoogleSheetsMappingModal.tsx(173,9): error TS2698: Spread types may only be created from object types.
+src/pages/Shipping.tsx(396,23): error TS2322: Type '{ value: string; onChange: (val: CanonicalStatus) => void; disabled: any; className: string; title: string | undefined; }' is not assignable to type 'IntrinsicAttributes & StatusSelectProps'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & StatusSelectProps'.
+src/pages/super-admin/ActivityFeed.tsx(37,13): error TS2345: Argument of type '() => () => Promise<RealtimeChannelSendResponse>' is not assignable to parameter of type 'EffectCallback'.
+  Type '() => Promise<RealtimeChannelSendResponse>' is not assignable to type 'void | Destructor'.
+    Type '() => Promise<RealtimeChannelSendResponse>' is not assignable to type 'Destructor'.
+      Type 'Promise<RealtimeChannelSendResponse>' is not assignable to type 'void | { [UNDEFINED_VOID_ONLY]: never; }'.
+src/pages/super-admin/AIInfrastructure.tsx(342,13): error TS2367: This comparison appears to be unintentional because the types 'ProviderStatus' and '"rate_limited"' have no overlap.
+src/pages/super-admin/AIInfrastructure.tsx(342,60): error TS2339: Property 'rate_limit_until' does not exist on type 'AIProvider'.
+src/pages/super-admin/AIInfrastructure.tsx(343,43): error TS2339: Property 'rate_limit_until' does not exist on type 'AIProvider'.
+src/pages/super-admin/AIInfrastructure.tsx(376,7): error TS2322: Type '"custom" | "gemini" | "openai" | "anthropic"' is not assignable to type '"gemini"'.
+  Type '"custom"' is not assignable to type '"gemini"'.
+src/pages/super-admin/AIInfrastructure.tsx(455,20): error TS2345: Argument of type '(prev: AIProvider[]) => (AIProvider | { status: "testing"; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; ... 13 more ...; updated_at: string; })[]' is not assignable to parameter of type 'SetStateAction<AIProvider[]>'.
+  Type '(prev: AIProvider[]) => (AIProvider | { status: "testing"; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; ... 13 more ...; updated_at: string; })[]' is not assignable to type '(prevState: AIProvider[]) => AIProvider[]'.
+    Type '(AIProvider | { status: "testing"; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; model_id: string; priority: number; ... 11 more ...; updated_at: string; })[]' is not assignable to type 'AIProvider[]'.
+      Type 'AIProvider | { status: "testing"; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; model_id: string; priority: number; ... 11 more ...; updated_at: string; }' is not assignable to type 'AIProvider'.
+        Type '{ status: "testing"; id: string; name: string; provider_type: "gemini" | "openai" | "anthropic" | "custom"; project_id: string; model_id: string; priority: number; encrypted_credential: string; ... 10 more ...; updated_at: string; }' is not assignable to type 'AIProvider'.
+          Types of property 'status' are incompatible.
+            Type '"testing"' is not assignable to type 'ProviderStatus'. Did you mean '"TESTING"'?
+src/pages/super-admin/AIInfrastructure.tsx(471,20): error TS2345: Argument of type '(prev: AIProvider[]) => (AIProvider | { status: "failed" | "healthy"; last_used: string; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; ... 14 more ...; updated_at: string; })[]' is not assignable to parameter of type 'SetStateAction<AIProvider[]>'.
+  Type '(prev: AIProvider[]) => (AIProvider | { status: "failed" | "healthy"; last_used: string; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; ... 14 more ...; updated_at: string; })[]' is not assignable to type '(prevState: AIProvider[]) => AIProvider[]'.
+    Type '(AIProvider | { status: "failed" | "healthy"; last_used: string; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; ... 13 more ...; updated_at: string; })[]' is not assignable to type 'AIProvider[]'.
+      Type 'AIProvider | { status: "failed" | "healthy"; last_used: string; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; ... 13 more ...; updated_at: string; }' is not assignable to type 'AIProvider'.
+        Type '{ status: "failed" | "healthy"; last_used: string; id: string; name: string; provider_type: "gemini" | "openai" | "anthropic" | "custom"; project_id: string; model_id: string; priority: number; ... 11 more ...; updated_at: string; }' is not assignable to type 'AIProvider'.
+          Types of property 'status' are incompatible.
+            Type '"failed" | "healthy"' is not assignable to type 'ProviderStatus'.
+              Type '"failed"' is not assignable to type 'ProviderStatus'. Did you mean '"FAILED"'?
+src/pages/super-admin/AIInfrastructure.tsx(488,18): error TS2345: Argument of type '(prev: AIProvider[]) => (AIProvider | { status: "healthy"; rate_limit_until: null; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; ... 14 more ...; updated_at: string; })[]' is not assignable to parameter of type 'SetStateAction<AIProvider[]>'.
+  Type '(prev: AIProvider[]) => (AIProvider | { status: "healthy"; rate_limit_until: null; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; ... 14 more ...; updated_at: string; })[]' is not assignable to type '(prevState: AIProvider[]) => AIProvider[]'.
+    Type '(AIProvider | { status: "healthy"; rate_limit_until: null; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; model_id: string; ... 12 more ...; updated_at: string; })[]' is not assignable to type 'AIProvider[]'.
+      Type 'AIProvider | { status: "healthy"; rate_limit_until: null; id: string; name: string; provider_type: "custom" | "gemini" | "openai" | "anthropic"; project_id: string; model_id: string; ... 12 more ...; updated_at: string; }' is not assignable to type 'AIProvider'.
+        Type '{ status: "healthy"; rate_limit_until: null; id: string; name: string; provider_type: "gemini" | "openai" | "anthropic" | "custom"; project_id: string; model_id: string; priority: number; ... 11 more ...; updated_at: string; }' is not assignable to type 'AIProvider'.
+          Types of property 'status' are incompatible.
+            Type '"healthy"' is not assignable to type 'ProviderStatus'. Did you mean '"HEALTHY"'?
+src/pages/super-admin/AIInfrastructure.tsx(838,26): error TS2367: This comparison appears to be unintentional because the types 'ProviderStatus' and '"rate_limited"' have no overlap.
+src/pages/super-admin/AIInfrastructure.tsx(844,99): error TS2339: Property 'requests' does not exist on type 'AIProvider'.
+src/pages/super-admin/AIInfrastructure.tsx(845,97): error TS2339: Property 'errors' does not exist on type 'AIProvider'.
+src/pages/super-admin/AIInfrastructure.tsx(847,35): error TS2339: Property 'last_used' does not exist on type 'AIProvider'.
+src/pages/super-admin/AIInfrastructure.tsx(847,65): error TS2339: Property 'last_used' does not exist on type 'AIProvider'.
+src/pages/super-admin/AIInfrastructure.tsx(858,28): error TS2367: This comparison appears to be unintentional because the types 'ProviderStatus' and '"rate_limited"' have no overlap.
+src/pages/super-admin/ExportImport.tsx(47,11): error TS2552: Cannot find name 'workspace_id'. Did you mean 'workspaceId'?
+src/pages/super-admin/Intelligence.tsx(84,25): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ sku: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; }'.
+  No index signature with a parameter of type 'string' was found on type '{ sku: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; }'.
+src/pages/super-admin/Intelligence.tsx(84,44): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ sku: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; }'.
+  No index signature with a parameter of type 'string' was found on type '{ sku: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; }'.
+src/pages/super-admin/Intelligence.tsx(131,25): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ workspaceId: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; productCount: number; }'.
+  No index signature with a parameter of type 'string' was found on type '{ workspaceId: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; productCount: number; }'.
+src/pages/super-admin/Intelligence.tsx(131,44): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ workspaceId: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; productCount: number; }'.
+  No index signature with a parameter of type 'string' was found on type '{ workspaceId: string; name: any; revenue: any; orders: any; delivered: any; confirmationRate: number; returnRate: number; refusedRate: number; productCount: number; }'.
+src/pages/super-admin/Users.tsx(46,13): error TS2345: Argument of type '() => () => Promise<RealtimeChannelSendResponse>' is not assignable to parameter of type 'EffectCallback'.
+  Type '() => Promise<RealtimeChannelSendResponse>' is not assignable to type 'void | Destructor'.
+    Type '() => Promise<RealtimeChannelSendResponse>' is not assignable to type 'Destructor'.
+      Type 'Promise<RealtimeChannelSendResponse>' is not assignable to type 'void | { [UNDEFINED_VOID_ONLY]: never; }'.
+src/services/ozonTrackingSync.ts(108,5): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/services/ozonTrackingSync.ts(117,5): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/services/ozonTrackingSync.ts(142,5): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/services/shippingPricingEngine.ts(155,50): error TS18047: 'data' is possibly 'null'.
+src/services/shippingPricingEngine.ts(173,52): error TS18047: 'data' is possibly 'null'.
+src/services/shippingPricingEngine.ts(195,63): error TS18047: 'data' is possibly 'null'.
+src/services/shippingPricingEngine.ts(196,59): error TS18047: 'data' is possibly 'null'.
+src/services/smartShippingEngine.ts(205,5): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/services/smartShippingEngine.ts(241,5): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.

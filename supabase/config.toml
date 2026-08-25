@@ -1,0 +1,71 @@
+
+[functions.founder-internal-access]
+enabled = true
+verify_jwt = false
+import_map = "./functions/founder-internal-access/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/founder-internal-access/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/founder-internal-access/*.html" ]
+
+[functions.tiktok-auth-start]
+enabled = true
+verify_jwt = false
+
+[functions.tiktok-auth-callback]
+enabled = true
+verify_jwt = false
+
+[functions.tiktok-advertisers]
+enabled = true
+verify_jwt = false
+
+[functions.tiktok-sync]
+enabled = true
+verify_jwt = false
+
+[functions.tiktok-refresh-token]
+enabled = true
+verify_jwt = false
+
+[functions.tiktok-events]
+enabled = true
+verify_jwt = false
+
+[functions.tiktok-disconnect]
+enabled = true
+verify_jwt = false
+
+[functions.whatsapp-control]
+enabled = true
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+enabled = true
+verify_jwt = false
+
+[functions.notification-subscriptions]
+enabled = true
+verify_jwt = false
+
+[functions.notification-push]
+enabled = true
+verify_jwt = false
+
+[functions.debug-youcan-order]
+enabled = true
+verify_jwt = true
+
+[functions.fix-youcan-orders]
+enabled = true
+verify_jwt = true
+
+[functions.enable-orders-realtime]
+enabled = true
+verify_jwt = true
+
+[functions.disconnect-integration]
+enabled = true
+verify_jwt = true

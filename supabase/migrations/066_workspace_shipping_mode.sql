@@ -1,0 +1,4 @@
+-- 066_workspace_shipping_mode.sql
+-- DEPRECATED: Shipping mode is no longer needed
+-- Dynamic city-based shipping costs are now used automatically
+-- This column can be safely ignored or removed in future cleanup

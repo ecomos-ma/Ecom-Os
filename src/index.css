@@ -1,0 +1,251 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'SF Pro Display';
+  font-style: normal;
+  font-weight: 400;
+  src: url('/fonts/sf-pro-display/SFPRODISPLAYREGULAR.OTF') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SF Pro Display';
+  font-style: normal;
+  font-weight: 500;
+  src: url('/fonts/sf-pro-display/SFPRODISPLAYMEDIUM.OTF') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SF Pro Display';
+  font-style: normal;
+  font-weight: 600;
+  src: url('/fonts/sf-pro-display/SFPRODISPLAYSEMIBOLDITALIC.OTF') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SF Pro Display';
+  font-style: normal;
+  font-weight: 700;
+  src: url('/fonts/sf-pro-display/SFPRODISPLAYBOLD.OTF') format('opentype');
+  font-display: swap;
+}
+
+:root {
+  --color-accent: 219 106 143;
+  --color-accent-hover: 197 83 120;
+  --bg-main: #FFFFFF;
+  --bg-panel: #FFFFFF;
+  --bg-raised: #F8FAFC;
+  --color-border: #E5E7EB;
+  --text-main: #111827;
+  --text-muted: #4B5563;
+  --text-faint: #6B7280;
+  --scrollbar-thumb: #D4D4D8;
+  --scrollbar-thumb-hover: #A1A1AA;
+  --chart-grid: #E5E7EB;
+  --chart-tooltip-bg: #FFFFFF;
+  --chart-tooltip-border: #E5E7EB;
+  --brand-accent: #6366f1;
+  --brand-accent-rgb: 99, 102, 241;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.dark {
+  --color-accent: 219 106 143;
+  --color-accent-hover: 197 83 120;
+  --bg-main: #0B1220;
+  --bg-panel: #111827;
+  --bg-raised: #1F2937;
+  --color-border: #334155;
+  --text-main: #F8FAFC;
+  --text-muted: #CBD5E1;
+  --text-faint: #94A3B8;
+  --scrollbar-thumb: #3F3F46;
+  --scrollbar-thumb-hover: #52525B;
+  --chart-grid: #334155;
+  --chart-tooltip-bg: #111827;
+  --chart-tooltip-border: #334155;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  font-family: 'SF Pro Display', Inter, system-ui, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: 2px;
+}
+
+/* Shared founder-console controls. Keeping this as a CSS component lets the
+   communications form stay compact without bypassing the active EcomOS theme. */
+.field {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--bg-raised);
+  color: var(--text-main);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.field:focus {
+  border-color: var(--brand-accent);
+}
+
+/* The provider and landing-template modules are mounted inside the founder
+   console, not as standalone dark applications. These scoped overrides retain
+   their controls while inheriting the active EcomOS theme and accent colour. */
+.admin-tool-shell .bg-slate-950,
+.admin-tool-shell .bg-slate-900,
+.admin-tool-shell .bg-slate-900\/60,
+.admin-tool-shell .bg-slate-950\/60,
+.admin-tool-shell .bg-slate-950\/70 {
+  background-color: var(--bg-panel) !important;
+}
+.admin-tool-shell .bg-slate-800 { background-color: var(--bg-raised) !important; }
+.admin-tool-shell .border-slate-800,
+.admin-tool-shell .border-slate-700,
+.admin-tool-shell .border-slate-800\/60 { border-color: var(--color-border) !important; }
+.admin-tool-shell .text-white,
+.admin-tool-shell .text-slate-200,
+.admin-tool-shell .text-slate-300 { color: var(--text-main) !important; }
+.admin-tool-shell .text-slate-400,
+.admin-tool-shell .text-slate-500,
+.admin-tool-shell .text-slate-600 { color: var(--text-muted) !important; }
+.admin-tool-shell .bg-fuchsia-500 { background-color: var(--brand-accent) !important; }
+.admin-tool-shell .text-fuchsia-300 { color: var(--brand-accent) !important; }
+
+/* Mobile-specific touch and scroll enhancements */
+@media (max-width: 768px) {
+  /* Improve horizontal scrolling momentum and hide scrollbars on mobile */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    touch-action: pan-x;
+  }
+
+  /* Increase touch target comfort and spacing for bottom nav items */
+  .magic-bottom-item {
+    min-width: 56px;
+    min-height: 44px;
+    padding: 8px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    will-change: transform, opacity;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Soft shadow for the mobile bar, subtle blur for depth */
+  .fill-base-surface {
+    box-shadow: 0 -8px 30px rgba(12, 12, 13, 0.06);
+    backdrop-filter: blur(6px);
+  }
+
+  /* Hide native scrollbar while preserving scrollability */
+  .overflow-x-auto::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Glassmorphism & Card Glow Utilities */
+.glass-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--color-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .glass-panel {
+  background: rgba(17, 24, 39, 0.75);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.glass-card-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(var(--color-accent), 0.2);
+}
+
+.dark .glass-card-hover:hover {
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(var(--color-accent), 0.3);
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.97); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-effect::after {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.08) 20%,
+    rgba(255, 255, 255, 0.2) 60%,
+    rgba(255, 255, 255, 0)
+  );
+  animation: shimmer 2.5s infinite;
+  content: '';
+}
+

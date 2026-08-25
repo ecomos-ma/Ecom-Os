@@ -1,0 +1,59 @@
+﻿src/components/products/ProductModal.tsx(94,99): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(97,88): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(100,96): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(103,96): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(106,98): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(109,98): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(112,133): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(115,135): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(118,139): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(121,142): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/components/products/ProductModal.tsx(124,100): error TS2345: Argument of type 'string | ChangeEvent<HTMLInputElement>' is not assignable to parameter of type 'string'.
+  Type 'ChangeEvent<HTMLInputElement>' is not assignable to type 'string'.
+src/contexts/OrdersContext.tsx(280,57): error TS7053: Element implicitly has an 'any' type because expression of type '"Order ID"' can't be used to index type 'Order'.
+  Property 'Order ID' does not exist on type 'Order'.
+src/contexts/OrdersContext.tsx(286,56): error TS7053: Element implicitly has an 'any' type because expression of type '"Order ID"' can't be used to index type 'Order'.
+  Property 'Order ID' does not exist on type 'Order'.
+src/hooks/useAuth.tsx(348,100): error TS2339: Property 'id' does not exist on type 'any[]'.
+src/hooks/useAuth.tsx(352,63): error TS2339: Property 'id' does not exist on type 'any[]'.
+src/hooks/useAuth.tsx(355,28): error TS2352: Conversion of type 'any[]' to type 'Workspace' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'any[]' is missing the following properties from type 'Workspace': id, name, meta_access_token, meta_ad_account_id, and 2 more.
+src/hooks/useAuth.tsx(356,67): error TS2352: Conversion of type 'any[]' to type 'Workspace' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'any[]' is missing the following properties from type 'Workspace': id, name, meta_access_token, meta_ad_account_id, and 2 more.
+src/hooks/useAuth.tsx(357,85): error TS2339: Property 'id' does not exist on type 'any[]'.
+src/hooks/useOrders.ts(52,79): error TS2345: Argument of type 'string | string[] | undefined' is not assignable to parameter of type 'string | null | undefined'.
+  Type 'string[]' is not assignable to type 'string'.
+src/lib/statusEngine.ts(117,14): error TS2741: Property 'new' is missing in type '{ pending: number; confirmed: number; scheduled: number; shipped: number; delivered: number; returned: number; cancelled: number; no_answer: number; unreachable: number; wrong_number: number; refused: number; out_of_stock: number; blacklisted: number; duplicate: number; busy: number; }' but required in type 'Record<CanonicalStatus, number>'.
+src/lib/statusEngine.ts(286,3): error TS2322: Type '"shipping"' is not assignable to type 'CanonicalStatus'.
+src/lib/statusEngine.ts(354,3): error TS1117: An object literal cannot have multiple properties with the same name.
+src/lib/statusEngine.ts(360,3): error TS1117: An object literal cannot have multiple properties with the same name.
+src/lib/statusEngine.ts(474,3): error TS2322: Type '"unavailable"' is not assignable to type 'CanonicalStatus'.
+src/pages/admin/AdminUsers.tsx(84,54): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/pages/admin/GlobalAnalytics.tsx(144,24): error TS2322: Type 'string | null | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/Confirmation.tsx(36,26): error TS2304: Cannot find name 'STATUS_STYLES'.
+src/pages/Confirmation.tsx(36,51): error TS2304: Cannot find name 'DEFAULT_STYLE'.
+src/pages/Delivering.tsx(82,59): error TS2339: Property 'updated_at' does not exist on type 'Order'.
+src/pages/Delivering.tsx(95,52): error TS2339: Property 'updated_at' does not exist on type 'Order'.
+src/pages/Delivering.tsx(108,53): error TS2339: Property 'updated_at' does not exist on type 'Order'.
+src/pages/Delivering.tsx(688,25): error TS2339: Property 'primary_color' does not exist on type 'Workspace'.
+src/pages/Delivering.tsx(1468,56): error TS2339: Property 'primary_color' does not exist on type 'Workspace'.
+src/pages/Inventory.tsx(219,27): error TS18047: 'workspace' is possibly 'null'.
+src/pages/Orders.tsx(910,26): error TS2367: This comparison appears to be unintentional because the types 'CanonicalStatus' and '""' have no overlap.
+src/pages/Orders.tsx(937,30): error TS2367: This comparison appears to be unintentional because the types 'CanonicalStatus' and '""' have no overlap.
+src/services/ozonTrackingSync.ts(108,5): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/services/ozonTrackingSync.ts(117,5): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/services/ozonTrackingSync.ts(142,5): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
