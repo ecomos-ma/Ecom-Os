@@ -1,0 +1,5 @@
+node_modules
+whatsapp-worker.zip
+whatsapp-worker/sessions/
+fake_dashboard_data.json
+*.zip
