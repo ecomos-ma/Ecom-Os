@@ -17,7 +17,62 @@ import {
   Users,
   AlertCircle
 } from "lucide-react";
-import fakeData from "../../fake_dashboard_data.json";
+
+// Mock data for demo dashboard
+const fakeData = {
+  orders: [
+    {
+      id: "ORD-001",
+      customer_name: "Ahmed Benali",
+      phone: "+212 6XX XXX XXX",
+      city: "Casablanca",
+      product_variant: "Premium Package",
+      total: 450,
+      status: "delivered",
+      delivery_status: "Livré"
+    },
+    {
+      id: "ORD-002",
+      customer_name: "Sara El Idrissi",
+      phone: "+212 6XX XXX XXX",
+      city: "Rabat",
+      product_variant: "Standard Package",
+      total: 320,
+      status: "pending",
+      delivery_status: "En attente"
+    },
+    {
+      id: "ORD-003",
+      customer_name: "Mohammed Alami",
+      phone: "+212 6XX XXX XXX",
+      city: "Marrakech",
+      product_variant: "Basic Package",
+      total: 180,
+      status: "shipped",
+      delivery_status: "Expédié"
+    },
+    {
+      id: "ORD-004",
+      customer_name: "Fatima Zahra",
+      phone: "+212 6XX XXX XXX",
+      city: "Fès",
+      product_variant: "Premium Package",
+      total: 520,
+      status: "cancelled",
+      delivery_status: "Annulé"
+    },
+    {
+      id: "ORD-005",
+      customer_name: "Youssef Amrani",
+      phone: "+212 6XX XXX XXX",
+      city: "Tanger",
+      product_variant: "Standard Package",
+      total: 380,
+      status: "delivered",
+      delivery_status: "Livré"
+    }
+  ]
+};
 
 function mad(n: number) {
   const value = Number(n || 0);
