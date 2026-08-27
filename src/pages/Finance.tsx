@@ -174,7 +174,7 @@ function CashFlowChart() {
             <YAxis tick={{ fill: theme.muted, fontSize: 11 }} axisLine={false} tickLine={false} width={55} />
             <Tooltip
               contentStyle={{ backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderRadius: 14, fontSize: 12 }}
-              formatter={(v: number) => [fmt(v), "Revenue"]}
+              formatter={(v: number | undefined) => [fmt(v || 0), "Revenue"]}
             />
             <Area type="monotone" dataKey="revenue" stroke="#8B5CF6" fill="url(#revGrad)" strokeWidth={2.5} dot={false} name="Revenue" />
           </AreaChart>
@@ -254,7 +254,7 @@ function ExpenseCenter() {
                 </Pie>
                 <Tooltip
                   contentStyle={{ backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderRadius: 14, fontSize: 12 }}
-                  formatter={(v: number) => [fmt(v)]}
+                  formatter={(v: number | undefined) => [fmt(v || 0)]}
                 />
               </PieChart>
             </ResponsiveContainer>
