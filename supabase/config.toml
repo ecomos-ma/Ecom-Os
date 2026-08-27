@@ -69,3 +69,7 @@ verify_jwt = true
 [functions.disconnect-integration]
 enabled = true
 verify_jwt = true
+
+[functions.platform-account-admin]
+enabled = true
+verify_jwt = true

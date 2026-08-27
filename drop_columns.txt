@@ -1,0 +1,17 @@
+050_drop_youcan_client_keys.sql: DROP COLUMN IF EXISTS youcan_client_id,
+050_drop_youcan_client_keys.sql: DROP COLUMN IF EXISTS youcan_client_secret;
+054_remove_shopify_integration.sql: -- Drop column from migration 053
+054_remove_shopify_integration.sql: ALTER TABLE public.orders DROP COLUMN IF EXISTS shopify_order_id;
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_enabled,
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_shop_domain,
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_access_token,
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_refresh_token,
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_expires_at,
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_scopes,
+054_remove_shopify_integration.sql: DROP COLUMN IF EXISTS shopify_connected_at;
+20260820150000_ameex_global_cities.sql: ALTER TABLE public.ameex_city_mappings DROP COLUMN workspace_id CASCADE;
+20260825171235_workspace_language_i18n.sql: alter table public.workspaces drop column status_language;
+999_remove_workspace_reset_feature.sql: ALTER TABLE public.workspaces DROP COLUMN IF EXISTS reset_status;
+999_remove_workspace_reset_feature.sql: ALTER TABLE public.workspaces DROP COLUMN IF EXISTS reset_started_at;
+999_remove_workspace_reset_feature.sql: ALTER TABLE public.workspaces DROP COLUMN IF EXISTS reset_completed_at;
+999_remove_workspace_reset_feature.sql: ALTER TABLE public.workspaces DROP COLUMN IF EXISTS reset_error;

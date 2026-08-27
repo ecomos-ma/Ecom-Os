@@ -170,7 +170,7 @@ function MemberCard({
       </div>
 
       {/* Action overlay on hover */}
-      {isOwner && member.role !== "owner" && (
+      {isOwner && !member.is_owner && (
         <div className="absolute inset-0 rounded-2xl bg-base-surface/95 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(member); }}
@@ -200,8 +200,8 @@ export default function Team() {
     reload, updateMemberStatus, updateMemberRole, removeMember, setInvitations,
   } = useTeamData();
 
-  const isOwner = profile?.role === "owner" || profile?.role === "founder";
-  const isAdmin = ["owner", "supervisor", "admin", "manager", "founder"].includes(profile?.role || "");
+  const isOwner = profile?.role === "founder" || profile?.role === "owner";
+  const isAdmin = isOwner || ["supervisor", "admin", "manager"].includes(profile?.role || "");
 
   const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
@@ -253,16 +253,29 @@ export default function Team() {
     setInviteBusy(true);
     try {
       const allowedSections = inviteForm.role === "supervisor" ? ALL_ALLOWED_SECTIONS : normalizeAllowedSections(inviteForm.allowedSections);
-      const { error } = await supabase.from("workspace_invitations").insert({
+      
+      // Generate a unique token for the invitation
+      const token = crypto.randomUUID();
+      
+      // Create invitation directly (RLS policies are now fixed)
+      const { data: invitation, error } = await supabase.from("workspace_invitations").insert({
+        id: token,
         workspace_id: workspace.id,
         email: inviteForm.email.trim().toLowerCase(),
         role: inviteForm.role,
         allowed_sections: allowedSections,
         invited_by: session.user.id,
         status: "pending",
-      });
+      }).select().single();
+
       if (error) throw error;
-      toast.success(`Invitation sent to ${inviteForm.email}`);
+
+      // Generate invite link
+      const inviteLink = `${window.location.origin}/invite?token=${token}`;
+
+      // Skip Edge Function call for now - provide manual link
+      toast.success(`Invitation created! Share this link: ${inviteLink}`);
+
       setShowInviteModal(false);
       setInviteForm({ fullName: "", email: "", role: "agent", allowedSections: ["Dashboard"] });
       reload();
@@ -281,13 +294,13 @@ export default function Team() {
   };
 
   const handleToggleStatus = async (m: TeamMember) => {
-    if (m.role === "owner") return;
+    if (m.is_owner) return;
     await updateMemberStatus(m.id, m.status !== "active");
     toast.success(m.status === "active" ? "Member suspended." : "Member activated.");
   };
 
   const handleRemove = async (m: TeamMember) => {
-    if (m.role === "owner") return;
+    if (m.is_owner) return;
     if (!confirm(`Remove ${m.full_name || m.email} from the team?`)) return;
     await removeMember(m.id);
     if (selectedMember?.id === m.id) setSelectedMember(null);

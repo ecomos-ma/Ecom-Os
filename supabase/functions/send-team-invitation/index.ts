@@ -1,26 +1,68 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 serve(async (req) => {
+  console.log("send-team-invitation called, method:", req.method);
+  
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
+    console.error("Method not allowed:", req.method);
+    return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
   }
 
   try {
-    const { email, token, fullName, role, invitedByEmail } = await req.json();
+    const body = await req.json();
+    console.log("Request body received:", JSON.stringify(body));
+    
+    const { token, email, fullName, role, invitedByEmail } = body;
 
-    // Get required environment variables
+    // Validate required fields
+    if (!token) {
+      console.error("Missing token field");
+      return new Response(
+        JSON.stringify({ error: "Missing token field", received: Object.keys(body) }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!email) {
+      console.error("Missing email field. Body keys:", Object.keys(body));
+      return new Response(
+        JSON.stringify({ 
+          error: "Missing email field",
+          received: Object.keys(body),
+          debug: "Frontend should send: { token, email, fullName, role, invitedByEmail }"
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Get required environment variables for email
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    console.log("RESEND_API_KEY configured:", !!resendApiKey);
+    
     if (!resendApiKey) {
       console.error("RESEND_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "Email service not configured" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({ 
+          success: false, 
+          error: "Email service not configured - RESEND_API_KEY missing"
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // Get the app URL from environment or use default
     const appUrl = Deno.env.get("APP_URL") || "http://localhost:8081";
-    const inviteLink = `${appUrl}/invite/${token}`;
+    const inviteLink = `${appUrl}/invite?token=${token}`;
+    console.log("Generated invite link:", inviteLink);
 
     // Prepare email content
     const htmlContent = `
@@ -53,6 +95,8 @@ serve(async (req) => {
       </div>
     `;
 
+    console.log("Sending email to:", email);
+    
     // Send email using Resend API
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -69,6 +113,7 @@ serve(async (req) => {
     });
 
     const resendData = await resendResponse.json();
+    console.log("Resend response status:", resendResponse.status, "data:", resendData);
 
     if (!resendResponse.ok) {
       console.error("Resend API error:", resendResponse.status, resendData);
@@ -76,8 +121,10 @@ serve(async (req) => {
         JSON.stringify({
           error: "Failed to send email",
           details: resendData.message || "Resend API error",
+          status: resendResponse.status,
+          resendData: resendData
         }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -89,16 +136,17 @@ serve(async (req) => {
         message: "Invitation email sent",
         emailId: resendData.id,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error in send-team-invitation:", error);
     return new Response(
       JSON.stringify({
         error: "Internal server error",
         details: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined
       }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

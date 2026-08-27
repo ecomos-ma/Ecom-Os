@@ -50,7 +50,6 @@ Repair: owner/admin authorization, provider allowlist, strict request schema, re
 
 Read-only `supabase db lint --linked` reported errors in production functions including:
 
-- `reset_workspace`
 - `api_return_parcel_to_stock`
 - `create_user_notification`
 - `get_admin_platform_metrics`

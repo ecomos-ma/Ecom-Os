@@ -44,32 +44,3 @@ export async function fetchWorkspaceInvoices() {
   if (error) throw error;
   return data as WorkspaceInvoice[];
 }
-
-export async function resetWorkspaceData(
-  workspaceId: string, 
-  userId: string,
-  onProgress?: (stage: string, progress: number) => void
-) {
-  // Simple reset with fake progress for UI
-  if (onProgress) {
-    onProgress('disabling_integrations', 10);
-    setTimeout(() => onProgress('deleting_storage', 20), 200);
-    setTimeout(() => onProgress('deleting_data', 50), 400);
-    setTimeout(() => onProgress('resetting_settings', 80), 600);
-    setTimeout(() => onProgress('completing', 100), 800);
-  }
-  
-  const { data, error } = await supabase.rpc("reset_workspace_simple", {
-    p_workspace_id: workspaceId,
-    p_user_id: userId
-  });
-  
-  if (error) throw error;
-  
-  // Check if the function returned success
-  if (data && data.success === false) {
-    throw new Error(data.error || "Workspace reset failed");
-  }
-  
-  return data;
-}

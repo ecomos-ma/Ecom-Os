@@ -106,6 +106,7 @@ export interface Profile {
   is_active?: boolean | null;
   allowed_sections?: AllowedSection[] | null;
   last_login_at?: string | null;
+  session_not_before?: string | null;
   deleted_at?: string | null;
   created_at: string;
 }

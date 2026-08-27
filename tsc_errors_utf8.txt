@@ -1,0 +1,7 @@
+﻿src/pages/landing/components/motion/DataPulse.tsx(8,43): error TS2322: Type 'ReactNode | MotionValue<number> | MotionValue<string>' is not assignable to type 'ReactNode'.
+  Type 'MotionValue<number>' is not assignable to type 'ReactNode'.
+src/pages/LandingV3.tsx(15,25): error TS2323: Cannot redeclare exported variable 'default'.
+src/pages/LandingV3.tsx(15,25): error TS2393: Duplicate function implementation.
+src/pages/LandingV3.tsx(147,25): error TS2323: Cannot redeclare exported variable 'default'.
+src/pages/LandingV3.tsx(147,25): error TS2393: Duplicate function implementation.
+

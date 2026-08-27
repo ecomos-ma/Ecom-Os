@@ -1,6 +1,6 @@
 import { FormEvent, useState, useEffect } from "react";
 import React from "react";
-import { CheckCircle2, ExternalLink, User, Building2, Lock, Save, X, Loader2, Store, Truck, RefreshCw, Star } from "lucide-react";
+import { CheckCircle2, ExternalLink, User, Building2, Lock, Save, X, Loader2, Store, Truck, Star } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
 import { useIntegrations } from "../hooks/useIntegrations";
@@ -9,7 +9,6 @@ import { youcanAuthorizeUrl } from "../lib/oauth";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import { toast } from "../components/Toast";
-import { WorkspaceResetModal, WorkspaceResetProgressModal, WorkspaceResetSuccessModal } from "../components/WorkspaceResetModal";
 import { ProfilePictureUploader } from "../components/ProfilePictureUploader";
 import OzonShippingIntegrationCard from "./settings/components/OzonShippingIntegrationCard";
 import ColiatyShippingIntegrationCard from "./settings/components/ColiatyShippingIntegrationCard";
@@ -250,13 +249,6 @@ function WorkspaceTab() {
     profile.role === "super_admin"
   );
 
-  // Workspace reset state
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [showResetProgress, setShowResetProgress] = useState(false);
-  const [showResetSuccess, setShowResetSuccess] = useState(false);
-  const [resetProgress, setResetProgress] = useState(0);
-  const [resetStep, setResetStep] = useState("");
-
   useEffect(() => {
     setName(workspace?.name ?? "");
     setShippingEnabled(workspace?.shipping_enabled ?? true);
@@ -311,70 +303,6 @@ function WorkspaceTab() {
     if (workspace?.id) {
       localStorage.setItem(`${WORKSPACE_ACCENT_PREFIX}${workspace.id}`, value);
     }
-  };
-
-  const handleWorkspaceReset = async () => {
-    if (!workspace || !profile) return;
-
-    setShowResetModal(false);
-    setShowResetProgress(true);
-    setResetProgress(0);
-
-    const steps = [
-      { progress: 0, step: "Initializing..." },
-      { progress: 10, step: "Validating permissions..." },
-      { progress: 20, step: "Removing orders..." },
-      { progress: 30, step: "Removing customers..." },
-      { progress: 40, step: "Removing products..." },
-      { progress: 50, step: "Removing shipping data..." },
-      { progress: 60, step: "Removing integrations..." },
-      { progress: 70, step: "Removing Google Sheet configuration..." },
-      { progress: 80, step: "Removing workspace settings..." },
-      { progress: 90, step: "Final cleanup..." },
-      { progress: 100, step: "Workspace reset complete." },
-    ];
-
-    let stepIndex = 0;
-
-    const updateProgress = () => {
-      if (stepIndex < steps.length) {
-        const { progress, step } = steps[stepIndex];
-        setResetProgress(progress);
-        setResetStep(step);
-        stepIndex++;
-        setTimeout(updateProgress, progress === 0 ? 500 : 800);
-      }
-    };
-
-    try {
-      updateProgress();
-
-      // Execute the workspace reset
-      const { data, error } = await supabase.rpc('reset_workspace_data', { p_workspace_id: workspace.id });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data.error);
-
-      // Invalidate auth data and refresh
-      await refreshProfile();
-
-      // Show success modal
-      setShowResetProgress(false);
-      setShowResetSuccess(true);
-
-      toast.success("Workspace reset successfully");
-    } catch (err: any) {
-      console.error("Workspace reset failed:", err);
-      setShowResetProgress(false);
-      toast.error(err?.message || "Failed to reset workspace");
-
-      // Rollback by refreshing profile
-      await refreshProfile();
-    }
-  };
-
-  const handleNavigateToOrders = () => {
-    setShowResetSuccess(false);
-    navigate("/orders");
   };
 
   const handleSave = async (e: FormEvent) => {
@@ -635,7 +563,7 @@ function WorkspaceTab() {
             </div>
 
             <div className="rounded-xl border border-base-border bg-base-raised/60 p-4">
-              <div className="text-[13px] font-semibold text-ink">Order status language</div>
+              <div className="text-[13px] font-semibold text-ink">Workspace language</div>
               <div className="mt-1 text-[12px] leading-5 text-ink-muted">Language used for delivery statuses throughout the workspace.</div>
               <select
                 value={selectedLanguage}
@@ -663,45 +591,8 @@ function WorkspaceTab() {
           <Save size={13} />
           {saved ? "Saved ✓" : busy ? "Saving…" : "Save Workspace"}
         </button>
-
-        <div className="flex flex-col gap-4 rounded-2xl border border-danger/25 bg-danger/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-[13px] font-semibold text-ink">Danger zone</div>
-            <div className="mt-1 max-w-2xl text-[12px] leading-5 text-ink-muted">
-              Resetting permanently deletes this workspace's data and returns it to a brand-new state. This cannot be undone.
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={!workspace || !canEditWorkspace}
-            onClick={() => setShowResetModal(true)}
-            className="inline-flex flex-none items-center justify-center gap-2 rounded-xl bg-danger px-3.5 py-2.5 text-[12.5px] font-semibold text-white transition hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <RefreshCw size={13} />
-            Reset workspace
-          </button>
-        </div>
-      </form >
-
-      {/* Reset Modals */}
-      < WorkspaceResetModal
-        isOpen={showResetModal}
-        onClose={() => setShowResetModal(false)
-        }
-        onConfirm={handleWorkspaceReset}
-        workspaceName={workspace?.name}
-      />
-      <WorkspaceResetProgressModal
-        isOpen={showResetProgress}
-        progress={resetProgress}
-        currentStep={resetStep}
-      />
-      <WorkspaceResetSuccessModal
-        isOpen={showResetSuccess}
-        onClose={() => setShowResetSuccess(false)}
-        onNavigateToOrders={handleNavigateToOrders}
-      />
-    </div >
+      </form>
+    </div>
   );
 }
 

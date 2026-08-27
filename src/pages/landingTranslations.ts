@@ -7,7 +7,10 @@ export const t = {
             integrations: "Integrations",
             testimonials: "Testimonials",
             login: "Login",
-            startFree: "Start Free Trial"
+            startFree: "Start Free Trial",
+            product: "Product",
+            solutions: "Solutions",
+            pricing: "Pricing"
         },
         hero: {
             badge: "Built for GCC & Africa",
@@ -18,7 +21,17 @@ export const t = {
             ctaSecondary: "See How It Works",
             check1: "No Credit Card Required",
             check2: "14-Day Free Trial",
-            check3: "Cancel Anytime"
+            check3: "Cancel Anytime",
+            demoSteps: [
+                { title: "Orders Arrive", subtitle: "From all channels", status: "pending", note: "Orders from all channels arrive in one place" },
+                { title: "Smart Routing", subtitle: "Auto-assign carriers", status: "pending", note: "AI automatically assigns the best carrier" },
+                { title: "Track & Deliver", subtitle: "Real-time updates", status: "pending", note: "Track every order in real-time" },
+                { title: "Confirm & Collect", subtitle: "COD management", status: "pending", note: "Manage confirmations and collections" },
+                { title: "Profit Analytics", subtitle: "Net margin insights", status: "pending", note: "See your true profit per order" }
+            ],
+            demoProfitLabel: "Net Profit",
+            demoProfitValue: "$12,450",
+            demoProfitNote: "This month"
         },
         dashStats: {
             orders: "Orders",
@@ -36,6 +49,88 @@ export const t = {
             { label: "Delivery Success Target" },
             { label: "Integrations" }
         ],
+        walkthrough: {
+            eyebrow: "Product Walkthrough",
+            title: "See EcomOS in Action",
+            sub: "Explore each module and see how they work together to power your business.",
+            tabs: [
+                { key: "orders", label: "Orders" },
+                { key: "confirmation", label: "Confirmation" },
+                { key: "crm", label: "CRM" },
+                { key: "shipping", label: "Shipping" },
+                { key: "team", label: "Team" },
+                { key: "profit", label: "Profit" },
+                { key: "ads", label: "Ads" }
+            ],
+            panels: {
+                orders: {
+                    title: "Centralized Order Management",
+                    desc: "All your orders from all channels in one unified dashboard.",
+                    lineItems: [
+                        { label: "Order #1234", value: "$45.00" },
+                        { label: "Order #1235", value: "$32.50" },
+                        { label: "Order #1236", value: "$67.00" }
+                    ]
+                },
+                confirmation: {
+                    title: "Automated Confirmation Calls",
+                    desc: "AI-powered calling system to confirm orders before shipping.",
+                    lineItems: [
+                        { label: "Confirmed", value: "85%" },
+                        { label: "Pending", value: "12%" },
+                        { label: "Cancelled", value: "3%" }
+                    ]
+                },
+                crm: {
+                    title: "Customer Relationship Management",
+                    desc: "Track customer history, preferences, and lifetime value.",
+                    lineItems: [
+                        { label: "Active Customers", value: "1,234" },
+                        { label: "Repeat Rate", value: "42%" },
+                        { label: "Avg LTV", value: "$156" }
+                    ]
+                },
+                shipping: {
+                    title: "Smart Shipping Routing",
+                    desc: "Automatically route to the best carrier based on performance and cost.",
+                    lineItems: [
+                        { label: "On-Time Delivery", value: "94%" },
+                        { label: "Avg Delivery Time", value: "2.3 days" },
+                        { label: "Cost Savings", value: "$1,240" }
+                    ]
+                },
+                team: {
+                    title: "Team Collaboration",
+                    desc: "Assign roles, track performance, and manage team access.",
+                    features: [
+                        { icon: "Shield", title: "Role-Based Access", desc: "Control who sees what" },
+                        { icon: "UserCog", title: "Activity Logging", desc: "Track all team actions" },
+                        { icon: "PhoneCall", title: "Performance Metrics", desc: "Measure team efficiency" },
+                        { icon: "Boxes", title: "Task Management", desc: "Assign and track tasks" }
+                    ]
+                },
+                profit: {
+                    title: "Real-Time Profit Analytics",
+                    desc: "See your true profit margins after all costs.",
+                    lineItems: [
+                        { label: "Revenue", value: "$45,000" },
+                        { label: "COGS", value: "$18,000" },
+                        { label: "Shipping", value: "$4,500" },
+                        { label: "Ads", value: "$8,000" }
+                    ],
+                    netValue: "$14,500"
+                },
+                ads: {
+                    title: "Ad Performance Tracking",
+                    desc: "Track ROAS, CAC, and conversion across all ad platforms.",
+                    lineItems: [
+                        { label: "ROAS", value: "3.2x" },
+                        { label: "CAC", value: "$12.50" },
+                        { label: "Conversion Rate", value: "4.5%" }
+                    ]
+                }
+            }
+        },
         featuresIntro: {
             badge: "Powerful Features",
             title1: "Everything you need to",
@@ -83,6 +178,29 @@ export const t = {
             title1: "Connects with the",
             titleGlow: "ecosystem",
             subtitle: "EcomOS integrates out-of-the-box with leading platforms, CRMs, and delivery networks in your region."
+        },
+        ecosystem: {
+            eyebrow: "Ecosystem",
+            title: "Integrations",
+            categories: [
+                {
+                    label: "E-commerce",
+                    items: ["Shopify", "WooCommerce", "Salla", "Zid", "YouCan"]
+                },
+                {
+                    label: "Marketing",
+                    items: ["Facebook", "TikTok", "Google Ads", "Snapchat"]
+                },
+                {
+                    label: "Communication",
+                    items: ["WhatsApp", "SMS", "Email", "Push"]
+                },
+                {
+                    label: "Shipping",
+                    items: ["Ameex", "ForceLog", "Sendit", "Coliaty"]
+                }
+            ],
+            trackingNote: "Real-time tracking across all carriers"
         },
         pl: {
             badge: "Financial Control",
@@ -164,7 +282,10 @@ export const t = {
             integrations: "الربط",
             testimonials: "آراء العملاء",
             login: "تسجيل الدخول",
-            startFree: "ابدأ مجاناً"
+            startFree: "ابدأ مجاناً",
+            product: "المنتج",
+            solutions: "الحلول",
+            pricing: "الأسعار"
         },
         hero: {
             badge: "مصمم للخليج وأفريقيا",
@@ -175,7 +296,17 @@ export const t = {
             ctaSecondary: "شاهد كيف يعمل",
             check1: "لا حاجة لبطاقة ائتمان",
             check2: "تجربة مجانية لمدة ١٤ يوم",
-            check3: "إلغاء في أي وقت"
+            check3: "إلغاء في أي وقت",
+            demoSteps: [
+                { title: "وصول الطلبات", subtitle: "من جميع القنوات", status: "pending", note: "الطلبات من جميع القنوات تصل في مكان واحد" },
+                { title: "التوجيه الذكي", subtitle: "تعيين شركات الشحن تلقائياً", status: "pending", note: "الذكاء الاصطناعي يعين أفضل شركة شحن" },
+                { title: "التتبع والتوصيل", subtitle: "تحديثات فورية", status: "pending", note: "تتبع كل طلب في الوقت الفعلي" },
+                { title: "التأكيد والتحصيل", subtitle: "إدارة الدفع عند الاستلام", status: "pending", note: "إدارة التأكيدات والتحصيل" },
+                { title: "تحليلات الأرباح", subtitle: "رؤى الهامش الصافي", status: "pending", note: "شاهد ربحك الحقيقي لكل طلب" }
+            ],
+            demoProfitLabel: "الربح الصافي",
+            demoProfitValue: "$12,450",
+            demoProfitNote: "هذا الشهر"
         },
         dashStats: {
             orders: "الطلبات",
@@ -193,6 +324,88 @@ export const t = {
             { label: "نسبة نجاح التوصيل" },
             { label: "عمليات ربط" }
         ],
+        walkthrough: {
+            eyebrow: "جولة في المنتج",
+            title: "شاهد EcomOS في العمل",
+            sub: "استكشف كل وحدة وشاهد كيف تعمل معاً لتشغيل عملك.",
+            tabs: [
+                { key: "orders", label: "الطلبات" },
+                { key: "confirmation", label: "التأكيد" },
+                { key: "crm", label: "إدارة العملاء" },
+                { key: "shipping", label: "الشحن" },
+                { key: "team", label: "الفريق" },
+                { key: "profit", label: "الأرباح" },
+                { key: "ads", label: "الإعلانات" }
+            ],
+            panels: {
+                orders: {
+                    title: "إدارة الطلبات المركزية",
+                    desc: "جميع طلباتك من جميع القنوات في لوحة تحكم موحدة.",
+                    lineItems: [
+                        { label: "طلب #1234", value: "$45.00" },
+                        { label: "طلب #1235", value: "$32.50" },
+                        { label: "طلب #1236", value: "$67.00" }
+                    ]
+                },
+                confirmation: {
+                    title: "مكالمات التأكيد الآلية",
+                    desc: "نظام اتصال مدعوم بالذكاء الاصطناعي لتأكيد الطلبات قبل الشحن.",
+                    lineItems: [
+                        { label: "مؤكد", value: "85%" },
+                        { label: "قيد الانتظار", value: "12%" },
+                        { label: "ملغي", value: "3%" }
+                    ]
+                },
+                crm: {
+                    title: "إدارة علاقات العملاء",
+                    desc: "تتبع تاريخ العملاء وتفضيلاتهم والقيمة الدائمة.",
+                    lineItems: [
+                        { label: "عملاء نشطون", value: "1,234" },
+                        { label: "معدل التكرار", value: "42%" },
+                        { label: "متوسط القيمة الدائمة", value: "$156" }
+                    ]
+                },
+                shipping: {
+                    title: "التوجيه الذكي للشحن",
+                    desc: "وجّه تلقائياً إلى أفضل شركة شحن بناءً على الأداء والتكلفة.",
+                    lineItems: [
+                        { label: "التسليم في الوقت", value: "94%" },
+                        { label: "متوسط وقت التسليم", value: "2.3 يوم" },
+                        { label: "توفير التكاليف", value: "$1,240" }
+                    ]
+                },
+                team: {
+                    title: "تعاون الفريق",
+                    desc: "عيّن الأدوار وتتبع الأداء وإدارة وصول الفريق.",
+                    features: [
+                        { icon: "Shield", title: "الوصول المبني على الأدوار", desc: "تحكم في من يرى ماذا" },
+                        { icon: "UserCog", title: "تسجيل النشاط", desc: "تتبع جميع إجراءات الفريق" },
+                        { icon: "PhoneCall", title: "مقاييس الأداء", desc: "قياس كفاءة الفريق" },
+                        { icon: "Boxes", title: "إدارة المهام", desc: "تعيين وتتبع المهام" }
+                    ]
+                },
+                profit: {
+                    title: "تحليلات الأرباح الفورية",
+                    desc: "شاهد هوامش ربحك الحقيقية بعد جميع التكاليف.",
+                    lineItems: [
+                        { label: "الإيرادات", value: "$45,000" },
+                        { label: "تكلفة البضائع", value: "$18,000" },
+                        { label: "الشحن", value: "$4,500" },
+                        { label: "الإعلانات", value: "$8,000" }
+                    ],
+                    netValue: "$14,500"
+                },
+                ads: {
+                    title: "تتبع أداء الإعلانات",
+                    desc: "تتبع العائد على الإنفاق الإعلاني وتكلفة الاستحواذ والتحويل عبر جميع منصات الإعلانات.",
+                    lineItems: [
+                        { label: "العائد على الإنفاق", value: "3.2x" },
+                        { label: "تكلفة الاستحواذ", value: "$12.50" },
+                        { label: "معدل التحويل", value: "4.5%" }
+                    ]
+                }
+            }
+        },
         featuresIntro: {
             badge: "مميزات قوية",
             title1: "كل ما تحتاجه لتوسيع",
@@ -240,6 +453,29 @@ export const t = {
             title1: "متصل بـ",
             titleGlow: "النظام البيئي",
             subtitle: "يتكامل نظام EcomOS بشكل جاهز مع المنصات وأدوات إدارة علاقات العملاء وشبكات التوصيل الرائدة في منطقتك."
+        },
+        ecosystem: {
+            eyebrow: "النظام البيئي",
+            title: "الربط",
+            categories: [
+                {
+                    label: "التجارة الإلكترونية",
+                    items: ["Shopify", "WooCommerce", "Salla", "Zid", "YouCan"]
+                },
+                {
+                    label: "التسويق",
+                    items: ["Facebook", "TikTok", "Google Ads", "Snapchat"]
+                },
+                {
+                    label: "التواصل",
+                    items: ["WhatsApp", "SMS", "Email", "Push"]
+                },
+                {
+                    label: "الشحن",
+                    items: ["Ameex", "ForceLog", "Sendit", "Coliaty"]
+                }
+            ],
+            trackingNote: "تتبع فوري عبر جميع شركات الشحن"
         },
         pl: {
             badge: "التحكم المالي",

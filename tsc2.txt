@@ -1,0 +1,3 @@
+﻿src/pages/landing/components/motion/DataPulse.tsx(8,43): error TS2322: Type 'ReactNode | MotionValue<number> | MotionValue<string>' is not assignable to type 'ReactNode'.
+  Type 'MotionValue<number>' is not assignable to type 'ReactNode'.
+

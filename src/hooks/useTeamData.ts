@@ -16,6 +16,7 @@ export interface TeamMember {
     allowed_sections: string[];
     joined_at: string | null;
     created_at: string;
+    is_owner: boolean; // From profile_workspaces
     // extended
     phone: string | null;
     department: string | null;
@@ -80,13 +81,18 @@ export function useTeamData() {
     const load = useCallback(async (wid: string) => {
         setLoading(true);
         try {
-            // Load members (profiles + extended)
-            const [profilesRes, extRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
+            // Load members (profiles + profile_workspaces + extended)
+            const [profilesRes, workspaceMembersRes, extRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
                 supabase
                     .from("profiles")
                     .select("id, full_name, role, workspace_id, allowed_sections, created_at, email, is_active, last_login_at, avatar_url")
                     .eq("workspace_id", wid)
                     .order("created_at", { ascending: false }),
+                supabase
+                    .from("profile_workspaces")
+                    .select("profile_id, is_owner, role, status")
+                    .eq("workspace_id", wid)
+                    .eq("status", "active"),
                 supabase
                     .from("team_member_profiles")
                     .select("*")
@@ -116,11 +122,14 @@ export function useTeamData() {
             ]);
 
             const profileData = profilesRes.data ?? [];
+            const workspaceMembersData = workspaceMembersRes.data ?? [];
             const extData = extRes.data ?? [];
             const extMap = new Map(extData.map((e: any) => [e.profile_id, e]));
+            const workspaceMembersMap = new Map(workspaceMembersData.map((wm: any) => [wm.profile_id, wm]));
 
             const merged: TeamMember[] = profileData.map((p: any) => {
                 const ext = extMap.get(p.id) as any;
+                const workspaceMember = workspaceMembersMap.get(p.id) as any;
                 return {
                     id: p.id,
                     profile_id: p.id,
@@ -128,11 +137,12 @@ export function useTeamData() {
                     auth_user_id: p.id,
                     full_name: p.full_name,
                     email: p.email ?? "",
-                    role: p.role ?? "agent",
+                    role: workspaceMember?.role || p.role || "agent", // Use profile_workspaces role first, fallback to profiles.role
                     status: p.is_active === false ? "disabled" : "active",
                     allowed_sections: normalizeAllowedSections(p.allowed_sections ?? []),
                     joined_at: p.created_at,
                     created_at: p.created_at,
+                    is_owner: workspaceMember?.is_owner || false, // From profile_workspaces
                     phone: ext?.phone ?? null,
                     department: ext?.department ?? null,
                     avatar_url: ext?.avatar_url ?? p.avatar_url ?? null, // Use extension avatar first, fallback to profile avatar
@@ -203,6 +213,7 @@ export function useTeamData() {
         const uniq = Math.random().toString(36).substring(2, 8);
         const ch = supabase.channel(`team-rt-${wid}-${uniq}`)
             .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `workspace_id=eq.${wid}` }, () => load(wid))
+            .on("postgres_changes", { event: "*", schema: "public", table: "profile_workspaces", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .on("postgres_changes", { event: "*", schema: "public", table: "order_assignments", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .on("postgres_changes", { event: "*", schema: "public", table: "agent_presence", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .subscribe();
@@ -224,9 +235,10 @@ export function useTeamData() {
     }, []);
 
     const removeMember = useCallback(async (profileId: string) => {
-        await supabase.from("profiles").update({ workspace_id: null }).eq("id", profileId);
+        // Remove from profile_workspaces instead of setting workspace_id to null
+        await supabase.from("profile_workspaces").delete().eq("profile_id", profileId).eq("workspace_id", wid);
         setMembers(prev => prev.filter(m => m.id !== profileId));
-    }, []);
+    }, [wid]);
 
     const assignOrder = useCallback(async (orderId: string, assignedTo: string, assignedBy: string) => {
         if (!wid) return;

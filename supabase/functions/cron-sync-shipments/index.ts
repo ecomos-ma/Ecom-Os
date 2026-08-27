@@ -2,8 +2,9 @@
 /**
  * cron-sync-shipments — Backend shipment status polling cron.
  *
- * Called by pg_cron every 10 minutes. Queries all active orders with
- * tracking numbers and polls each provider's API to update delivery_status.
+ * Called by pg_cron every 1 minute. Checks configurable interval per workspace
+ * and polls each provider's API to update delivery_status only when enough time
+ * has passed since the last sync for that specific workspace.
  *
  * Coliaty and SendIt already use webhooks — but this function acts as a
  * safety fallback for any missed webhooks and handles Ozon, Ameex, ForceLog.
@@ -172,6 +173,47 @@ async function trackAmeex(
     } catch (e: any) {
         return { status: null, raw: e.message };
     }
+}
+
+// ── Load platform setting for refresh interval ───────────────────────────────
+async function getRefreshIntervalMinutes(supabase: any): Promise<number> {
+    const { data } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("setting_key", "shipping_tracking_refresh_interval_minutes")
+        .single();
+    
+    // Value is stored as JSONB, need to extract the number
+    const interval = data?.value ? Number(data.value) : 10;
+    // Ensure minimum 5 minutes even if DB has lower value
+    return Math.max(interval, 5);
+}
+
+// ── Check if workspace is due for sync (per-workspace scoping) ─────────────────
+async function shouldSyncWorkspace(supabase: any, workspaceId: string, intervalMinutes: number): Promise<boolean> {
+    const { data } = await supabase
+        .from("workspaces")
+        .select("last_tracking_sync_at")
+        .eq("id", workspaceId)
+        .single();
+    
+    // If never synced, always sync
+    if (!data?.last_tracking_sync_at) return true;
+    
+    const lastSync = new Date(data.last_tracking_sync_at).getTime();
+    const now = Date.now();
+    const elapsedMinutes = (now - lastSync) / 60000;
+    
+    // Sync if enough time has passed for THIS workspace
+    return elapsedMinutes >= intervalMinutes;
+}
+
+// ── Update workspace last sync timestamp ─────────────────────────────────────
+async function updateWorkspaceSyncTime(supabase: any, workspaceId: string): Promise<void> {
+    await supabase
+        .from("workspaces")
+        .update({ last_tracking_sync_at: new Date().toISOString() })
+        .eq("id", workspaceId);
 }
 
 // ── Load workspace shipping credentials ───────────────────────────────────────
@@ -364,6 +406,10 @@ serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Get configurable refresh interval (default 10 minutes, minimum 5)
+    const intervalMinutes = await getRefreshIntervalMinutes(supabase);
+    console.log(`[ShipSync] Configured refresh interval: ${intervalMinutes} minutes`);
+
     // Find all distinct workspaces that have active orders with tracking numbers
     const { data: workspaces } = await supabase
         .from("orders")
@@ -374,19 +420,37 @@ serve(async (req) => {
         .limit(500);
 
     const workspaceIds = [...new Set((workspaces ?? []).map((r: any) => r.workspace_id))];
-    console.log(`[ShipSync] Processing ${workspaceIds.length} workspace(s)`);
+    console.log(`[ShipSync] Found ${workspaceIds.length} workspace(s) with active shipments`);
+
+    // Filter workspaces that are due for sync (PER-WORKSPACE SCOPING)
+    const workspacesToSync: string[] = [];
+    for (const wid of workspaceIds) {
+        if (await shouldSyncWorkspace(supabase, wid, intervalMinutes)) {
+            workspacesToSync.push(wid);
+        }
+    }
+    
+    console.log(`[ShipSync] ${workspacesToSync.length} workspace(s) due for sync (interval: ${intervalMinutes}min)`);
 
     const results: Record<string, any> = {};
-    for (const wid of workspaceIds) {
+    for (const wid of workspacesToSync) {
         try {
             results[wid] = await syncWorkspaceShipments(supabase, wid);
+            // Update this workspace's last sync time (PER-WORKSPACE SCOPING)
+            await updateWorkspaceSyncTime(supabase, wid);
         } catch (e: any) {
             console.error(`[ShipSync] Workspace ${wid} fatal error:`, e.message);
             results[wid] = { updated: 0, errors: 1, fatal: e.message };
         }
     }
 
-    return new Response(JSON.stringify({ success: true, workspaces: workspaceIds.length, results }), {
+    return new Response(JSON.stringify({ 
+        success: true, 
+        total_workspaces: workspaceIds.length,
+        synced_workspaces: workspacesToSync.length,
+        interval_minutes: intervalMinutes,
+        results 
+    }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 });

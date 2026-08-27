@@ -5,20 +5,22 @@ import { WorkspaceScopeProvider } from "./contexts/WorkspaceScopeContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Layout } from "./components/Layout";
 import { PermissionGuard } from "./components/PermissionGuard";
-import { FounderRoute } from "./components/FounderRoute";
+import { PlatformAdminRoute } from "./components/PlatformAdminRoute";
 import { AdminProLayout } from "./components/AdminProLayout";
 import { supabaseConfigurationError } from "./lib/supabase";
 import { LanguageProvider } from "./i18n";
+import { SupportModeProvider } from "./contexts/SupportModeContext";
 
 const Login = lazy(() => import("./pages/Login"));
-const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
 const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
 const Disabled = lazy(() => import("./pages/Disabled"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Terms = lazy(() => import("./pages/Terms"));
 import { OrdersProvider } from "./contexts/OrdersContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
-const EcomOSLanding = lazy(() => import("./pages/ecomos_landing_2.jsx"));
+const EcomOSLanding = lazy(() => import("./pages/LandingV3"));
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Orders = lazy(() => import("./pages/Orders"));
@@ -38,6 +40,7 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const NotificationPreferences = lazy(() => import("./pages/NotificationPreferences"));
 const Amine = lazy(() => import("./pages/AmineTools"));
+const Invite = lazy(() => import("./pages/Invite"));
 
 const AdminPro = lazy(() => import("./pages/admin/AdminPro"));
 const PublicLandingPage = lazy(() => import("./pages/public/LandingPage"));
@@ -100,64 +103,68 @@ export default function App() {
     <BrowserRouter>
       <WorkspaceScopeProvider>
         <AuthProvider>
+          <SupportModeProvider>
           <LanguageProvider>
-          <Routes>
-            <Route path="/" element={<LoadablePage><EcomOSLanding /></LoadablePage>} />
-            <Route path="/login" element={<LoadablePage><Login /></LoadablePage>} />
-            <Route path="/demo-dashboard" element={<LoadablePage><DemoDashboard /></LoadablePage>} />
-            <Route path="/disabled" element={<LoadablePage><Disabled /></LoadablePage>} />
-            <Route path="/403" element={<LoadablePage><AccessDenied /></LoadablePage>} />
-            <Route path="/404" element={<LoadablePage><NotFound /></LoadablePage>} />
-            <Route path="/landing-page/:id" element={<LoadablePage><PublicLandingPage /></LoadablePage>} />
+            <Routes>
+              <Route path="/" element={<LoadablePage><EcomOSLanding /></LoadablePage>} />
+              <Route path="/login" element={<LoadablePage><Login /></LoadablePage>} />
+              <Route path="/disabled" element={<LoadablePage><Disabled /></LoadablePage>} />
+              <Route path="/403" element={<LoadablePage><AccessDenied /></LoadablePage>} />
+              <Route path="/404" element={<LoadablePage><NotFound /></LoadablePage>} />
+              <Route path="/privacy" element={<LoadablePage><Privacy /></LoadablePage>} />
+              <Route path="/terms" element={<LoadablePage><Terms /></LoadablePage>} />
+              <Route path="/landing-page/:id" element={<LoadablePage><PublicLandingPage /></LoadablePage>} />
+              <Route path="/invite" element={<LoadablePage><Invite /></LoadablePage>} />
 
-            {/* OAuth redirect landing pages — must match GOOGLE_REDIRECT_URI / YOUCAN_REDIRECT_URI exactly (path only; host changes per environment). */}
-            <Route path="/api/google/callback" element={<LoadablePage><OAuthCallback provider="google" /></LoadablePage>} />
-            <Route path="/api/youcan/callback" element={<LoadablePage><OAuthCallback provider="youcan" /></LoadablePage>} />
+              {/* OAuth redirect landing pages — must match GOOGLE_REDIRECT_URI / YOUCAN_REDIRECT_URI exactly (path only; host changes per environment). */}
+              <Route path="/api/google/callback" element={<LoadablePage><OAuthCallback provider="google" /></LoadablePage>} />
+              <Route path="/api/youcan/callback" element={<LoadablePage><OAuthCallback provider="youcan" /></LoadablePage>} />
 
-            <Route
-              element={
-                <ProtectedRoute>
-                  <OrdersProvider>
-                    <NotificationProvider>
-                      <Layout />
-                    </NotificationProvider>
-                  </OrdersProvider>
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/dashboard" element={<LoadablePage><PermissionGuard permission="dashboard"><Dashboard /></PermissionGuard></LoadablePage>} />
-              <Route path="/orders" element={<LoadablePage><PermissionGuard permission="orders"><Orders /></PermissionGuard></LoadablePage>} />
-              <Route path="/confirmation" element={<LoadablePage><PermissionGuard permission="confirmation"><Confirmation /></PermissionGuard></LoadablePage>} />
-              <Route path="/delivering" element={<LoadablePage><PermissionGuard permission="shipping"><Delivering /></PermissionGuard></LoadablePage>} />
-              <Route path="/shipping" element={<LoadablePage><PermissionGuard permission="shipping"><Shipping /></PermissionGuard></LoadablePage>} />
-              <Route path="/customers" element={<LoadablePage><PermissionGuard permission="customers"><Customers /></PermissionGuard></LoadablePage>} />
-              <Route path="/products-inventory" element={<LoadablePage><PermissionGuard permission="products"><ProductsAndInventory /></PermissionGuard></LoadablePage>} />
-              <Route path="/products-inventory/:id" element={<LoadablePage><PermissionGuard permission="products"><ProductDetails /></PermissionGuard></LoadablePage>} />
-              <Route path="/ads-manager" element={<LoadablePage><PermissionGuard permission="ads"><AdsManager /></PermissionGuard></LoadablePage>} />
-              <Route path="/tiktok-ads" element={<LoadablePage><PermissionGuard permission="tiktok_ads"><TikTokAds /></PermissionGuard></LoadablePage>} />
-              <Route path="/expenses" element={<LoadablePage><PermissionGuard permission="expenses"><Expenses /></PermissionGuard></LoadablePage>} />
-              <Route path="/finance" element={<LoadablePage><PermissionGuard permission="expenses"><Finance /></PermissionGuard></LoadablePage>} />
-              <Route path="/cod-scenarios" element={<LoadablePage><PermissionGuard permission="codscenarios"><CodScenarios /></PermissionGuard></LoadablePage>} />
-              <Route path="/team" element={<LoadablePage><PermissionGuard permission="team"><Team /></PermissionGuard></LoadablePage>} />
-              <Route path="/settings" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
-              <Route path="/notifications" element={<LoadablePage><Notifications /></LoadablePage>} />
-              <Route path="/settings/notifications" element={<LoadablePage><NotificationPreferences /></LoadablePage>} />
-              <Route path="/tools" element={<LoadablePage><Amine /></LoadablePage>} />
-              <Route path="/amine" element={<LoadablePage><Amine /></LoadablePage>} />
-              {/* Preserve legacy bookmarks without exposing a monetization screen. */}
-              <Route path="/premium-dashboard" element={<Navigate to="/dashboard" replace />} />
-            </Route>
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <OrdersProvider>
+                      <NotificationProvider>
+                        <Layout />
+                      </NotificationProvider>
+                    </OrdersProvider>
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/dashboard" element={<LoadablePage><PermissionGuard permission="dashboard"><Dashboard /></PermissionGuard></LoadablePage>} />
+                <Route path="/orders" element={<LoadablePage><PermissionGuard permission="orders"><Orders /></PermissionGuard></LoadablePage>} />
+                <Route path="/confirmation" element={<LoadablePage><PermissionGuard permission="confirmation"><Confirmation /></PermissionGuard></LoadablePage>} />
+                <Route path="/delivering" element={<LoadablePage><PermissionGuard permission="shipping"><Delivering /></PermissionGuard></LoadablePage>} />
+                <Route path="/shipping" element={<LoadablePage><PermissionGuard permission="shipping"><Shipping /></PermissionGuard></LoadablePage>} />
+                <Route path="/customers" element={<LoadablePage><PermissionGuard permission="customers"><Customers /></PermissionGuard></LoadablePage>} />
+                <Route path="/products-inventory" element={<LoadablePage><PermissionGuard permission="products"><ProductsAndInventory /></PermissionGuard></LoadablePage>} />
+                <Route path="/products-inventory/:id" element={<LoadablePage><PermissionGuard permission="products"><ProductDetails /></PermissionGuard></LoadablePage>} />
+                <Route path="/ads-manager" element={<LoadablePage><PermissionGuard permission="ads"><AdsManager /></PermissionGuard></LoadablePage>} />
+                <Route path="/tiktok-ads" element={<LoadablePage><PermissionGuard permission="tiktok_ads"><TikTokAds /></PermissionGuard></LoadablePage>} />
+                <Route path="/expenses" element={<LoadablePage><PermissionGuard permission="expenses"><Expenses /></PermissionGuard></LoadablePage>} />
+                <Route path="/finance" element={<LoadablePage><PermissionGuard permission="expenses"><Finance /></PermissionGuard></LoadablePage>} />
+                <Route path="/cod-scenarios" element={<LoadablePage><PermissionGuard permission="codscenarios"><CodScenarios /></PermissionGuard></LoadablePage>} />
+                <Route path="/team" element={<LoadablePage><PermissionGuard permission="team"><Team /></PermissionGuard></LoadablePage>} />
+                <Route path="/settings" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
+                <Route path="/notifications" element={<LoadablePage><Notifications /></LoadablePage>} />
+                <Route path="/settings/notifications" element={<LoadablePage><NotificationPreferences /></LoadablePage>} />
+                <Route path="/tools" element={<LoadablePage><Amine /></LoadablePage>} />
+                <Route path="/amine" element={<LoadablePage><Amine /></LoadablePage>} />
+                {/* Preserve legacy bookmarks without exposing a monetization screen. */}
+                <Route path="/premium-dashboard" element={<Navigate to="/dashboard" replace />} />
+              </Route>
 
-            <Route element={<FounderRoute><AdminProLayout /></FounderRoute>}>
-              <Route path="/admin" element={<LoadablePage><AdminPro /></LoadablePage>} />
-              <Route path="/admin/*" element={<LoadablePage><AdminPro /></LoadablePage>} />
-            </Route>
+              <Route element={<PlatformAdminRoute><AdminProLayout /></PlatformAdminRoute>}>
+                <Route path="/admin" element={<LoadablePage><AdminPro /></LoadablePage>} />
+                <Route path="/admin/*" element={<LoadablePage><AdminPro /></LoadablePage>} />
+              </Route>
 
-            {/* Permanent compatibility redirect: the old Super Admin surface has been retired. */}
-            <Route path="/super-admin/*" element={<Navigate to="/admin" replace />} />
-            <Route path="*" element={<LoadablePage><NotFound /></LoadablePage>} />
-          </Routes>
+              {/* Permanent compatibility redirect: the old Super Admin surface has been retired. */}
+              <Route path="/super-admin/*" element={<Navigate to="/admin" replace />} />
+              <Route path="*" element={<LoadablePage><NotFound /></LoadablePage>} />
+            </Routes>
           </LanguageProvider>
+          </SupportModeProvider>
         </AuthProvider>
       </WorkspaceScopeProvider>
     </BrowserRouter>

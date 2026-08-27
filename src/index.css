@@ -22,7 +22,7 @@
   font-family: 'SF Pro Display';
   font-style: normal;
   font-weight: 600;
-  src: url('/fonts/sf-pro-display/SFPRODISPLAYSEMIBOLDITALIC.OTF') format('opentype');
+  src: url('/fonts/sf-pro-display/SFPRODISPLAYMEDIUM.OTF') format('opentype');
   font-display: swap;
 }
 
@@ -248,4 +248,3 @@ body {
   animation: shimmer 2.5s infinite;
   content: '';
 }
-

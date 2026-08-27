@@ -55,6 +55,40 @@ export const TEAM_SECTION_LABELS: Record<AllowedSection, string> = {
 // database RPCs and Edge Functions enforce the same rule independently.
 export const FOUNDER_EMAIL = "amineelaaouamecom@gmail.com";
 
+export const PLATFORM_PERMISSION_KEYS = [
+  "users.read",
+  "users.manage",
+  "users.ban",
+  "users.delete",
+  "workspaces.read",
+  "workspaces.manage",
+  "support.read",
+  "support.reply",
+  "support.impersonate_read",
+  "support.impersonate_write",
+  "orders.read_all",
+  "products.read_all",
+  "campaigns.read_all",
+  "billing.read",
+  "billing.manage",
+  "billing.approve",
+  "plans.manage",
+  "limits.manage",
+  "entitlements.manage",
+  "announcements.manage",
+  "ai.read",
+  "ai.manage",
+  "health.read",
+  "logs.read",
+  "security.read",
+  "security.manage",
+  "settings.read",
+  "settings.manage",
+] as const;
+
+export type PlatformPermission = (typeof PLATFORM_PERMISSION_KEYS)[number];
+export type PlatformAdminRole = "root_founder" | "platform_admin" | "support_admin" | "billing_admin" | "security_admin";
+
 export function isFounder(role: string | null | undefined, email: string | null | undefined): boolean {
   return role === "founder" && email?.trim().toLowerCase() === FOUNDER_EMAIL;
 }

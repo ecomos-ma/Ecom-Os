@@ -24,6 +24,38 @@ import { toast } from "../components/Toast";
 import { prefetchRoute } from "./usePrefetch";
 import { getDemoSession, clearDemoSession, type DemoSession } from "../demo";
 
+function sessionIssuedAt(accessToken: string | undefined) {
+  if (!accessToken) return 0;
+  try {
+    const payload = JSON.parse(atob(accessToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { iat?: number };
+    return Number(payload.iat || 0) * 1000;
+  } catch {
+    return 0;
+  }
+}
+
+function resolveProfilePermissions(profile: Profile | null) {
+  if (!profile) {
+    return {
+      permissions: DEFAULT_TEAM_PERMISSIONS,
+      defaultRoute: null as string | null,
+    };
+  }
+
+  if (isOwnerLikeRole(profile.role)) {
+    return {
+      permissions: buildPermissionsForOwner(),
+      defaultRoute: "/dashboard",
+    };
+  }
+
+  const sections = normalizeAllowedSections((profile.allowed_sections as string[] | null) ?? []);
+  return {
+    permissions: buildPermissionsFromSections(sections),
+    defaultRoute: getFirstAllowedRoute(sections),
+  };
+}
+
 interface PreviewWorkspaceState {
   profile: Profile | null;
   workspace: Workspace | null;
@@ -41,6 +73,7 @@ interface AuthContextValue {
   workspacePlan: string;
   workspaceLimit: number;
   subscriptionStatus: string;
+  operationalAccess: boolean | null;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   patchWorkspace: (workspaceId: string, patch: Partial<Workspace>) => void;
@@ -66,8 +99,9 @@ const AuthContext = createContext<AuthContextValue>({
   // Kept only for backwards-compatible consumers while commercial plans are
   // dormant. They must never be used to limit a workspace.
   workspacePlan: "",
-  workspaceLimit: Number.MAX_SAFE_INTEGER,
-  subscriptionStatus: "active",
+  workspaceLimit: 0,
+  subscriptionStatus: "checking",
+  operationalAccess: null,
   signOut: async () => { },
   refreshProfile: async () => { },
   patchWorkspace: () => { },
@@ -90,8 +124,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [previewWorkspace, setPreviewWorkspace] = useState<PreviewWorkspaceState | null>(null);
   const [availableWorkspaces, setAvailableWorkspaces] = useState<Workspace[]>([]);
   const [workspacePlan, setWorkspacePlan] = useState("");
-  const [workspaceLimit, setWorkspaceLimit] = useState(Number.MAX_SAFE_INTEGER);
-  const [subscriptionStatus, setSubscriptionStatus] = useState("active");
+  const [workspaceLimit, setWorkspaceLimit] = useState(0);
+  const [subscriptionStatus, setSubscriptionStatus] = useState("checking");
+  const [operationalAccess, setOperationalAccess] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [teamPermissions, setTeamPermissions] = useState<TeamPermissions>(DEFAULT_TEAM_PERMISSIONS);
   const [permissionsLoading, setPermissionsLoading] = useState(true);
@@ -109,6 +144,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef<typeof session>(null);
   const profileLoadRef = useRef<{ userId: string; promise: Promise<void> } | null>(null);
   const invitationLookupAttemptedRef = useRef(new Set<string>());
+  const pendingPlanAttemptedRef = useRef(new Set<string>());
+  const baseSubscriptionRef = useRef({ plan: "", workspaceLimit: 0, status: "checking", allowed: null as boolean | null });
 
 
   const clearAuthState = useCallback(async () => {
@@ -119,8 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPreviewWorkspace(null);
     setAvailableWorkspaces([]);
     setWorkspacePlan("");
-    setWorkspaceLimit(Number.MAX_SAFE_INTEGER);
-    setSubscriptionStatus("active");
+    setWorkspaceLimit(0);
+    setSubscriptionStatus("checking");
+    setOperationalAccess(null);
     setSession(null);
     setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
     setPermissionsLoading(true);
@@ -144,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: profileData, error: profileErr } = await supabase
       .from("profiles")
-      .select("id, full_name, role, workspace_id, created_at, is_active, allowed_sections, avatar_url")
+      .select("id, full_name, role, workspace_id, created_at, is_active, allowed_sections, avatar_url, session_not_before")
       .eq("id", userId)
       .maybeSingle();
 
@@ -163,6 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setBaseWorkspace(null);
       setWorkspace(null);
       setPreviewWorkspace(null);
+      setSubscriptionStatus("unavailable");
+      setOperationalAccess(false);
       setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
       setDefaultRoute(null);
       setPermissionsLoading(false);
@@ -173,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await new Promise((r) => setTimeout(r, 1500));
       const { data: retryProfile } = await supabase
         .from("profiles")
-        .select("id, full_name, role, workspace_id, created_at, is_active, allowed_sections, avatar_url")
+        .select("id, full_name, role, workspace_id, created_at, is_active, allowed_sections, avatar_url, session_not_before")
         .eq("id", userId)
         .maybeSingle();
       if (!retryProfile) {
@@ -181,13 +221,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setBaseWorkspace(null);
         setWorkspace(null);
         setPreviewWorkspace(null);
-        setSubscriptionStatus("active");
+        setSubscriptionStatus("missing_profile");
+        setOperationalAccess(false);
         setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
         setDefaultRoute(null);
         setPermissionsLoading(false);
         return;
       }
       return loadProfileAndWorkspaceInternal(userId);
+    }
+
+    if (profileData.session_not_before && sessionIssuedAt(currentSession?.access_token) < new Date(profileData.session_not_before).getTime()) {
+      await supabase.auth.signOut();
+      setSession(null);
+      setProfile(null);
+      setWorkspace(null);
+      navigate("/login?reason=session-ended", { replace: true });
+      return;
     }
 
     if (profileData.is_active === false) {
@@ -245,11 +295,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const loadWorkspaceMemberships = async (profileId: string) => {
-      // Commercial plan metadata is legacy data. Membership remains the
-      // authoritative source for workspace access; no plan check is allowed
-      // to block core Ecom OS functionality.
       setWorkspacePlan("");
-      setWorkspaceLimit(Number.MAX_SAFE_INTEGER);
+      setWorkspaceLimit(0);
       const membershipRes = await supabase
         .from("profile_workspaces")
         .select("workspace_id, workspaces(id, name, created_at, meta_access_token, meta_ad_account_id, created_by)")
@@ -275,10 +322,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (localProfile.workspace_id) {
       console.log("[useAuth] Loading workspace for user:", userId, "workspace_id:", localProfile.workspace_id);
-
-      // Legacy subscription rows are deliberately ignored. Authentication,
-      // membership and role authorization are the only access controls here.
-      setSubscriptionStatus("active");
 
       const { data: workspaceData, error: wsErr } = await supabase
         .from("workspaces")
@@ -361,11 +404,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const workspaceId = localProfile.workspace_id;
 
     if (!workspaceId) {
+      setSubscriptionStatus("workspace_missing");
+      setOperationalAccess(false);
       setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
       setDefaultRoute(null);
       setPermissionsLoading(false);
       return;
     }
+
+    const { data: accessData, error: accessError } = await supabase.rpc("resolve_workspace_access_v1", {
+      p_user_id: userId,
+      p_workspace_id: workspaceId,
+    });
+    const access = accessData && typeof accessData === "object" ? accessData as Record<string, any> : null;
+    const effective = access?.subscription && typeof access.subscription === "object" ? access.subscription as Record<string, any> : null;
+    const nextSubscription = {
+      plan: String(effective?.plan?.code || ""),
+      workspaceLimit: Number(effective?.limits?.workspaces || 0),
+      status: accessError ? "billing_unavailable" : String(effective?.status || access?.reason || "subscription_missing"),
+      allowed: accessError ? false : Boolean(access?.allowed),
+    };
+    baseSubscriptionRef.current = nextSubscription;
+    if (!previewWorkspaceRef.current) {
+      setWorkspacePlan(nextSubscription.plan);
+      setWorkspaceLimit(nextSubscription.workspaceLimit);
+      setSubscriptionStatus(nextSubscription.status);
+      setOperationalAccess(nextSubscription.allowed);
+    }
+    if (accessError) console.error("[useAuth] Subscription access resolution failed:", accessError.message);
 
     if (isOwnerLikeRole(localProfile.role)) {
       setTeamPermissions(buildPermissionsForOwner());
@@ -499,8 +565,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setWorkspace(null);
         setPreviewWorkspace(null);
         setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
-        setDefaultRoute(null);
-        setPermissionsLoading(true);
+      setDefaultRoute(null);
+      setPermissionsLoading(true);
+      setSubscriptionStatus("checking");
+      setOperationalAccess(null);
       }
     });
 
@@ -511,7 +579,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { event: "UPDATE", schema: "public", table: "profiles" },
         async (payload) => {
           const updatedProfile = payload.new as Profile;
-          if (updatedProfile.id === sessionUserIdRef.current && updatedProfile.is_active === false) {
+          const issuedBeforeCutoff = Boolean(updatedProfile.session_not_before)
+            && sessionIssuedAt(sessionRef.current?.access_token) < new Date(updatedProfile.session_not_before || 0).getTime();
+          if (updatedProfile.id === sessionUserIdRef.current && issuedBeforeCutoff && updatedProfile.is_active !== false) {
+            await supabase.auth.signOut();
+            setProfile(null);
+            setBaseWorkspace(null);
+            setWorkspace(null);
+            setSession(null);
+            navigate("/login?reason=session-ended", { replace: true });
+          } else if (updatedProfile.id === sessionUserIdRef.current && updatedProfile.is_active === false) {
             try {
               const { data } = await supabase.rpc("get_my_account_notice");
               if (data && typeof data === "object") window.sessionStorage.setItem("ecomos-account-notice", JSON.stringify(data));
@@ -551,20 +628,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspace(demoSession.workspace);
       setTeamPermissions(demoSession.teamPermissions);
       setDefaultRoute(demoSession.role === "owner" ? "/dashboard" : "/confirmation");
+      setSubscriptionStatus("demo");
+      setOperationalAccess(true);
       setPermissionsLoading(false);
       setLoading(false);
     }
   }, []);
 
   const selectWorkspacePreview = useCallback((nextProfile: Profile, nextWorkspace: Workspace) => {
+    const previewAuthorization = resolveProfilePermissions(nextProfile);
     setPreviewWorkspace({ profile: nextProfile, workspace: nextWorkspace });
     setWorkspace(nextWorkspace);
+    setTeamPermissions(previewAuthorization.permissions);
+    setDefaultRoute(previewAuthorization.defaultRoute);
+    setPermissionsLoading(false);
+    setSubscriptionStatus("admin_preview");
+    setOperationalAccess(true);
   }, []);
 
+  // Signup plan selection is finalized only after Auth has produced a real
+  // user session (email confirmation and OAuth can both delay that moment).
+  // The server snapshots the official price and creates the owner-level
+  // payment request; the browser never writes subscription rows directly.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || pendingPlanAttemptedRef.current.has(userId)) return;
+    const raw = window.localStorage.getItem("ecomos_pending_plan");
+    if (!raw) return;
+
+    pendingPlanAttemptedRef.current.add(userId);
+    void (async () => {
+      try {
+        const pending = JSON.parse(raw) as { plan?: string; billing?: string; selectedAt?: string };
+        if (!pending.plan || !["starter", "growth", "pro", "scale"].includes(pending.plan)) {
+          window.localStorage.removeItem("ecomos_pending_plan");
+          return;
+        }
+        const selectedAt = pending.selectedAt ? new Date(pending.selectedAt).getTime() : Date.now();
+        if (!Number.isFinite(selectedAt) || Date.now() - selectedAt > 7 * 24 * 60 * 60 * 1000) {
+          window.localStorage.removeItem("ecomos_pending_plan");
+          return;
+        }
+        const { error } = await supabase.rpc("create_subscription_payment_request_v1", {
+          p_plan_code: pending.plan,
+          p_billing_cycle: pending.billing === "yearly" ? "annual" : "monthly",
+          p_request_type: "initial_activation",
+          p_payment_method: null,
+          p_transaction_reference: null,
+          p_user_note: "Created from signup plan selection",
+        });
+        if (error) {
+          if (error.message.includes("PAYMENT_REQUEST_ALREADY_UNDER_REVIEW")) {
+            window.localStorage.removeItem("ecomos_pending_plan");
+            return;
+          }
+          console.warn("[useAuth] Pending signup plan could not be registered:", error.message);
+          pendingPlanAttemptedRef.current.delete(userId);
+          return;
+        }
+        window.localStorage.removeItem("ecomos_pending_plan");
+        toast.success("Your plan request is ready for payment review.");
+      } catch {
+        window.localStorage.removeItem("ecomos_pending_plan");
+      }
+    })();
+  }, [session?.user?.id]);
+
   const clearPreviewWorkspace = useCallback(() => {
+    const baseAuthorization = resolveProfilePermissions(profile);
     setPreviewWorkspace(null);
     setWorkspace(baseWorkspace);
-  }, [baseWorkspace]);
+    setTeamPermissions(baseAuthorization.permissions);
+    setDefaultRoute(baseAuthorization.defaultRoute);
+    setPermissionsLoading(false);
+    setWorkspacePlan(baseSubscriptionRef.current.plan);
+    setWorkspaceLimit(baseSubscriptionRef.current.workspaceLimit);
+    setSubscriptionStatus(baseSubscriptionRef.current.status);
+    setOperationalAccess(baseSubscriptionRef.current.allowed);
+  }, [baseWorkspace, profile]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -574,8 +715,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPreviewWorkspace(null);
     setAvailableWorkspaces([]);
     setWorkspacePlan("free");
-    setWorkspaceLimit(1);
-    setSubscriptionStatus("active");
+    setWorkspaceLimit(0);
+    setSubscriptionStatus("checking");
+    setOperationalAccess(null);
     setSession(null);
     setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
     setPermissionsLoading(true);
@@ -596,9 +738,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate("/", { replace: true });
   };
 
+  const effectiveProfile = previewWorkspace?.profile ?? profile;
+
   const contextValue = useMemo(() => ({
     session,
-    profile,
+    profile: effectiveProfile,
     workspace,
     loading,
     teamPermissions,
@@ -608,6 +752,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     workspacePlan,
     workspaceLimit,
     subscriptionStatus,
+    operationalAccess,
     signOut,
     refreshProfile,
     patchWorkspace,
@@ -621,7 +766,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     exitDemo,
   }), [
     session,
-    profile,
+    effectiveProfile,
     workspace,
     loading,
     teamPermissions,
@@ -631,6 +776,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     workspacePlan,
     workspaceLimit,
     subscriptionStatus,
+    operationalAccess,
     signOut,
     refreshProfile,
     patchWorkspace,

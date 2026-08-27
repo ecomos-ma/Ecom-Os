@@ -13,6 +13,6 @@ vite.config.js
 vite.config.d.ts
 whatsapp-worker.zip
 npm-debug.log*
-
-.vercel
-.env*
+*.zip
+whatsapp-worker/sessions/
+fake_dashboard_data.json

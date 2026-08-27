@@ -84,7 +84,7 @@ LANGUAGE sql
 SECURITY DEFINER
 AS $$
   SELECT 
-    o.id,
+    o."Order ID" as id,
     o.order_number,
     o.customer_id,
     o.city,

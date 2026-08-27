@@ -31,15 +31,11 @@ CREATE POLICY "Products workspace access"
   ON public.products FOR ALL
   USING (
     workspace_id IN (
-      SELECT id FROM public.workspaces WHERE owner_id = auth.uid()
-      UNION
       SELECT workspace_id FROM public.profile_workspaces WHERE profile_id = auth.uid()
     )
   )
   WITH CHECK (
     workspace_id IN (
-      SELECT id FROM public.workspaces WHERE owner_id = auth.uid()
-      UNION
       SELECT workspace_id FROM public.profile_workspaces WHERE profile_id = auth.uid()
     )
   );
