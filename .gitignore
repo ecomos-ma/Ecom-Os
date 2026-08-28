@@ -6,6 +6,7 @@ dist
 
 .vercel
 .env*
+temp_key.txt
 !.env.example
 dev-dist/
 *.tsbuildinfo
@@ -16,3 +17,6 @@ npm-debug.log*
 *.zip
 whatsapp-worker/sessions/
 fake_dashboard_data.json
+
+.vercel
+.env*
