@@ -371,8 +371,42 @@ create policy subscription_proofs_admin_read
     and (select public.has_platform_permission('billing.read'))
   );
 
--- Resolve an explicit billing owner for every workspace that already has a
--- canonical owner membership. Ambiguous/unowned workspaces remain unassigned.
+-- Seed legacy subscriptions first because the owner insert has a capacity
+-- trigger that requires a subscription record to exist.
+insert into public.user_subscriptions(
+  owner_user_id, plan_id, billing_cycle, status, payment_status,
+  timezone, migration_state
+)
+select distinct membership.profile_id, null::uuid, null, 'grace', 'unpaid',
+  'Africa/Casablanca', 'needs_plan_assignment'
+from public.profile_workspaces membership
+where membership.status = 'active'
+  and (membership.is_owner or lower(coalesce(membership.role, '')) = 'owner')
+on conflict (owner_user_id) do nothing;
+
+create temp table _owner_subscription_states on commit drop as
+select subscription.id, subscription.status, subscription.grace_until,
+       subscription.payment_status
+from public.user_subscriptions subscription
+join (
+  select distinct on (membership.workspace_id)
+    membership.workspace_id, membership.profile_id
+  from public.profile_workspaces membership
+  where membership.status = 'active'
+    and (membership.is_owner or lower(coalesce(membership.role, '')) = 'owner')
+  order by membership.workspace_id, membership.is_owner desc, membership.created_at asc
+) candidate on candidate.profile_id = subscription.owner_user_id
+left join public.workspace_subscription_owners owner on owner.workspace_id = candidate.workspace_id
+where owner.workspace_id is null
+  and not (
+    subscription.status = 'active'
+    or (subscription.status = 'grace' and (subscription.grace_until is null or subscription.grace_until > now()))
+  );
+
+update public.user_subscriptions subscription
+set status = 'grace', grace_until = now() + interval '1 minute', updated_at = now()
+where subscription.id in (select id from _owner_subscription_states);
+
 insert into public.workspace_subscription_owners(workspace_id, owner_user_id, reason)
 select candidate.workspace_id, candidate.profile_id, 'Existing owner membership migration'
 from (
@@ -385,6 +419,14 @@ from (
   order by membership.workspace_id, membership.is_owner desc, membership.created_at asc
 ) candidate
 on conflict (workspace_id) do nothing;
+
+update public.user_subscriptions subscription
+set status = states.status,
+    grace_until = states.grace_until,
+    payment_status = states.payment_status,
+    updated_at = now()
+from _owner_subscription_states states
+where subscription.id = states.id;
 
 -- Existing sellers receive explicit legacy access without pretending they paid
 -- for Scale or any other official plan.
