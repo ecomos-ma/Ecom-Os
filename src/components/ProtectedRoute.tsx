@@ -21,7 +21,9 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (profile?.is_active === false) return <Navigate to="/disabled" replace />;
   if (operationalAccess === false) {
-    const destination = subscriptionStatus === "under_review" ? "/waiting-verification" : "/payment";
+    const destination = subscriptionStatus === "expired"
+      ? "/subscription-expired"
+      : subscriptionStatus === "under_review" ? "/waiting-verification" : "/payment";
     return <Navigate to={destination} replace />;
   }
   return <>{children}</>;
