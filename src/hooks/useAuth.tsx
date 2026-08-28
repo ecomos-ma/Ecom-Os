@@ -144,7 +144,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef<typeof session>(null);
   const profileLoadRef = useRef<{ userId: string; promise: Promise<void> } | null>(null);
   const invitationLookupAttemptedRef = useRef(new Set<string>());
-  const pendingPlanAttemptedRef = useRef(new Set<string>());
   const baseSubscriptionRef = useRef({ plan: "", workspaceLimit: 0, status: "checking", allowed: null as boolean | null });
 
 
@@ -645,54 +644,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSubscriptionStatus("admin_preview");
     setOperationalAccess(true);
   }, []);
-
-  // Signup plan selection is finalized only after Auth has produced a real
-  // user session (email confirmation and OAuth can both delay that moment).
-  // The server snapshots the official price and creates the owner-level
-  // payment request; the browser never writes subscription rows directly.
-  useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId || pendingPlanAttemptedRef.current.has(userId)) return;
-    const raw = window.localStorage.getItem("ecomos_pending_plan");
-    if (!raw) return;
-
-    pendingPlanAttemptedRef.current.add(userId);
-    void (async () => {
-      try {
-        const pending = JSON.parse(raw) as { plan?: string; billing?: string; selectedAt?: string };
-        if (!pending.plan || !["starter", "growth", "pro", "scale"].includes(pending.plan)) {
-          window.localStorage.removeItem("ecomos_pending_plan");
-          return;
-        }
-        const selectedAt = pending.selectedAt ? new Date(pending.selectedAt).getTime() : Date.now();
-        if (!Number.isFinite(selectedAt) || Date.now() - selectedAt > 7 * 24 * 60 * 60 * 1000) {
-          window.localStorage.removeItem("ecomos_pending_plan");
-          return;
-        }
-        const { error } = await supabase.rpc("create_subscription_payment_request_v1", {
-          p_plan_code: pending.plan,
-          p_billing_cycle: pending.billing === "yearly" ? "annual" : "monthly",
-          p_request_type: "initial_activation",
-          p_payment_method: null,
-          p_transaction_reference: null,
-          p_user_note: "Created from signup plan selection",
-        });
-        if (error) {
-          if (error.message.includes("PAYMENT_REQUEST_ALREADY_UNDER_REVIEW")) {
-            window.localStorage.removeItem("ecomos_pending_plan");
-            return;
-          }
-          console.warn("[useAuth] Pending signup plan could not be registered:", error.message);
-          pendingPlanAttemptedRef.current.delete(userId);
-          return;
-        }
-        window.localStorage.removeItem("ecomos_pending_plan");
-        toast.success("Your plan request is ready for payment review.");
-      } catch {
-        window.localStorage.removeItem("ecomos_pending_plan");
-      }
-    })();
-  }, [session?.user?.id]);
 
   const clearPreviewWorkspace = useCallback(() => {
     const baseAuthorization = resolveProfilePermissions(profile);

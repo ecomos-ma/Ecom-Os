@@ -163,7 +163,7 @@ export default function Login() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`,
+          emailRedirectTo: `${window.location.origin}/choose-plan`,
           data: {
             full_name: fullName.trim(),
             workspace_name: workspaceName.trim(),

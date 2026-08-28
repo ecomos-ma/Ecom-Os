@@ -4,7 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { PlatformLoading } from "./PlatformLoading";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { session, loading, profile } = useAuth();
+  const { session, loading, profile, operationalAccess, subscriptionStatus } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -20,5 +20,9 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }
 
   if (profile?.is_active === false) return <Navigate to="/disabled" replace />;
+  if (operationalAccess === false) {
+    const destination = subscriptionStatus === "under_review" ? "/waiting-verification" : "/payment";
+    return <Navigate to={destination} replace />;
+  }
   return <>{children}</>;
 }

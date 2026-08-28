@@ -12,6 +12,9 @@ import { LanguageProvider } from "./i18n";
 import { SupportModeProvider } from "./contexts/SupportModeContext";
 
 const Login = lazy(() => import("./pages/Login"));
+const ChoosePlan = lazy(() => import("./pages/ChoosePlan"));
+const Payment = lazy(() => import("./pages/Payment"));
+const WaitingForVerification = lazy(() => import("./pages/WaitingForVerification"));
 const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
 const Disabled = lazy(() => import("./pages/Disabled"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied"));
@@ -108,6 +111,9 @@ export default function App() {
             <Routes>
               <Route path="/" element={<LoadablePage><EcomOSLanding /></LoadablePage>} />
               <Route path="/login" element={<LoadablePage><Login /></LoadablePage>} />
+              <Route path="/choose-plan" element={<LoadablePage><ChoosePlan /></LoadablePage>} />
+              <Route path="/payment" element={<LoadablePage><Payment /></LoadablePage>} />
+              <Route path="/waiting-verification" element={<LoadablePage><WaitingForVerification /></LoadablePage>} />
               <Route path="/disabled" element={<LoadablePage><Disabled /></LoadablePage>} />
               <Route path="/403" element={<LoadablePage><AccessDenied /></LoadablePage>} />
               <Route path="/404" element={<LoadablePage><NotFound /></LoadablePage>} />

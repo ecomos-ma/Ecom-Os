@@ -3,6 +3,7 @@ import { Check, ChevronLeft, ChevronRight, Eye, Loader2, Search, ShieldCheck, X 
 import { useLocation } from "react-router-dom";
 import { usePlatformAdmin } from "../../../components/PlatformAdminRoute";
 import { founderAdmin, type OfficialPlan, type PlatformPaymentRequest, type PlatformSubscription, } from "../../../lib/founderAdmin";
+import { BankTransferSettings } from "./BankTransferSettings";
 import { supabase } from "../../../lib/supabase";
 import { currency, dateTime, EmptyState, errorMessage, PageHeading, RefreshButton, StatusBadge } from "./shared";
 const PAGE_SIZE = 25;
@@ -11,7 +12,7 @@ export function BillingPage() {
     if (pathname.startsWith("/admin/payments"))
         return <PaymentsPage />;
     if (pathname.startsWith("/admin/plans"))
-        return <PlansPage />;
+        return <><BankTransferSettings /><PlansPage /></>;
     return <SubscriptionsPage />;
 }
 function PaymentsPage() {
