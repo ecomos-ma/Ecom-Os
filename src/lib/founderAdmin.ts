@@ -524,6 +524,9 @@ export const founderAdmin = {
   setPlatformWorkspaceStatus: (workspaceId: string, status: "active" | "suspended", reason: string) => rpc<void>("platform_set_workspace_status_v1", {
     p_workspace_id: workspaceId, p_status: status, p_reason: reason,
   }),
+  deletePlatformWorkspace: (workspaceId: string, reason: string) => rpc<void>("platform_delete_workspace_v1", {
+    p_workspace_id: workspaceId, p_reason: reason,
+  }),
   commandCenter: (startDate?: string | null, endDate?: string | null) => rpc<PlatformCommandCenter>("platform_command_center_v1", {
     p_start_date: startDate || null, p_end_date: endDate || null,
   }),
@@ -547,6 +550,22 @@ export const founderAdmin = {
   grantSubscriptionGrace: (ownerUserId: string, graceUntil: string, reason: string) => rpc<EffectiveSubscription>("platform_grant_subscription_grace_v1", {
     p_owner_user_id: ownerUserId, p_grace_until: graceUntil, p_reason: reason,
   }),
+  checkOrderCapacity: (workspaceId: string) => rpc<{
+    allowed: boolean;
+    reason: string;
+    limit: number | null;
+    used: number;
+    remaining: number | null;
+    period_start: string;
+    period_end: string;
+    effective_subscription?: Record<string, unknown>;
+  }>("check_order_capacity_v1", { p_workspace_id: workspaceId }),
+  checkSubscriptionBlocked: (workspaceId: string) => rpc<{
+    blocked: boolean;
+    reason: string;
+    message: string;
+    subscription?: Record<string, unknown>;
+  }>("is_subscription_blocked_v1", { p_workspace_id: workspaceId }),
   snapshot: () => rpc<FounderSnapshot>("founder_admin_snapshot"),
   health: () => rpc<HealthOverview>("founder_health_overview"),
   orders: (args: { limit?: number; offset?: number; query?: string; status?: string; workspaceId?: string } = {}) => rpc<FounderOrder[]>("founder_list_orders", {

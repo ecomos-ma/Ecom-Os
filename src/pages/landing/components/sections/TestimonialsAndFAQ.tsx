@@ -14,23 +14,26 @@ interface Review {
 }
 
 const sectionCopy = {
-    en: { title: "What Moroccan COD teams say.", subtitle: "Two operators. Two clearer ways to run the day.", faqTitle: "Questions Moroccan operators ask", faqSubtitle: "Straight answers about scope, connections and the COD workflow." },
-    fr: { title: "Ce que disent les équipes COD marocaines.", subtitle: "Deux opérateurs. Deux façons plus claires de piloter la journée.", faqTitle: "Les questions des opérateurs marocains", faqSubtitle: "Des réponses directes sur le périmètre, les connexions et le flux COD." },
-    ar: { title: "ماذا تقول فرق الدفع عند الاستلام المغربية.", subtitle: "مسؤولان وطريقتان أوضح لإدارة اليوم.", faqTitle: "أسئلة يطرحها المشغلون المغاربة", faqSubtitle: "إجابات مباشرة عن النطاق والربط ومسار الدفع عند الاستلام." },
+    en: { eyebrow: "Operator stories", title: "Less saisie colis. More time for customers.", subtitle: "Three Moroccan COD operators. One recurring win: less repetitive work and a calmer day.", faqTitle: "Questions Moroccan operators ask", faqSubtitle: "Straight answers about scope, connections and the COD workflow." },
+    fr: { eyebrow: "Témoignages d'opérateurs", title: "Moins de saisie colis. Plus de temps pour vos clients.", subtitle: "Trois opérateurs COD marocains. Un même résultat : moins de tâches répétitives et des journées plus sereines.", faqTitle: "Les questions des opérateurs marocains", faqSubtitle: "Des réponses directes sur le périmètre, les connexions et le flux COD." },
+    ar: { eyebrow: "تجارب فرق التشغيل", title: "إدخال أقل للطرود. وقت أكثر لعملائك.", subtitle: "ثلاثة مشغلين مغاربة، ونتيجة واحدة: عمل متكرر أقل ويوم أكثر هدوءاً.", faqTitle: "أسئلة يطرحها المشغلون المغاربة", faqSubtitle: "إجابات مباشرة عن النطاق والربط ومسار الدفع عند الاستلام." },
 };
 
 const reviews: Record<LandingLanguage, Review[]> = {
     en: [
-        { name: "Mohammed Amine", role: "Founder · Casablanca", initials: "MA", quote: "Before Ecom OS, confirmation, spreadsheets and delivery tracking lived in different places. Now the team sees the same order status and knows the next action.", metricLabel: "One operational view", metricValue: "Orders → delivery" },
-        { name: "Sanaa El Idrissi", role: "Operations Manager · Rabat", initials: "SI", quote: "Cost per delivered changed the conversation. We stopped judging campaigns only by order volume and started looking at what actually reaches the customer.", metricLabel: "Decision metric", metricValue: "Delivered profit" },
+        { name: "Mohammed Amine", role: "Founder · Casablanca", initials: "MA", quote: "The end of every day disappeared into saisie colis—copying the same customer and order details between tools. Ecom OS keeps the workflow together, so my team moves faster and I have time to focus on customers again.", metricLabel: "Time reclaimed", metricValue: "Every workday" },
+        { name: "Sanaa El Idrissi", role: "Operations Manager · Rabat", initials: "SI", quote: "When a customer called, we had to search WhatsApp, spreadsheets and the carrier portal for an answer. Now the order journey is clear in one place, so we respond confidently and customers feel looked after.", metricLabel: "Customer support", metricValue: "Clearer answers" },
+        { name: "Youssef Benali", role: "E-commerce Operator · Marrakech", initials: "YB", quote: "Preparing parcels used to mean repeating the same work after confirmation. Now each order moves clearly from confirmation to delivery. There is less stress, fewer handoffs and more time to grow the business.", metricLabel: "Daily workflow", metricValue: "Confirm → ship → track" },
     ],
     fr: [
-        { name: "Mohammed Amine", role: "Fondateur · Casablanca", initials: "MA", quote: "Avant Ecom OS, la confirmation, les feuilles de calcul et le suivi livraison étaient séparés. Maintenant l'équipe voit le même statut et connaît l'action suivante.", metricLabel: "Une vue opérationnelle", metricValue: "Commande → livré" },
-        { name: "Sanaa El Idrissi", role: "Responsable opérations · Rabat", initials: "SI", quote: "Le coût par livraison a changé la discussion. Nous ne jugeons plus les campagnes seulement au volume, mais à ce qui arrive réellement chez le client.", metricLabel: "Métrique de décision", metricValue: "Profit livré" },
+        { name: "Mohammed Amine", role: "Fondateur · Casablanca", initials: "MA", quote: "Chaque fin de journée passait dans la saisie colis, à recopier les mêmes informations entre plusieurs outils. Avec Ecom OS, le flux reste au même endroit : l'équipe avance plus vite et je peux enfin me concentrer sur les clients.", metricLabel: "Temps récupéré", metricValue: "Chaque journée" },
+        { name: "Sanaa El Idrissi", role: "Responsable opérations · Rabat", initials: "SI", quote: "Quand un client appelait, il fallait chercher dans WhatsApp, les feuilles de calcul et le portail du transporteur. Maintenant, le parcours de la commande est clair au même endroit et nos réponses rassurent vraiment le client.", metricLabel: "Service client", metricValue: "Réponses plus claires" },
+        { name: "Youssef Benali", role: "Opérateur e-commerce · Marrakech", initials: "YB", quote: "Préparer les colis voulait dire recommencer le travail après la confirmation. Aujourd'hui, chaque commande avance clairement jusqu'à la livraison : moins de stress, moins de passages manuels et plus de temps pour développer l'activité.", metricLabel: "Flux quotidien", metricValue: "Confirmer → expédier → suivre" },
     ],
     ar: [
-        { name: "محمد أمين", role: "مؤسس · الدار البيضاء", initials: "م أ", quote: "قبل Ecom OS كان التأكيد والجداول وتتبع التوصيل في أماكن مختلفة. الآن يرى الفريق نفس حالة الطلب ويعرف الإجراء التالي.", metricLabel: "رؤية تشغيلية واحدة", metricValue: "الطلب ← التوصيل" },
-        { name: "سناء الإدريسي", role: "مديرة العمليات · الرباط", initials: "س إ", quote: "غيرت التكلفة لكل توصيل طريقة النقاش. لم نعد نحكم على الحملات بعدد الطلبات فقط، بل بما يصل فعلياً إلى العميل.", metricLabel: "مقياس القرار", metricValue: "الربح بعد التوصيل" },
+        { name: "محمد أمين", role: "مؤسس · الدار البيضاء", initials: "م أ", quote: "كان آخر كل يوم يضيع في إدخال الطرود ونسخ نفس بيانات العميل والطلب بين أدوات مختلفة. مع Ecom OS أصبح مسار العمل في مكان واحد، فتحرك الفريق أسرع وعدت أركز على العملاء.", metricLabel: "وقت مسترجع", metricValue: "كل يوم عمل" },
+        { name: "سناء الإدريسي", role: "مديرة العمليات · الرباط", initials: "س إ", quote: "عندما يتصل عميل، كنا نبحث في واتساب والجداول وبوابة شركة التوصيل. الآن رحلة الطلب واضحة في مكان واحد، فنجيب بثقة ويشعر العميل أننا نهتم به فعلاً.", metricLabel: "خدمة العملاء", metricValue: "إجابات أوضح" },
+        { name: "يوسف بنعلي", role: "مسؤول تجارة إلكترونية · مراكش", initials: "ي ب", quote: "كان تجهيز الطرود يعني تكرار العمل نفسه بعد التأكيد. الآن ينتقل كل طلب بوضوح من التأكيد إلى التوصيل، مع ضغط أقل ووقت أكبر لتطوير المشروع.", metricLabel: "سير العمل اليومي", metricValue: "تأكيد ← شحن ← تتبع" },
     ],
 };
 
@@ -63,7 +66,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
                 <span className="font-bold text-slate-900">{q}</span>
                 <motion.span animate={{ rotate: open ? 180 : 0 }}><ChevronDown className="mt-0.5 h-5 w-5 text-slate-500" /></motion.span>
             </button>
-            <AnimatePresence>{open && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><p className="pb-5 text-sm leading-7 text-slate-600 sm:text-base">{a}</p></motion.div>}</AnimatePresence>
+            <AnimatePresence>{open && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><p className="pb-5 text-sm leading-7 text-slate-700 selection:bg-[#f4cedb] selection:text-slate-950 sm:text-[16px]">{a}</p></motion.div>}</AnimatePresence>
         </div>
     );
 }
@@ -74,9 +77,9 @@ export function TestimonialsAndFAQ({ lang }: { lang: LandingLanguage }) {
     return (
         <>
             <section className={`border-t border-slate-200 bg-white py-24 sm:py-28 ${isRtl ? "rtl" : ""}`}>
-                <div className="mx-auto max-w-5xl px-4 sm:px-6">
-                    <Reveal><div className="mb-12 text-center"><h2 className="text-balance text-4xl font-bold tracking-[-0.045em] text-[#21161a] sm:text-5xl">{c.title}</h2><p className="mt-4 text-base text-slate-500 sm:text-lg">{c.subtitle}</p></div></Reveal>
-                    <div className="grid gap-5 md:grid-cols-2">
+                <div className="mx-auto max-w-7xl px-4 sm:px-6">
+                    <Reveal><div className="mx-auto mb-12 max-w-4xl text-center"><div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#DB6A8F]/20 bg-[#fff6f9] px-3.5 py-2 text-xs font-bold text-[#a82855]"><span className="h-1.5 w-1.5 rounded-full bg-[#DB3F73]" />{c.eyebrow}</div><h2 className="text-balance text-4xl font-bold tracking-[-0.045em] text-[#21161a] sm:text-5xl">{c.title}</h2><p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg">{c.subtitle}</p></div></Reveal>
+                    <div className="grid gap-5 md:grid-cols-2 min-[900px]:grid-cols-3">
                         {reviews[lang].map((review, index) => (
                             <Reveal key={review.name} delay={index * 0.08}>
                                 <article className="flex h-full flex-col rounded-[24px] border border-slate-200 bg-[#fcfafb] p-6 shadow-[0_10px_35px_rgba(40,24,32,0.05)] transition hover:-translate-y-1 hover:border-[#DB6A8F]/30 hover:shadow-[0_20px_50px_rgba(40,24,32,0.10)] sm:p-7">

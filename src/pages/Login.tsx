@@ -48,7 +48,7 @@ function friendlyAuthError(message: string) {
 }
 
 export default function Login() {
-  const { session, loading, profile, defaultRoute } = useAuth();
+  const { session, loading, profile, defaultRoute, subscriptionStatus, operationalAccess } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedPlan = searchParams.get("plan");
   const requestedBilling = searchParams.get("billing");
@@ -68,8 +68,6 @@ export default function Login() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [planModalOpen, setPlanModalOpen] = useState(false);
-  const [pendingSignupMethod, setPendingSignupMethod] = useState<"email" | "google">("email");
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -87,16 +85,29 @@ export default function Login() {
   const planPrice = billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
   const isProcessing = busy || googleBusy || loading;
 
-  const planSummary = useMemo(() => {
-    const orders = plan.limits.ordersDaily ? `${plan.limits.ordersDaily} orders/day` : `${plan.limits.ordersMonthly.toLocaleString("en-US")} orders/month`;
-    const workspaces = plan.limits.workspaces === "unlimited" ? "Unlimited workspaces" : `${plan.limits.workspaces} workspace${plan.limits.workspaces === 1 ? "" : "s"}`;
-    return [orders, workspaces];
-  }, [plan]);
-
   if (!loading && session) {
     const returnTo = searchParams.get("returnTo");
     let route = profile?.role === "supervisor" ? "/dashboard" : defaultRoute ?? "/dashboard";
-    if (returnTo?.startsWith("/") && returnTo !== "/login" && profile?.role !== "supervisor") route = returnTo;
+
+    const waitingStatuses = new Set([
+      "under_review",
+      "pending_payment",
+      "submitted",
+      "reviewing",
+      "awaiting_review",
+      "awaiting_verification",
+    ]);
+
+    if (subscriptionStatus === "expired") {
+      route = "/subscription-expired";
+    } else if (waitingStatuses.has(subscriptionStatus)) {
+      route = "/waiting-verification";
+    } else if (operationalAccess === false) {
+      route = "/payment";
+    } else if (returnTo?.startsWith("/") && returnTo !== "/login" && profile?.role !== "supervisor") {
+      route = returnTo;
+    }
+
     return <Navigate to={route} replace />;
   }
 
@@ -104,7 +115,6 @@ export default function Login() {
     setAuthMode(nextMode);
     setError(null);
     setSignupSuccess(false);
-    setPlanModalOpen(false);
     const next = new URLSearchParams(searchParams);
     if (nextMode === "sign-up") {
       next.set("mode", "signup");
@@ -118,52 +128,28 @@ export default function Login() {
     setSearchParams(next, { replace: true });
   };
 
-  const choosePlan = (tier: PlanTier) => {
-    setSelectedPlan(tier);
-    const next = new URLSearchParams(searchParams);
-    next.set("mode", "signup");
-    next.set("plan", tier);
-    next.set("billing", billing);
-    setSearchParams(next, { replace: true });
-  };
-
-  const chooseBilling = (period: BillingPeriod) => {
-    setBilling(period);
-    const next = new URLSearchParams(searchParams);
-    next.set("mode", "signup");
-    next.set("plan", selectedPlan);
-    next.set("billing", period);
-    setSearchParams(next, { replace: true });
-  };
-
   const rememberPlan = () => {
     window.localStorage.setItem("ecomos_pending_plan", JSON.stringify({ plan: selectedPlan, billing, selectedAt: new Date().toISOString() }));
   };
 
   const startGoogleOAuth = async () => {
     setGoogleBusy(true);
-    const { error: authError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    const { error: authError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/login` } });
     if (authError) {
       setGoogleBusy(false);
-      setPlanModalOpen(false);
       setError(friendlyAuthError(authError.message));
     }
   };
 
   const completeSignup = async () => {
     rememberPlan();
-    if (pendingSignupMethod === "google") {
-      await startGoogleOAuth();
-      return;
-    }
-
     setBusy(true);
     try {
       const { error: authError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/choose-plan`,
+          emailRedirectTo: `${window.location.origin}/login`,
           data: {
             full_name: fullName.trim(),
             workspace_name: workspaceName.trim(),
@@ -173,14 +159,11 @@ export default function Login() {
         },
       });
       if (authError) {
-        setPlanModalOpen(false);
         setError(friendlyAuthError(authError.message));
       } else {
-        setPlanModalOpen(false);
         setSignupSuccess(true);
       }
     } catch (caught) {
-      setPlanModalOpen(false);
       setError(friendlyAuthError(caught instanceof Error ? caught.message : ""));
     } finally {
       setBusy(false);
@@ -198,8 +181,7 @@ export default function Login() {
     if (authMode === "sign-up" && !acceptedTerms) return setError("Accept the Terms and Privacy Policy to create your account.");
 
     if (authMode === "sign-up") {
-      setPendingSignupMethod("email");
-      setPlanModalOpen(true);
+      void completeSignup();
       return;
     }
 
@@ -221,8 +203,7 @@ export default function Login() {
       return;
     }
     if (authMode === "sign-up") {
-      setPendingSignupMethod("google");
-      setPlanModalOpen(true);
+      await startGoogleOAuth();
       return;
     }
     await startGoogleOAuth();
@@ -262,7 +243,7 @@ export default function Login() {
 
           <div className="mt-8">
             <h1 className="text-4xl font-bold leading-tight tracking-[-0.045em]">{authMode === "sign-in" ? "Welcome back" : "Create your account"}</h1>
-            <p className="mt-2 text-base leading-7 text-slate-600">{authMode === "sign-in" ? "Enter your details to access your workspace." : "Enter your details first. You will choose your plan in the next step."}</p>
+            <p className="mt-2 text-base leading-7 text-slate-600">{authMode === "sign-in" ? "Enter your details to access your workspace." : "Enter your details first. You will choose your plan after email confirmation."}</p>
           </div>
 
           <button type="button" onClick={onGoogleSignIn} disabled={isProcessing} className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-base font-bold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
@@ -289,7 +270,7 @@ export default function Login() {
             {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-xs font-semibold leading-5 text-rose-700" role="alert">{error}</div>}
 
             <button type="submit" disabled={isProcessing} className="mt-6 flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#cf3167] to-[#f13f75] px-5 text-base font-bold text-white shadow-[0_12px_30px_rgba(219,63,115,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(219,63,115,0.3)] disabled:cursor-not-allowed disabled:opacity-60">
-              {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : authMode === "sign-in" ? <LockKeyhole className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}{busy ? "Please wait…" : authMode === "sign-in" ? "Sign in" : "Continue to plan"}
+              {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : authMode === "sign-in" ? <LockKeyhole className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}{busy ? "Please wait…" : authMode === "sign-in" ? "Sign in" : "Create account"}
             </button>
           </form>
         </div>
@@ -300,55 +281,6 @@ export default function Login() {
         <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 rounded-full bg-violet-300/15 blur-3xl" />
         <img src={heroImage} alt="Moroccan ecommerce operator using the EcomOS order and delivery dashboard" className="relative z-10 h-full max-h-[94vh] w-full max-w-[1050px] object-contain drop-shadow-[0_32px_55px_rgba(94,38,61,0.16)]" />
       </aside>
-
-      {planModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation">
-          <section className="relative my-auto w-full max-w-4xl rounded-[30px] border border-white/70 bg-white p-5 shadow-[0_35px_120px_rgba(15,23,42,0.28)] sm:p-7" role="dialog" aria-modal="true" aria-labelledby="plan-dialog-title">
-            <button type="button" onClick={() => setPlanModalOpen(false)} className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-900" aria-label="Close plan selection"><X className="h-5 w-5" /></button>
-
-            <div className="pr-12">
-              <p className="text-sm font-bold text-[#c53265]">Final step</p>
-              <h2 id="plan-dialog-title" className="mt-1 text-3xl font-bold tracking-[-0.04em] text-slate-950">Choose your plan</h2>
-              <p className="mt-2 text-sm text-slate-600">Select the capacity for your workspace. You can change plans later.</p>
-            </div>
-
-            <div className="mt-5 inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1">
-              <button type="button" onClick={() => chooseBilling("monthly")} className={`h-9 rounded-lg px-4 text-sm font-bold transition ${billing === "monthly" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}>Monthly</button>
-              <button type="button" onClick={() => chooseBilling("yearly")} className={`h-9 rounded-lg px-4 text-sm font-bold transition ${billing === "yearly" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}>Yearly</button>
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {planOrder.map((tier) => {
-                const option = PRICING_PLANS[tier];
-                const selected = selectedPlan === tier;
-                const price = billing === "monthly" ? option.monthlyPrice : option.yearlyPrice;
-                const orders = option.limits.ordersDaily ? `${option.limits.ordersDaily} orders/day` : `${option.limits.ordersMonthly.toLocaleString("en-US")} orders/month`;
-                const workspaces = option.limits.workspaces === "unlimited" ? "Unlimited workspaces" : `${option.limits.workspaces} workspace${option.limits.workspaces === 1 ? "" : "s"}`;
-                return (
-                  <button key={tier} type="button" aria-pressed={selected} onClick={() => choosePlan(tier)} className={`relative min-h-[190px] rounded-2xl border p-4 text-left transition ${selected ? "border-[#DB3F73] bg-[#fff7fa] shadow-[0_15px_35px_rgba(219,63,115,0.12)] ring-2 ring-[#DB3F73]/10" : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"}`}>
-                    {tier === "growth" && <span className="absolute right-3 top-3 rounded-full bg-[#DB3F73] px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white">Popular</span>}
-                    <span className={`block text-base font-black ${selected ? "text-[#c53265]" : "text-slate-950"}`}>{option.name}</span>
-                    <span className="mt-4 flex items-end gap-1 text-slate-950"><span className="text-xs font-bold text-slate-500">MAD</span><span className="text-3xl font-black leading-none">{price.toLocaleString("en-US")}</span></span>
-                    <span className="mt-1 block text-xs font-semibold text-slate-400">per {billing === "monthly" ? "month" : "year"}</span>
-                    <span className="mt-5 flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Check className="h-3.5 w-3.5 text-emerald-600" />{orders}</span>
-                    <span className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Check className="h-3.5 w-3.5 text-emerald-600" />{workspaces}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-500">
-                {planSummary.map((item) => <span key={item} className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-emerald-600" />{item}</span>)}
-              </div>
-              <button type="button" onClick={() => void completeSignup()} disabled={busy || googleBusy} className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#cf3167] to-[#f13f75] px-7 text-sm font-bold text-white shadow-[0_12px_28px_rgba(219,63,115,0.25)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
-                {busy || googleBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {busy || googleBusy ? "Please wait…" : pendingSignupMethod === "google" ? `Continue with ${plan.name}` : `Create ${plan.name} workspace`}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }

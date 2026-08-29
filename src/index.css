@@ -223,6 +223,45 @@ body {
   animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes landing-marquee-left {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+
+@keyframes landing-marquee-right {
+  from { transform: translate3d(-50%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+.landing-marquee-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 7%, black 93%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 7%, black 93%, transparent);
+}
+
+.landing-marquee-track {
+  will-change: transform;
+}
+
+.landing-marquee-left {
+  animation: landing-marquee-left 34s linear infinite;
+}
+
+.landing-marquee-right {
+  animation: landing-marquee-right 42s linear infinite;
+}
+
+.landing-marquee-mask:hover .landing-marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-marquee-left,
+  .landing-marquee-right {
+    animation: none;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);

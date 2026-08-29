@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, Check, Menu, Play, Sparkles, X } from "lucide-react";
 import { LandingLanguage, i18n } from "./landing/i18n";
 import { Reveal } from "./landing/components/motion/Reveal";
 import { HeroCommandCenter } from "./landing/components/sections/HeroCommandCenter";
 import { IntegrationTrustBar } from "./landing/components/sections/IntegrationTrustBar";
+import { ShippingCarrierMarquee, StoreTrustMarquee } from "./landing/components/sections/CommerceMarquees";
 import { CostPerDeliveredDemo } from "./landing/components/sections/CostPerDeliveredDemo";
 import { OperatingSystemMap } from "./landing/components/sections/OperatingSystemMap";
+import { TeamManagementSection } from "./landing/components/sections/TeamManagementSection";
 import { WhatsAppAutomationSection } from "./landing/components/sections/WhatsAppAutomationSection";
+import { ReturnsScannerSection } from "./landing/components/sections/ReturnsScannerSection";
+import { EcomOSComparison } from "./landing/components/sections/EcomOSComparison";
 import { PlanFinder } from "./landing/components/sections/PlanFinder";
 import { TestimonialsAndFAQ } from "./landing/components/sections/TestimonialsAndFAQ";
 import { FinalCTA } from "./landing/components/sections/FinalCTA";
@@ -18,7 +23,7 @@ const heroCopy = {
     en: {
         eyebrow: "Built for Morocco's COD operations",
         lineOne: "Run your entire",
-        highlight: "e-commerce operation",
+        highlights: ["e-commerce operation", "order pipeline", "delivery workflow", "profit reporting"],
         lineTwo: "from one calm workspace.",
         proof: ["No credit card", "Set up in minutes", "Cancel anytime"],
         demo: "Watch product tour",
@@ -27,7 +32,7 @@ const heroCopy = {
     fr: {
         eyebrow: "Conçu pour les opérations COD au Maroc",
         lineOne: "Pilotez toute votre",
-        highlight: "activité e-commerce",
+        highlights: ["activité e-commerce", "gestion des commandes", "chaîne de livraison", "croissance rentable"],
         lineTwo: "depuis un espace clair.",
         proof: ["Sans carte bancaire", "Prêt en quelques minutes", "Résiliable à tout moment"],
         demo: "Voir la démo produit",
@@ -36,7 +41,7 @@ const heroCopy = {
     ar: {
         eyebrow: "مصمم لعمليات الدفع عند الاستلام في المغرب",
         lineOne: "أدر كل",
-        highlight: "عمليات تجارتك الإلكترونية",
+        highlights: ["عمليات تجارتك الإلكترونية", "طلباتك", "شحناتك", "أرباحك"],
         lineTwo: "من مساحة عمل واحدة وهادئة.",
         proof: ["بدون بطاقة بنكية", "جاهز في دقائق", "إلغاء في أي وقت"],
         demo: "شاهد جولة المنتج",
@@ -47,6 +52,8 @@ const heroCopy = {
 export default function LandingV3() {
     const [lang, setLang] = useState<LandingLanguage>("en");
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [activeHighlight, setActiveHighlight] = useState(0);
+    const prefersReducedMotion = useReducedMotion();
 
     useEffect(() => {
         const savedLang = localStorage.getItem("preferred_landing_lang") as LandingLanguage;
@@ -63,6 +70,17 @@ export default function LandingV3() {
         document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
     }, [lang]);
 
+    useEffect(() => {
+        setActiveHighlight(0);
+        if (prefersReducedMotion) return;
+
+        const rotation = window.setInterval(() => {
+            setActiveHighlight((current) => (current + 1) % heroCopy[lang].highlights.length);
+        }, 3000);
+
+        return () => window.clearInterval(rotation);
+    }, [lang, prefersReducedMotion]);
+
     const t = i18n[lang];
     const h = heroCopy[lang];
     const isRtl = lang === "ar";
@@ -74,7 +92,7 @@ export default function LandingV3() {
     ];
 
     return (
-        <div className="min-h-screen overflow-x-hidden bg-[#fffdfd] text-slate-950 selection:bg-[#DB6A8F]/20">
+        <div className="min-h-screen overflow-x-hidden bg-[#fffdfd] text-slate-950 selection:bg-[#f4cedb] selection:text-[#21161a]">
             <nav className="fixed inset-x-0 top-0 z-50 border-b border-[#3b1420]/[0.07] bg-white/85 backdrop-blur-xl">
                 <div className="mx-auto flex h-[72px] max-w-[1360px] items-center justify-between px-4 sm:px-6 lg:px-8">
                     <a href="#product" aria-label="Ecom OS home" className="flex shrink-0 items-center">
@@ -157,10 +175,29 @@ export default function LandingV3() {
                         </div>
                     </Reveal>
                     <Reveal delay={0.1}>
-                        <h1 className="mx-auto max-w-5xl text-balance text-[2.8rem] font-bold leading-[0.98] tracking-[-0.055em] text-[#21161a] sm:text-6xl md:text-7xl lg:text-[5.4rem]">
-                            {h.lineOne}{" "}
-                            <span className="bg-gradient-to-r from-[#c92f64] via-[#e04e7e] to-[#9e234c] bg-clip-text text-transparent">{h.highlight}</span>{" "}
-                            {h.lineTwo}
+                        <h1 className="mx-auto max-w-6xl text-[clamp(1.8rem,8.6vw,5.4rem)] font-bold leading-[0.96] tracking-[-0.055em] text-[#21161a]">
+                            <span className="sr-only">{h.lineOne} {h.highlights[0]} {h.lineTwo}</span>
+                            <span aria-hidden="true" className="block">
+                                <span className="block">{h.lineOne}</span>
+                                <span className="relative my-[0.08em] block h-[1.08em] overflow-visible">
+                                    <AnimatePresence initial={false}>
+                                        <motion.span
+                                            key={`${lang}-${activeHighlight}`}
+                                            initial={prefersReducedMotion ? false : { opacity: 0, y: "20%" }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: "-16%" }}
+                                            transition={{ duration: prefersReducedMotion ? 0 : 0.38, ease: [0.22, 1, 0.36, 1] }}
+                                            className="absolute inset-0 flex items-center justify-center whitespace-nowrap"
+                                        >
+                                            <span className="relative inline-block bg-gradient-to-r from-[#bd285b] via-[#e34d7e] to-[#a5214c] bg-clip-text px-[0.05em] text-transparent">
+                                                {h.highlights[activeHighlight]}
+                                                <span className="absolute inset-x-[4%] -bottom-[0.08em] h-[0.07em] rounded-full bg-gradient-to-r from-transparent via-[#e98cab]/70 to-transparent" />
+                                            </span>
+                                        </motion.span>
+                                    </AnimatePresence>
+                                </span>
+                                <span className="block">{h.lineTwo}</span>
+                            </span>
                         </h1>
                     </Reveal>
                     <Reveal delay={0.18}>
@@ -197,13 +234,18 @@ export default function LandingV3() {
                 </section>
             </main>
 
+            <ShippingCarrierMarquee lang={lang} />
             <IntegrationTrustBar lang={lang} />
             <div id="solutions" className="scroll-mt-[72px]"><OperatingSystemMap lang={lang} /></div>
+            <TeamManagementSection lang={lang} />
             <CostPerDeliveredDemo lang={lang} />
             <div id="integrations" className="scroll-mt-[72px]"><WhatsAppAutomationSection lang={lang} /></div>
+            <ReturnsScannerSection lang={lang} />
+            <EcomOSComparison lang={lang} />
             <TestimonialsAndFAQ lang={lang} />
             <div id="pricing" className="scroll-mt-[72px]"><PlanFinder lang={lang} /></div>
             <FinalCTA lang={lang} />
+            <StoreTrustMarquee lang={lang} />
             <LandingFooter lang={lang} />
         </div>
     );

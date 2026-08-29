@@ -26,6 +26,7 @@
     "@tanstack/react-virtual": "^3.14.9",
     "dotenv": "^17.4.2",
     "framer-motion": "^10.12.5",
+    "jspdf": "^4.2.1",
     "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "lamejs": "^1.2.1",

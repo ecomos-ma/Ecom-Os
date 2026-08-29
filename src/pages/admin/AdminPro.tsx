@@ -10,6 +10,7 @@ import { AiToolsConsole } from "./admin-pro/AiToolsConsole";
 import { WorkspacesPage } from "./admin-pro/WorkspacesPage";
 import { BillingPage } from "./admin-pro/BillingPage";
 import { CampaignsPage, ProductsPage, SellersPage } from "./admin-pro/BusinessPages";
+import { PaymentMethodsPage } from "./admin-pro/BankTransferSettings";
 
 export default function AdminPro() {
   const { pathname } = useLocation();
@@ -20,6 +21,7 @@ export default function AdminPro() {
   if (pathname.startsWith("/admin/orders")) return <OrdersPage />;
   if (pathname.startsWith("/admin/products")) return <ProductsPage />;
   if (pathname.startsWith("/admin/campaigns")) return <CampaignsPage />;
+  if (pathname.startsWith("/admin/payment-methods")) return <PaymentMethodsPage />;
   if (pathname.startsWith("/admin/subscriptions") || pathname.startsWith("/admin/payments") || pathname.startsWith("/admin/plans")) return <BillingPage />;
   if (pathname.startsWith("/admin/intelligence")) return <IntelligencePage />;
   if (pathname.startsWith("/admin/operations")) return <OperationsPageV2 />;

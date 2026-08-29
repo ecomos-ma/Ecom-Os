@@ -42,11 +42,18 @@ export function usePlatformAdmin() {
  */
 export function PlatformAdminRoute({ children }: { children: ReactNode }) {
   const { session, profile, loading } = useAuth();
+  const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "admin";
   const [authorization, setAuthorization] = useState<PlatformAuthorization | null>(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     let active = true;
+
+    if (previewMode) {
+      setAuthorization(rootFallback("admin-preview", "founder@ecomos.ma"));
+      setChecking(false);
+      return () => { active = false; };
+    }
 
     if (loading) return () => { active = false; };
     if (!session || !profile) {
@@ -71,7 +78,7 @@ export function PlatformAdminRoute({ children }: { children: ReactNode }) {
       .finally(() => { if (active) setChecking(false); });
 
     return () => { active = false; };
-  }, [loading, profile, session]);
+  }, [loading, previewMode, profile, session]);
 
   const value = useMemo<PlatformAdminContextValue | null>(() => {
     if (!authorization) return null;
@@ -79,8 +86,8 @@ export function PlatformAdminRoute({ children }: { children: ReactNode }) {
     return { authorization, can: (permission) => permissions.has(permission) };
   }, [authorization]);
 
-  if (loading || checking) return <PlatformLoading />;
-  if (!session) return <Navigate to="/login" replace />;
+  if ((loading && !previewMode) || checking) return <PlatformLoading />;
+  if (!session && !previewMode) return <Navigate to="/login" replace />;
   if (!value) return <Navigate to="/dashboard" replace />;
 
   return <PlatformAdminContext.Provider value={value}>{children}</PlatformAdminContext.Provider>;

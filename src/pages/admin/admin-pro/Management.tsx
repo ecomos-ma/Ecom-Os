@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, FileText, Loader2, PauseCircle, PlayCircle, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CreditCard, Download, ExternalLink, FileText, Loader2, Mail, PauseCircle, PlayCircle, Search, ShieldAlert, ShieldCheck, UserRound, X } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { ShippingStatusBadge } from "../../../components/ShippingStatusBadge";
 import { founderAdmin, type FounderMembership, type FounderOrderV2, type FounderUser360, type FounderUserV2 } from "../../../lib/founderAdmin";
 import { supabase } from "../../../lib/supabase";
 import { useSupportMode } from "../../../contexts/SupportModeContext";
@@ -14,7 +15,7 @@ export function UsersPage() {
   const [params, setParams] = useSearchParams();
   const [users, setUsers] = useState<FounderUserV2[]>([]);
   const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(params.get("search") || "");
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
   const [workspaceId, setWorkspaceId] = useState("");
@@ -74,6 +75,9 @@ function UserDrawer({ profileId, onClose, onChanged }: { profileId: string; onCl
   const [roleEditor, setRoleEditor] = useState(false);
   const [supportingWorkspace, setSupportingWorkspace] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [magicLinkBusy, setMagicLinkBusy] = useState(false);
+  const [suspendBusy, setSuspendBusy] = useState(false);
+  const [paymentRequestBusy, setPaymentRequestBusy] = useState(false);
   const load = useCallback(async () => { setLoading(true); setError(""); try { setData(await founderAdmin.platformUser360(profileId)); } catch (err) { setError(errorMessage(err)); } finally { setLoading(false); } }, [profileId]);
   useEffect(() => { void load(); }, [load]);
   const addNote = async () => { if (!note.trim()) return; setSavingNote(true); try { await founderAdmin.addUserNote(profileId, note); setNote(""); await load(); } catch (err) { window.alert(errorMessage(err)); } finally { setSavingNote(false); } };
@@ -85,6 +89,77 @@ function UserDrawer({ profileId, onClose, onChanged }: { profileId: string; onCl
       navigate("/dashboard");
     } catch (err) { setFeedback(errorMessage(err)); } finally { setSupportingWorkspace(null); }
   };
+  const sendMagicLink = async () => {
+    if (!data?.user.email) {
+      setFeedback("This user does not have a valid email on file.");
+      return;
+    }
+    setMagicLinkBusy(true);
+    setFeedback("");
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: data.user.email,
+        options: { emailRedirectTo: `${window.location.origin}/choose-plan` },
+      });
+      if (error) throw error;
+      setFeedback("Magic link sent to the user’s email.");
+    } catch (err) {
+      setFeedback(errorMessage(err));
+    } finally {
+      setMagicLinkBusy(false);
+    }
+  };
+  const toggleSuspendState = async () => {
+    if (!data) return;
+    const isSuspended = data.user.status === "suspended";
+    const confirmed = window.confirm(isSuspended ? "Reactivate this user and restore platform access?" : "Suspend this user and block platform access immediately?");
+    if (!confirmed) return;
+    setSuspendBusy(true);
+    setFeedback("");
+    try {
+      await founderAdmin.setUserState(
+        data.user.id,
+        isSuspended ? "active" : "suspended",
+        isSuspended ? "Reactivated by admin from user management" : "Suspended by admin from user management",
+        isSuspended ? "Your account has been reactivated." : "Your account has been suspended. Please contact support to restore access.",
+        null,
+      );
+      setFeedback(isSuspended ? "User reactivated successfully." : "User suspended successfully. Access is now blocked.");
+      await load();
+      onChanged();
+    } catch (err) {
+      setFeedback(errorMessage(err));
+    } finally {
+      setSuspendBusy(false);
+    }
+  };
+  const sendPaymentRequest = async () => {
+    if (!data) return;
+    const planCode = data.subscription?.plan?.code || (data.user as any)?.subscription_plan || "growth";
+    const billingCycle = data.subscription?.billing_cycle || "monthly";
+    const confirmed = window.confirm(`Send a ${billingCycle} payment request for the ${planCode} plan to this user?`);
+    if (!confirmed) return;
+    setPaymentRequestBusy(true);
+    setFeedback("");
+    try {
+      const { error } = await supabase.rpc("create_subscription_payment_request_v1", {
+        p_plan_code: planCode,
+        p_billing_cycle: billingCycle,
+        p_request_type: "initial_activation",
+        p_payment_method: "bank_transfer",
+        p_transaction_reference: null,
+        p_user_note: `Created by admin from User 360 for ${data.user.email || "account"}`,
+      });
+      if (error) throw error;
+      setFeedback(`Payment request created for ${planCode} (${billingCycle}). The user will see the existing payment flow when needed.`);
+      await load();
+      onChanged();
+    } catch (err) {
+      setFeedback(errorMessage(err));
+    } finally {
+      setPaymentRequestBusy(false);
+    }
+  };
   return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35" role="dialog" aria-modal="true" aria-label="User workspace 360">
     <button onClick={onClose} className="absolute inset-0 cursor-default" aria-label="Close user details" />
     <aside className="relative h-full w-full max-w-2xl overflow-y-auto border-l border-base-border bg-base p-5 shadow-2xl md:p-6">
@@ -92,7 +167,12 @@ function UserDrawer({ profileId, onClose, onChanged }: { profileId: string; onCl
       {loading ? <div className="grid h-72 place-items-center"><Loader2 className="animate-spin text-brand-accent" /></div> : error || !data ? <div className="mt-6"><EmptyState title="Could not load this user" copy={error || "No user was returned."} /></div> : <>
         <div className="mt-6 grid gap-3 sm:grid-cols-3"><Info label="Account state" value={data.user.status} badge /><Info label="Role" value={data.user.role} badge /><Info label="Joined" value={dateTime.format(new Date(data.user.created_at))} /></div>
         <div className="mt-3 text-sm"><ActivityStatus value={data.user.last_active} /></div>
-        {feedback && <div className="mt-4 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">{feedback}</div>}
+        {feedback && <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${feedback.toLowerCase().includes("success") || feedback.toLowerCase().includes("sent") || feedback.toLowerCase().includes("created") ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-danger/20 bg-danger/10 text-danger"}`}>{feedback}</div>}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={() => void sendMagicLink()} disabled={magicLinkBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-brand-accent/30 bg-brand-accent/10 px-3 py-2 text-xs font-bold text-brand-accent disabled:opacity-50"><Mail size={14} />{magicLinkBusy ? "Sending…" : "Send Magic Link"}</button>
+          <button onClick={() => void toggleSuspendState()} disabled={suspendBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-300 disabled:opacity-50"><ShieldAlert size={14} />{suspendBusy ? "Processing…" : data.user.status === "suspended" ? "Reactivate User" : "Suspend User"}</button>
+          <button onClick={() => void sendPaymentRequest()} disabled={paymentRequestBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 disabled:opacity-50"><CreditCard size={14} />{paymentRequestBusy ? "Sending…" : "Send Payment Request"}</button>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setRoleEditor(true)} className="rounded-lg border border-brand-accent/30 bg-brand-accent/10 px-3 py-2 text-xs font-bold text-brand-accent">Change role</button><button disabled={!data.memberships.length || Boolean(supportingWorkspace)} onClick={() => data.memberships.length === 1 ? void openWorkspace(data.memberships[0]) : setWorkspacePicker(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-accent px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{supportingWorkspace ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}{supportingWorkspace ? "Opening…" : "Open workspace"}</button></div>
         {data.user.reason && <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm"><p className="font-semibold text-amber-800 dark:text-amber-200">Account control reason</p><p className="mt-1 text-ink-muted">{data.user.reason}</p>{data.user.user_message && <p className="mt-2 text-xs text-ink-faint">User message: {data.user.user_message}</p>}</div>}
         <section className="mt-6"><div className="flex items-center justify-between"><h3 className="font-bold">Memberships & business health</h3><span className="text-xs text-ink-faint">{data.memberships.length} linked</span></div><div className="mt-3 space-y-3">{data.memberships.length ? data.memberships.map((membership) => <article key={membership.workspace_id} className="rounded-xl border border-base-border bg-base-surface p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{membership.workspace_name}</p><p className="mt-1 text-xs text-ink-muted">{membership.plan} · {membership.member_role} · {membership.stage || "operating"}</p></div><div className="flex gap-1.5"><StatusBadge value={membership.workspace_status} /><StatusBadge value={membership.is_owner ? "owner" : "member"} /></div></div><div className="mt-4 grid grid-cols-2 gap-3"><Info label="Orders" value={membership.orders.toLocaleString()} /><Info label="Revenue" value={currency.format(Number(membership.revenue || 0))} /></div><button disabled={Boolean(supportingWorkspace)} onClick={() => void openWorkspace(membership)} className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand-accent px-3 py-2 text-xs font-bold text-white hover:bg-brand-accentHover disabled:opacity-50">{supportingWorkspace === membership.workspace_id ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />} Open workspace</button></article>) : <EmptyState title="No workspace memberships" copy="This user has not joined a workspace yet." />}</div></section>
@@ -141,9 +221,10 @@ export function OrdersPage() {
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `ecomos-orders-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); URL.revokeObjectURL(url);
     } catch (err) { window.alert(errorMessage(err)); } finally { setExporting(false); }
   };
-  return <div className="mx-auto max-w-[1480px] p-4 md:p-6 lg:p-8"><PageHeading eyebrow="Management" title="Global Orders" description="Live cross-workspace order monitoring with server-side search, filter counts, pagination, detail inspection, and full filtered CSV export." action={<div className="flex gap-2"><button disabled={exporting || !total} onClick={() => void exportAll()} className="inline-flex items-center gap-2 rounded-lg bg-brand-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Download size={16} /> {exporting ? "Exporting…" : "Export filtered"}</button><RefreshButton onClick={() => void load()} loading={loading} /></div>} />
-    <div className="mb-4 grid gap-2 rounded-xl border border-base-border bg-base-surface p-3 shadow-sm md:grid-cols-[minmax(220px,1fr)_150px_180px_150px_150px_150px]"><SearchBox value={query} onChange={(value) => update(setQuery, value)} placeholder="Order, phone, customer, tracking, or workspace…" /><Filter label="Status" value={status} onChange={(value) => update(setStatus, value)}><option value="">All statuses</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option><option value="LIVRE">Livré</option><option value="CONFIRME">Confirmé</option></Filter><input value={workspaceId} onChange={(event) => update(setWorkspaceId, event.target.value)} placeholder="Workspace ID" aria-label="Workspace ID" className="rounded-lg border border-base-border bg-base-raised px-3 py-2 text-sm outline-none focus:border-brand-accent/60" /><input type="date" value={from} onChange={(event) => update(setFrom, event.target.value)} aria-label="Orders from date" className="rounded-lg border border-base-border bg-base-raised px-3 py-2 text-sm outline-none focus:border-brand-accent/60" /><input type="date" value={to} onChange={(event) => update(setTo, event.target.value)} aria-label="Orders to date" className="rounded-lg border border-base-border bg-base-raised px-3 py-2 text-sm outline-none focus:border-brand-accent/60" /><Filter label="Sort orders" value={sort} onChange={(value) => update(setSort, value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></Filter></div>
-    {error ? <EmptyState title="Could not load global orders" copy={error} /> : <section className="overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-sm"><div className="flex items-center justify-between border-b border-base-border px-4 py-3"><p className="text-sm font-semibold">{total.toLocaleString()} matching orders</p><p className="text-xs text-ink-faint">Updates arrive automatically while this page is open.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-base-raised text-[11px] uppercase tracking-wide text-ink-faint"><tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Workspace</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Phone / city</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Created</th><th className="px-4 py-3"></th></tr></thead><tbody>{loading ? <LoadingRow columns={8} /> : orders.length ? orders.map((order) => <tr key={order.id} className="border-t border-base-border hover:bg-base-raised/60"><td className="px-4 py-3 font-semibold">{order.order_number}</td><td className="px-4 py-3 text-ink-muted">{order.workspace_name || "Deleted workspace"}</td><td className="px-4 py-3">{order.customer_name || "—"}</td><td className="px-4 py-3 text-xs text-ink-muted">{order.phone || "—"}{order.city ? ` · ${order.city}` : ""}</td><td className="px-4 py-3 font-semibold">{currency.format(Number(order.total || 0))}</td><td className="px-4 py-3"><StatusBadge value={order.status} /></td><td className="px-4 py-3 text-xs text-ink-muted">{dateTime.format(new Date(order.created_at))}</td><td className="px-4 py-3 text-right"><button onClick={() => selectOrder(order.id)} className="rounded-lg border border-base-border p-2 text-ink-muted hover:text-brand-accent" aria-label={`Open order ${order.order_number}`}><FileText size={15} /></button></td></tr>) : <EmptyRow columns={8} title="No orders match these filters" copy="Change a filter or clear the search." />}</tbody></table></div><Pagination page={page} total={total} limit={limit} loading={loading} onChange={setPage} /></section>}
+  return <div className="mx-auto max-w-[1580px] p-4 md:p-6 lg:p-8"><PageHeading eyebrow="Live operations" title="Order Spy" description="Watch every order across every seller in one secure, live feed. Search, filter and inspect the complete customer and fulfillment context." action={<div className="flex gap-2"><button disabled={exporting || !orders.length} onClick={() => void exportAll()} className="inline-flex items-center gap-2 rounded-xl bg-brand-accent px-3 py-2 text-sm font-bold text-white shadow-sm disabled:opacity-50"><Download size={16} /> {exporting ? "Exporting…" : "Export visible"}</button><RefreshButton onClick={() => void load()} loading={loading} /></div>} />
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.055] px-4 py-3"><span className="flex items-center gap-2 text-xs font-black text-emerald-700 dark:text-emerald-300"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />Live cross-seller monitoring</span><span className="text-xs text-ink-muted"><strong className="text-ink">{total.toLocaleString()}</strong> matching orders · updates arrive automatically</span></div>
+    <div className="mb-4 grid gap-2 rounded-2xl border border-base-border bg-base-surface p-3 shadow-sm md:grid-cols-[minmax(220px,1fr)_150px_180px_150px_150px_150px]"><SearchBox value={query} onChange={(value) => update(setQuery, value)} placeholder="Order, phone, customer, tracking, or workspace…" /><Filter label="Status" value={status} onChange={(value) => update(setStatus, value)}><option value="">All statuses</option><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option><option value="LIVRE">Livré</option><option value="CONFIRME">Confirmé</option></Filter><input value={workspaceId} onChange={(event) => update(setWorkspaceId, event.target.value)} placeholder="Workspace ID" aria-label="Workspace ID" className="rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm outline-none focus:border-brand-accent/60" /><input type="date" value={from} onChange={(event) => update(setFrom, event.target.value)} aria-label="Orders from date" className="rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm outline-none focus:border-brand-accent/60" /><input type="date" value={to} onChange={(event) => update(setTo, event.target.value)} aria-label="Orders to date" className="rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm outline-none focus:border-brand-accent/60" /><Filter label="Sort orders" value={sort} onChange={(value) => update(setSort, value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></Filter></div>
+    {error ? <EmptyState title="Could not load global orders" copy={error} /> : <section className="overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-sm"><div className="flex items-center justify-between border-b border-base-border px-4 py-3"><p className="text-sm font-black">Platform order feed</p><p className="text-xs text-ink-faint">Page {page + 1} · newest activity first</p></div><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-base-raised/75 text-[10px] font-black uppercase tracking-wider text-ink-faint"><tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Seller workspace</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Phone / city</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Created</th><th className="px-4 py-3"></th></tr></thead><tbody>{loading ? <LoadingRow columns={8} /> : orders.length ? orders.map((order) => <tr key={order.id} className="group border-t border-base-border hover:bg-brand-accent/[0.035]"><td className="px-4 py-3 font-mono text-xs font-black text-brand-accent">#{order.order_number}</td><td className="px-4 py-3 font-semibold">{order.workspace_name || "Deleted workspace"}</td><td className="px-4 py-3">{order.customer_name || "—"}</td><td className="px-4 py-3 text-xs text-ink-muted">{order.phone || "—"}{order.city ? ` · ${order.city}` : ""}</td><td className="px-4 py-3 font-black">{currency.format(Number(order.total || 0))}</td><td className="px-4 py-3"><StatusBadge value={order.status} /></td><td className="px-4 py-3 text-xs text-ink-muted">{dateTime.format(new Date(order.created_at))}</td><td className="px-4 py-3 text-right"><button onClick={() => selectOrder(order.id)} className="rounded-xl border border-base-border p-2 text-ink-muted transition group-hover:border-brand-accent/30 group-hover:text-brand-accent" aria-label={`Open order ${order.order_number}`}><FileText size={15} /></button></td></tr>) : <EmptyRow columns={8} title="No orders match these filters" copy="Change a filter or clear the search." />}</tbody></table></div><Pagination page={page} total={total} limit={limit} loading={loading} onChange={setPage} /></section>}
     {selectedId && <OrderDrawer orderId={selectedId} onClose={closeDetail} />}
   </div>;
 }
@@ -152,8 +233,27 @@ function OrderDrawer({ orderId, onClose }: { orderId: string; onClose: () => voi
   const [data, setData] = useState<{ order: Record<string, unknown>; workspace: { id: string; name: string } | null; items: Record<string, unknown>[] } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { let active = true; void founderAdmin.orderDetail(orderId).then((value) => { if (active) setData(value); }).catch((err) => active && setError(errorMessage(err))); return () => { active = false; }; }, [orderId]);
-  const entries = data ? Object.entries(data.order).filter(([key, value]) => !["id", "workspace_id"].includes(key) && value !== null && typeof value !== "object") : [];
-  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35" role="dialog" aria-modal="true" aria-label="Order detail"><button onClick={onClose} className="absolute inset-0 cursor-default" aria-label="Close order detail" /><aside className="relative h-full w-full max-w-xl overflow-y-auto border-l border-base-border bg-base p-5 shadow-2xl md:p-6"><div className="flex items-start justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Order detail</p><h2 className="mt-1 text-xl font-bold">{String(data?.order.order_number || data?.order["Order ID"] || "Order")}</h2><p className="mt-1 text-sm text-ink-muted">{data?.workspace?.name || "Loading workspace…"}</p></div><button onClick={onClose} className="rounded-lg border border-base-border p-2 text-ink-muted hover:bg-base-raised"><X size={18} /></button></div>{error ? <div className="mt-6"><EmptyState title="Could not load order" copy={error} /></div> : !data ? <div className="grid h-72 place-items-center"><Loader2 className="animate-spin text-brand-accent" /></div> : <><div className="mt-6 grid gap-2 sm:grid-cols-2">{entries.map(([key, value]) => <Info key={key} label={key.replace(/_/g, " ")} value={String(value)} />)}</div><section className="mt-6"><h3 className="font-bold">Items</h3><div className="mt-3 space-y-2">{data.items.length ? data.items.map((item, index) => <pre key={index} className="overflow-x-auto rounded-lg bg-base-raised p-3 text-xs text-ink-muted">{JSON.stringify(item, null, 2)}</pre>) : <p className="text-sm text-ink-muted">No item records are attached to this order.</p>}</div></section></>}</aside></div>;
+  if (!data && !error) return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35" role="dialog" aria-modal="true" aria-label="Order detail"><button onClick={onClose} className="absolute inset-0 cursor-default" aria-label="Close order detail" /><aside className="relative h-full w-full max-w-xl overflow-y-auto border-l border-base-border bg-base p-5 shadow-2xl md:p-6"><div className="grid h-full place-items-center"><Loader2 className="animate-spin text-brand-accent" /></div></aside></div>;
+  const order = (data?.order ?? {}) as Record<string, any>;
+  const items = data?.items ?? [];
+  const customer = typeof order.customer_name === "string" && order.customer_name.trim() ? order.customer_name : typeof (order.customer as Record<string, unknown> | null)?.name === "string" ? String((order.customer as Record<string, unknown>).name) : "Unknown customer";
+  const phone = typeof order.phone === "string" && order.phone.trim() ? order.phone : typeof (order.customer as Record<string, unknown> | null)?.phone === "string" ? String((order.customer as Record<string, unknown>).phone) : "—";
+  const city = typeof order.city === "string" && order.city.trim() ? order.city : typeof (order.customer as Record<string, unknown> | null)?.city === "string" ? String((order.customer as Record<string, unknown>).city) : "—";
+  const address = typeof order.address === "string" && order.address.trim() ? order.address : "No address";
+  const total = Number(order.total ?? 0);
+  const shippingStatus = typeof order.shipping_status === "string" ? order.shipping_status : typeof order.delivery_status === "string" ? order.delivery_status : "";
+  const status = typeof order.status === "string" && order.status.trim() ? order.status : "pending";
+  const lineItems = items.length ? items : [];
+  const createdAt = order.created_at ? new Date(String(order.created_at)) : null;
+  const createdLabel = createdAt && !Number.isNaN(createdAt.getTime()) ? dateTime.format(createdAt) : "—";
+  const confirmationMethod = typeof order.confirmation_method === "string" && order.confirmation_method.trim() ? order.confirmation_method : null;
+  const workspaceName = typeof data?.workspace?.name === "string" && data.workspace.name.trim() ? data.workspace.name : "Workspace";
+  const sourceLabel = String(order.source ?? order.source_platform ?? "manual");
+  const paymentLabel = String(order.payment_method ?? order.payment_status ?? "—");
+  const shippingLabel = String(order.shipping_status ?? order.delivery_status ?? "—");
+  const confirmationLabel = String(order.confirmation_method ?? "—");
+  const trackingLabel = String(order.tracking_code ?? order.tracking_number ?? order.tracking ?? "—");
+  return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35" role="dialog" aria-modal="true" aria-label="Order detail"><button onClick={onClose} className="absolute inset-0 cursor-default" aria-label="Close order detail" /><aside className="relative h-full w-full max-w-2xl overflow-y-auto border-l border-base-border bg-base p-5 shadow-2xl md:p-6"><div className="flex items-start justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Order detail</p><h2 className="mt-1 text-xl font-bold">{String(order.order_number || order["Order ID"] || "Order")}</h2><p className="mt-1 text-sm text-ink-muted">{data?.workspace?.name || "Workspace"}</p></div><button onClick={onClose} className="rounded-lg border border-base-border p-2 text-ink-muted hover:bg-base-raised"><X size={18} /></button></div>{error ? <div className="mt-6"><EmptyState title="Could not load order" copy={error} /></div> : !data ? <div className="grid h-72 place-items-center"><Loader2 className="animate-spin text-brand-accent" /></div> : <><div className="mt-5 flex flex-wrap items-center gap-2"><StatusBadge value={status} />{shippingStatus ? <ShippingStatusBadge status={shippingStatus} /> : null}{confirmationMethod && <span className="inline-flex items-center rounded-full border border-brand-accent/30 bg-brand-accent/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-accent">{confirmationMethod}</span>}</div><div className="mt-6 grid gap-3 sm:grid-cols-2"><Info label="Customer" value={customer} /><Info label="Phone" value={phone} /><Info label="City" value={city} /><Info label="Address" value={address} /><Info label="Order total" value={currency.format(total)} /><Info label="Created" value={createdLabel} /></div><section className="mt-6 rounded-xl border border-base-border bg-base-surface p-4"><h3 className="font-bold">Order summary</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Info label="Workspace" value={data.workspace?.name || "Unknown"} /><Info label="Source" value={String(order.source ?? order.source_platform ?? "manual")} /><Info label="Payment method" value={String(order.payment_method ?? "—")} /><Info label="Tracking" value={String(order.tracking_number ?? order.coliaty_parcel_code ?? "—")} /></div></section><section className="mt-6"><h3 className="font-bold">Items</h3><div className="mt-3 space-y-2">{lineItems.length ? lineItems.map((item, index) => { const itemName = typeof item.name === "string" && item.name.trim() ? item.name : typeof item.product_variant === "string" && item.product_variant.trim() ? item.product_variant : typeof item.sku === "string" && item.sku.trim() ? item.sku : `Item ${index + 1}`; const itemQuantity = typeof item.quantity === "number" ? item.quantity : Number(item.quantity ?? 0); const itemPrice = item.price == null || Number.isNaN(Number(item.price)) ? null : Number(item.price); const itemSku = typeof item.sku === "string" ? item.sku : ""; return <div key={String(item.id ?? index)} className="rounded-xl border border-base-border bg-base-surface p-3"><div className="flex items-center justify-between gap-3"><p className="font-semibold text-sm">{itemName}</p><p className="font-mono text-xs text-ink-muted">{itemQuantity > 0 ? `${itemQuantity} x` : ""}{itemPrice != null ? currency.format(itemPrice) : "—"}</p></div>{itemSku && <p className="mt-1 text-xs text-ink-muted">SKU: {itemSku}</p>}</div>; }) : <p className="text-sm text-ink-muted">No item records are attached to this order.</p>}</div></section></>}</aside></div>;
 }
 
 function AccountActionDialog({ user, state, onClose, onComplete }: { user: FounderUser360["user"]; state: AccountState; onClose: () => void; onComplete: (reason: string, message: string, until: string | null) => Promise<void> }) {

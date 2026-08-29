@@ -145,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const profileLoadRef = useRef<{ userId: string; promise: Promise<void> } | null>(null);
   const invitationLookupAttemptedRef = useRef(new Set<string>());
   const baseSubscriptionRef = useRef({ plan: "", workspaceLimit: 0, status: "checking", allowed: null as boolean | null });
-
+  const subscriptionVerifiedRef = useRef(false);
 
   const clearAuthState = useCallback(async () => {
     await supabase.auth.signOut();
@@ -163,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPermissionsLoading(true);
     setDefaultRoute(null);
     setDemoSessionState(null);
+    subscriptionVerifiedRef.current = false; // Reset subscription verification
     clearDemoSession();
     navigate("/disabled", { replace: true });
   }, [navigate]);
@@ -187,9 +188,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (profileErr) {
       if (isSupabaseTableError(profileErr)) {
-        console.warn("[useAuth] PROFILE LOAD BLOCKED BY SUPABASE ACCESS:", profileErr.message);
+        console.warn("[useAuth] HARD GATE BLOCKED: PROFILE LOAD BY SUPABASE ACCESS:", profileErr.message);
       } else {
-        console.error("[useAuth] PROFILE LOAD FAILED:", {
+        console.error("[useAuth] HARD GATE BLOCKED: PROFILE LOAD FAILED:", {
           code: profileErr.code,
           message: profileErr.message,
           details: profileErr.details,
@@ -201,7 +202,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspace(null);
       setPreviewWorkspace(null);
       setSubscriptionStatus("unavailable");
-      setOperationalAccess(false);
+      setOperationalAccess(false); // DENY ACCESS
+      subscriptionVerifiedRef.current = true; // Verified as DENIED
       setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
       setDefaultRoute(null);
       setPermissionsLoading(false);
@@ -216,12 +218,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq("id", userId)
         .maybeSingle();
       if (!retryProfile) {
+        console.error("[useAuth] HARD GATE BLOCKED: Profile not found after retry");
         setProfile(null);
         setBaseWorkspace(null);
         setWorkspace(null);
         setPreviewWorkspace(null);
         setSubscriptionStatus("missing_profile");
-        setOperationalAccess(false);
+        setOperationalAccess(false); // DENY ACCESS
+        subscriptionVerifiedRef.current = true; // Verified as DENIED
         setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
         setDefaultRoute(null);
         setPermissionsLoading(false);
@@ -403,34 +407,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const workspaceId = localProfile.workspace_id;
 
     if (!workspaceId) {
+      console.error("[useAuth] HARD GATE BLOCKED: No workspace assigned");
       setSubscriptionStatus("workspace_missing");
-      setOperationalAccess(false);
+      setOperationalAccess(false); // DENY ACCESS
+      subscriptionVerifiedRef.current = true; // Verified as DENIED
       setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
       setDefaultRoute(null);
       setPermissionsLoading(false);
       return;
     }
 
+    // HARD GATE: Verify subscription status from backend before allowing any access
     const { data: accessData, error: accessError } = await supabase.rpc("resolve_workspace_access_v1", {
       p_user_id: userId,
       p_workspace_id: workspaceId,
     });
+
+    // HARD GATE: If subscription check fails, deny all access
+    if (accessError) {
+      console.error("[useAuth] HARD GATE BLOCKED: Subscription access resolution failed:", accessError.message);
+      setWorkspacePlan("");
+      setWorkspaceLimit(0);
+      setSubscriptionStatus("billing_unavailable");
+      setOperationalAccess(false); // DENY ACCESS
+      subscriptionVerifiedRef.current = true; // Mark as verified (verified as DENIED)
+      setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
+      setDefaultRoute(null);
+      setPermissionsLoading(false);
+      return;
+    }
+
     const access = accessData && typeof accessData === "object" ? accessData as Record<string, any> : null;
     const effective = access?.subscription && typeof access.subscription === "object" ? access.subscription as Record<string, any> : null;
+    const isAccessAllowed = Boolean(access?.allowed);
     const nextSubscription = {
       plan: String(effective?.plan?.code || ""),
       workspaceLimit: Number(effective?.limits?.workspaces || 0),
-      status: accessError ? "billing_unavailable" : String(effective?.status || access?.reason || "subscription_missing"),
-      allowed: accessError ? false : Boolean(access?.allowed),
+      status: String(effective?.status || access?.reason || "subscription_missing"),
+      allowed: isAccessAllowed,
     };
     baseSubscriptionRef.current = nextSubscription;
+
+    // HARD GATE: Only set access state if subscription is verified by backend
     if (!previewWorkspaceRef.current) {
       setWorkspacePlan(nextSubscription.plan);
       setWorkspaceLimit(nextSubscription.workspaceLimit);
       setSubscriptionStatus(nextSubscription.status);
-      setOperationalAccess(nextSubscription.allowed);
+      // CRITICAL: operationalAccess is true ONLY if backend explicitly allows it
+      setOperationalAccess(isAccessAllowed ? true : false);
     }
-    if (accessError) console.error("[useAuth] Subscription access resolution failed:", accessError.message);
+    subscriptionVerifiedRef.current = true; // Mark subscription as verified
+
+    // HARD GATE: Only load permissions if subscription is verified as allowed
+    if (!subscriptionVerifiedRef.current || !baseSubscriptionRef.current.allowed) {
+      setTeamPermissions(DEFAULT_TEAM_PERMISSIONS);
+      setDefaultRoute(null);
+      setPermissionsLoading(false);
+      return;
+    }
 
     if (isOwnerLikeRole(localProfile.role)) {
       setTeamPermissions(buildPermissionsForOwner());

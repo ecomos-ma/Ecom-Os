@@ -3,6 +3,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   Eye,
   Loader2,
   Search,
@@ -17,8 +18,9 @@ import {
   type PlatformPaymentRequest,
   type PlatformSubscription,
 } from "../../../lib/founderAdmin";
-import { BankTransferSettings } from "./BankTransferSettings";
 import { supabase } from "../../../lib/supabase";
+import { PaymentReceiptCard } from "../../../components/PaymentReceiptCard";
+import { downloadPaymentReceiptPdf, type PaymentReceiptData } from "../../../lib/paymentReceipt";
 import {
   currency,
   dateTime,
@@ -27,18 +29,13 @@ import {
   PageHeading,
   RefreshButton,
   StatusBadge,
+  PlanBadge as SharedPlanBadge,
 } from "./shared";
 const PAGE_SIZE = 25;
 export function BillingPage() {
   const { pathname } = useLocation();
   if (pathname.startsWith("/admin/payments")) return <PaymentsPage />;
-  if (pathname.startsWith("/admin/plans"))
-    return (
-      <>
-        <BankTransferSettings />
-        <PlansPage />
-      </>
-    );
+  if (pathname.startsWith("/admin/plans")) return <PlansPage />;
   return <SubscriptionsPage />;
 }
 function PaymentsPage() {
@@ -50,6 +47,7 @@ function PaymentsPage() {
   const [status, setStatus] = useState("");
   const [requestType, setRequestType] = useState("");
   const [selected, setSelected] = useState<PlatformPaymentRequest | null>(null);
+  const [action, setAction] = useState<{ payment: PlatformPaymentRequest; decision: "approve" } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -80,8 +78,8 @@ function PaymentsPage() {
     <div className="mx-auto max-w-[1540px] p-4 md:p-6 lg:p-8">
       <PageHeading
         eyebrow="Billing"
-        title="Payments"
-        description="Private proof review and atomic subscription activation. Expected prices are server snapshots from the official MAD plan catalog."
+        title="Payment receipt archive"
+        description="Every customer proof submission is archived under its permanent ECOM ticket. Review the private proof, download the customer receipt and activate the correct plan."
         action={<RefreshButton onClick={() => void load()} loading={loading} />}
       />
       <div className="mb-4 grid gap-2 rounded-xl border border-base-border bg-base-surface p-3 md:grid-cols-[1fr_180px_180px]">
@@ -135,10 +133,10 @@ function PaymentsPage() {
             {total.toLocaleString()} requests
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1250px] text-left text-sm">
+            <table className="w-full min-w-[1400px] text-left text-sm">
               <thead className="bg-base-raised text-[11px] uppercase tracking-wide text-ink-faint">
                 <tr>
-                  <th className="px-4 py-3">Reference</th>
+                  <th className="px-4 py-3">Receipt ticket</th>
                   <th className="px-4 py-3">Seller</th>
                   <th className="px-4 py-3">Plan</th>
                   <th className="px-4 py-3">Type</th>
@@ -148,20 +146,22 @@ function PaymentsPage() {
                   <th className="px-4 py-3">Proof</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Reviewer</th>
+                  <th className="px-4 py-3">Action</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <LoadingRow columns={11} />
+                  <LoadingRow columns={12} />
                 ) : rows.length ? (
                   rows.map((item) => (
                     <tr
                       key={item.id}
                       className="border-t border-base-border hover:bg-base-raised/50"
                     >
-                      <td className="px-4 py-3 font-mono text-xs font-semibold">
-                        {item.reference}
+                      <td className="px-4 py-3">
+                        <p className="font-mono text-xs font-semibold">{item.reference}</p>
+                        {item.submitted_at && <button type="button" onClick={() => void downloadPaymentReceiptPdf(toPaymentReceipt(item))} className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-brand-accent hover:underline"><Download size={11} />Receipt PDF</button>}
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-semibold">
@@ -172,13 +172,12 @@ function PaymentsPage() {
                         </p>
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-semibold capitalize">
-                          {item.requested_plan}
-                        </p>
-                        <p className="text-xs text-ink-muted">
-                          from {item.current_plan || "none"} ·{" "}
-                          {item.billing_cycle}
-                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          <SharedPlanBadge plan={item.requested_plan} />
+                          <p className="text-xs text-ink-muted">
+                            from {item.current_plan || "none"} · {item.billing_cycle}
+                          </p>
+                        </div>
                       </td>
                       <td className="px-4 py-3 capitalize">
                         {item.request_type.replace(/_/g, " ")}
@@ -209,6 +208,20 @@ function PaymentsPage() {
                       <td className="px-4 py-3 text-xs text-ink-muted">
                         {item.reviewer_email || "—"}
                       </td>
+                      <td className="px-4 py-3">
+                        {["submitted", "reviewing"].includes(item.status) ? (
+                          <button
+                            onClick={() => {
+                              setAction({ payment: item, decision: "approve" });
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                            aria-label={`Approve ${item.reference}`}
+                          >
+                            <Check size={13} />
+                            Approve
+                          </button>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => setSelected(item)}
@@ -222,7 +235,7 @@ function PaymentsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={11}>
+                    <td colSpan={12}>
                       <EmptyState
                         title="No payment requests"
                         copy="New proof submissions will appear here."
@@ -248,6 +261,17 @@ function PaymentsPage() {
           onClose={() => setSelected(null)}
           onReviewed={async () => {
             setSelected(null);
+            await load();
+          }}
+        />
+      )}
+      {action && (
+        <ReviewDialog
+          payment={action.payment}
+          decision={action.decision}
+          onClose={() => setAction(null)}
+          onReviewed={async () => {
+            setAction(null);
             await load();
           }}
         />
@@ -336,6 +360,7 @@ function PaymentDrawer({
           />
           <Info label="Status" value={payment.status} />
         </div>
+        {payment.submitted_at && <section className="mt-5"><h3 className="mb-3 font-bold">Archived customer receipt</h3><PaymentReceiptCard receipt={toPaymentReceipt(payment)} compact /></section>}
         {payment.user_note && (
           <section className="mt-5 rounded-xl border border-base-border bg-base-surface p-4">
             <p className="text-xs font-bold uppercase text-ink-faint">
@@ -1063,6 +1088,22 @@ function LoadingRow({ columns }: { columns: number }) {
       </td>
     </tr>
   );
+}
+function toPaymentReceipt(payment: PlatformPaymentRequest): PaymentReceiptData {
+  return {
+    id: payment.id,
+    receiptNumber: payment.reference,
+    customerName: payment.seller_name || payment.seller_email || "EcomOS customer",
+    customerEmail: payment.seller_email || "Not provided",
+    planName: payment.requested_plan,
+    billingCycle: payment.billing_cycle === "annual" ? "Annual" : "Monthly",
+    amountMad: Number(payment.expected_amount_mad || 0),
+    currency: payment.currency || "MAD",
+    paymentMethod: payment.payment_method ? payment.payment_method.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") : "Bank transfer",
+    transactionReference: payment.transaction_reference || "Not provided",
+    submittedAt: payment.submitted_at || payment.created_at,
+    status: payment.status,
+  };
 }
 function Info({ label, value }: { label: string; value: string }) {
   return (
