@@ -49,11 +49,11 @@ BEGIN
 
   -- Log the incoming message
   INSERT INTO public.whatsapp_messages (
-    workspace_id, order_id, phone, normalized_phone, remote_jid, direction, message_type,
-    body, wa_message_id, provider_event_id, status, raw_payload, created_at
+    workspace_id, phone, normalized_phone, remote_jid, direction, message_type,
+    body, provider_event_id, status, raw_payload, created_at
   ) VALUES (
-    p_workspace_id, NULL, p_phone, v_phone, p_remote_jid, 'inbound', COALESCE(p_message_type, 'text'),
-    p_body, p_provider_event_id, p_provider_event_id, 'received', COALESCE(p_raw_payload, '{}'::jsonb), p_received_at
+    p_workspace_id, p_phone, v_phone, p_remote_jid, 'inbound', 'text',
+    p_body, p_provider_event_id, 'received', COALESCE(p_raw_payload, '{}'::jsonb), p_received_at
   ) ON CONFLICT (workspace_id, provider_event_id) WHERE provider_event_id IS NOT NULL DO NOTHING
   RETURNING id INTO v_message_id;
 
