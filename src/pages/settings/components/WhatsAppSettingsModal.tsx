@@ -41,7 +41,16 @@ type Rule = {
   delay_minutes: number;
   expires_after_minutes: number;
 };
-type ReplyAction = { id?: string; action: "confirm" | "callback" | "opt_out"; enabled: boolean; keywords: string[]; response_template: string };
+type ReplyAction = {
+  id?: string;
+  name: string;
+  action_type: "confirm_order" | "set_order_status" | "request_callback" | "cancel_order" | "add_note" | "opt_out" | "reply_only";
+  target_status?: string | null;
+  priority: number;
+  enabled: boolean;
+  keywords: string[];
+  response_template: string;
+};
 
 const CONFIRMATION_TEMPLATE = `السلام عليكم {{customer_name}} 👋
 
@@ -95,11 +104,11 @@ const DEFAULT_RULES: Record<Rule["event_type"], Rule> = {
   },
 };
 
-const DEFAULT_ACTIONS: Record<ReplyAction["action"], ReplyAction> = {
-  confirm: { action: "confirm", enabled: true, keywords: ["1", "1️⃣", "نعم", "confirm", "confirmer"], response_template: "شكراً {{customer_name}} ✅ تم تأكيد الطلب ديالك رقم {{order_number}}." },
-  callback: { action: "callback", enabled: true, keywords: ["2", "2️⃣", "عيط ليا", "اتصل بي", "callback", "rappel"], response_template: "توصلنا بطلب الاتصال ديالك 👍 غادي يعيط ليك الفريق قريباً." },
-  opt_out: { action: "opt_out", enabled: true, keywords: ["stop", "توقف", "حبس", "désabonner"], response_template: "تم إيقاف رسائل واتساب لهاد الرقم. شكراً." },
-};
+const DEFAULT_ACTIONS: ReplyAction[] = [
+  { id: "new_confirm", name: "Confirm order", action_type: "confirm_order", priority: 10, enabled: true, keywords: ["1", "1️⃣", "نعم", "confirm", "confirmer"], response_template: "شكراً {{customer_name}} ✅ تم تأكيد الطلب ديالك رقم {{order_number}}." },
+  { id: "new_callback", name: "Request callback", action_type: "request_callback", priority: 20, enabled: true, keywords: ["2", "2️⃣", "عيط ليا", "اتصل بي", "callback", "rappel"], response_template: "توصلنا بطلب الاتصال ديالك 👍 غادي يعيط ليك الفريق قريباً." },
+  { id: "new_opt_out", name: "Stop / Opt Out", action_type: "opt_out", priority: 0, enabled: true, keywords: ["stop", "توقف", "حبس", "désabonner"], response_template: "تم إيقاف رسائل واتساب لهاد الرقم. شكراً." },
+];
 
 const VARIABLES = ["customer_name", "order_number", "products", "total", "city", "phone", "address", "shipping_company", "tracking_number", "workspace_name", "status", "current_date", "current_time"];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -139,7 +148,9 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   const [tab, setTab] = useState<TabKey>("connection");
   const [settings, setSettings] = useState<any>({ ...DEFAULT_SETTINGS, ...(initialSettings || {}) });
   const [rules, setRules] = useState<Record<Rule["event_type"], Rule>>(DEFAULT_RULES);
-  const [actions, setActions] = useState<Record<ReplyAction["action"], ReplyAction>>(DEFAULT_ACTIONS);
+  const [actions, setActions] = useState<ReplyAction[]>([...DEFAULT_ACTIONS]);
+  const [deletedActionIds, setDeletedActionIds] = useState<string[]>([]);
+  const [orderStatuses, setOrderStatuses] = useState<any[]>([]);
   const [recordings, setRecordings] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -153,6 +164,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const [editingAction, setEditingAction] = useState<Partial<ReplyAction> | null>(null);
 
   const status = normalizeWhatsAppStatus(settings.connection_status, "disconnected") || "disconnected";
   const connected = ["ready", "authenticated"].includes(status);
@@ -198,7 +210,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         }
       }
 
-      const [settingsResult, rulesResult, actionsResult, audioResult, queueResult, messagesResult, eventsResult, heartbeatResult] = await Promise.all([
+      const [settingsResult, rulesResult, actionsResult, audioResult, queueResult, messagesResult, eventsResult, statusesResult, heartbeatResult] = await Promise.all([
         supabase.from("whatsapp_settings").select("*").eq("workspace_id", workspace.id).maybeSingle(),
         supabase.from("whatsapp_automation_rules").select("*").eq("workspace_id", workspace.id),
         supabase.from("whatsapp_reply_actions").select("*").eq("workspace_id", workspace.id),
@@ -206,16 +218,18 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         supabase.from("whatsapp_queue").select("id, order_id, message_type, status, phone, attempts, max_attempts, last_error, error_code, scheduled_for, sent_at, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("whatsapp_messages").select("id, order_id, direction, message_type, status, phone, body, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("whatsapp_events").select("id, order_id, event_type, severity, message, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(50),
+        supabase.from("order_statuses").select("*").eq("workspace_id", workspace.id).order("position", { ascending: true }),
         !useLocalWorker ? supabase.from("whatsapp_worker_heartbeats").select("*").eq("workspace_id", workspace.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
       ]);
       if (settingsResult.error) throw settingsResult.error;
       if (settingsResult.data) setSettings((current: any) => ({ ...current, ...settingsResult.data }));
+      if (statusesResult && statusesResult.data) setOrderStatuses(statusesResult.data);
       const nextRules: Record<Rule["event_type"], Rule> = { confirmation: { ...DEFAULT_RULES.confirmation }, delivery: { ...DEFAULT_RULES.delivery } };
       for (const rule of rulesResult.data || []) nextRules[rule.event_type as Rule["event_type"]] = { ...nextRules[rule.event_type as Rule["event_type"]], ...rule };
       setRules(nextRules);
-      const nextActions: Record<ReplyAction["action"], ReplyAction> = { confirm: { ...DEFAULT_ACTIONS.confirm }, callback: { ...DEFAULT_ACTIONS.callback }, opt_out: { ...DEFAULT_ACTIONS.opt_out } };
-      for (const action of actionsResult.data || []) nextActions[action.action as ReplyAction["action"]] = { ...nextActions[action.action as ReplyAction["action"]], ...action };
+      const nextActions = actionsResult.data && actionsResult.data.length > 0 ? actionsResult.data : [...DEFAULT_ACTIONS];
       setActions(nextActions);
+      setDeletedActionIds([]);
       setRecordings(audioResult.data || []);
       const combined = [
         ...(queueResult.data || []).map((row) => ({ ...row, log_kind: "queue", log_date: row.created_at })),
@@ -301,6 +315,9 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         if (!rule.text_enabled && !rule.audio_enabled) throw new Error(`${rule.event_type} must send text, audio, or both`);
       }
       if (!settings.active_days.length) throw new Error("Choose at least one active sending day");
+      const confirmAction = actions.find(a => a.action_type === "confirm_order") || DEFAULT_ACTIONS.find(a => a.action_type === "confirm_order")!;
+      const callbackAction = actions.find(a => a.action_type === "request_callback") || DEFAULT_ACTIONS.find(a => a.action_type === "request_callback")!;
+
       const settingsPayload = {
         workspace_id: workspace.id, enabled: connected || Boolean(settings.enabled), timezone: settings.timezone,
         active_days: settings.active_days, quiet_hours_start: settings.quiet_hours_start || null,
@@ -310,15 +327,33 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         reply_context_hours: Number(settings.reply_context_hours), callback_delay_minutes: Number(settings.callback_delay_minutes),
         auto_confirmation: rules.confirmation.enabled, auto_order_confirmation: rules.confirmation.enabled,
         send_delay_minutes: rules.confirmation.delay_minutes, confirmation_message: rules.confirmation.text_template,
-        confirmed_message: actions.confirm.response_template, modification_message: actions.callback.response_template,
-        allow_confirm: actions.confirm.enabled, allow_modify: actions.callback.enabled,
+        confirmed_message: confirmAction.response_template, modification_message: callbackAction.response_template,
+        allow_confirm: confirmAction.enabled, allow_modify: callbackAction.enabled,
       };
       const { error: settingsError } = await supabase.from("whatsapp_settings").upsert(settingsPayload, { onConflict: "workspace_id" });
       if (settingsError) throw settingsError;
       const { error: rulesError } = await supabase.from("whatsapp_automation_rules").upsert(Object.values(rules).map(({ id: _id, ...rule }) => ({ ...rule, workspace_id: workspace.id })), { onConflict: "workspace_id,event_type" });
       if (rulesError) throw rulesError;
-      const { error: actionsError } = await supabase.from("whatsapp_reply_actions").upsert(Object.values(actions).map(({ id: _id, ...action }) => ({ ...action, workspace_id: workspace.id })), { onConflict: "workspace_id,action" });
-      if (actionsError) throw actionsError;
+
+      if (deletedActionIds.length > 0) {
+        const { error: deleteError } = await supabase.from("whatsapp_reply_actions")
+          .delete()
+          .eq("workspace_id", workspace.id)
+          .in("id", deletedActionIds);
+        if (deleteError) throw deleteError;
+      }
+
+      const actionsPayload = actions.map(action => {
+        const { id, ...rest } = action;
+        const out: any = { ...rest, workspace_id: workspace.id, priority: rest.priority ?? 20 };
+        if (id && !id.startsWith("new_")) out.id = id;
+        return out;
+      });
+
+      if (actionsPayload.length > 0) {
+        const { error: actionsError } = await supabase.from("whatsapp_reply_actions").upsert(actionsPayload);
+        if (actionsError) throw actionsError;
+      }
       toast.success("WhatsApp automation saved");
       await loadData();
     } catch (error: any) { toast.error(error.message || "Could not save WhatsApp settings"); }
@@ -433,7 +468,28 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   };
 
   const updateRule = (event: Rule["event_type"], patch: Partial<Rule>) => setRules((current) => ({ ...current, [event]: { ...current[event], ...patch } }));
-  const updateAction = (action: ReplyAction["action"], patch: Partial<ReplyAction>) => setActions((current) => ({ ...current, [action]: { ...current[action], ...patch } }));
+  const updateAction = (id: string, patch: Partial<ReplyAction>) => setActions(current => current.map(a => a.id === id ? { ...a, ...patch } : a));
+  const addAction = (action: ReplyAction) => {
+    const errorMsg = validateKeywords(action.keywords, actions);
+    if (errorMsg) return toast.error(errorMsg);
+    setActions(current => [...current, { ...action, id: `new_${Date.now()}` }]);
+    setEditingAction(null);
+  };
+  const removeAction = (id: string) => {
+    if (!id.startsWith("new_")) setDeletedActionIds(curr => [...curr, id]);
+    setActions(current => current.filter(a => a.id !== id));
+  };
+
+  const validateKeywords = (keywords: string[], currentActions: ReplyAction[], excludeId?: string) => {
+    const normalized = keywords.map(k => k.trim().toLowerCase()).filter(Boolean);
+    for (const a of currentActions) {
+      if (a.id !== excludeId) {
+        const intersection = a.keywords.map(k => k.trim().toLowerCase()).filter(k => normalized.includes(k));
+        if (intersection.length > 0) return `Keywords conflict with action: ${a.name} (${intersection.join(', ')})`;
+      }
+    }
+    return null;
+  };
   const retryJob = async (jobId: string) => {
     try {
       const { error } = await supabase.rpc("retry_whatsapp_job", { p_job_id: jobId });
@@ -509,7 +565,89 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
               {tab === "confirmation" && messageEditor("confirmation")}
               {tab === "delivery" && messageEditor("delivery")}
               {tab === "audio" && <div className="space-y-5"><div className="rounded-2xl border border-base-border p-5"><h3 className="text-[13px] font-bold">Record in the browser</h3><p className="mt-1 text-[11.5px] text-ink-muted">Recordings are stored in a private, workspace-isolated bucket (10 MB maximum).</p><div className="mt-4 flex flex-wrap items-center gap-3">{recording ? <button onClick={stopRecording} className="rounded-xl bg-danger px-4 py-2.5 text-[12px] font-semibold text-white"><PauseCircle size={15} className="mr-1 inline" />Stop</button> : <button onClick={startRecording} className="rounded-xl bg-[#25D366] px-4 py-2.5 text-[12px] font-semibold text-white"><Mic size={15} className="mr-1 inline" />Record</button>}<label className="cursor-pointer rounded-xl border border-base-border px-4 py-2.5 text-[12px] font-semibold"><Upload size={15} className="mr-1 inline" />Upload file<input type="file" accept="audio/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadAudio(file, file.name); }} /></label>{recordedUrl && <audio controls src={recordedUrl} className="h-10" />}{recordedBlob && <button onClick={() => uploadAudio(recordedBlob)} disabled={busy} className="rounded-xl bg-ink px-4 py-2.5 text-[12px] font-semibold text-base-surface">Save recording</button>}</div></div><div className="space-y-2">{recordings.length === 0 ? <div className="rounded-xl border border-dashed border-base-border p-8 text-center text-[12px] text-ink-muted">No recordings yet.</div> : recordings.map((row) => <div key={row.id} className="flex items-center justify-between rounded-xl border border-base-border p-4"><div className="flex items-center gap-3"><FileAudio size={18} className="text-[#25D366]" /><div><div className="text-[12.5px] font-semibold">{row.name}</div><div className="text-[10.5px] text-ink-muted">{Math.ceil(row.file_size / 1024)} KB · {row.mime_type}</div></div></div><div className="flex gap-1"><button onClick={() => playAudio(row)} className="rounded-lg p-2 text-[#159447] hover:bg-[#25D366]/10"><PlayCircle size={15} /></button><button onClick={() => removeAudio(row)} className="rounded-lg p-2 text-danger hover:bg-danger/10"><Trash2 size={15} /></button></div></div>)}</div></div>}
-              {tab === "replies" && <div className="space-y-5">{(["confirm", "callback", "opt_out"] as const).map((key) => <div key={key} className="rounded-2xl border border-base-border p-5"><Toggle checked={actions[key].enabled} onChange={(enabled) => updateAction(key, { enabled })} label={key === "confirm" ? "Confirm order" : key === "callback" ? "Request callback" : "Opt out"} description={key === "confirm" ? "Reply 1 confirms the matched order." : key === "callback" ? "Reply 2 schedules a CRM callback." : "Stops future messages for this workspace and phone."} /><div className="mt-4"><FieldLabel>Keywords (comma-separated)</FieldLabel><input value={actions[key].keywords.join(", ")} onChange={(e) => updateAction(key, { keywords: e.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} className="w-full rounded-xl border border-base-border bg-base-raised/30 px-3 py-2.5 text-[13px]" /></div><div className="mt-4"><FieldLabel>Automatic reply</FieldLabel><textarea value={actions[key].response_template} onChange={(e) => updateAction(key, { response_template: e.target.value })} className="h-24 w-full rounded-xl border border-base-border bg-base-raised/30 p-3 text-[13px]" /></div></div>)}</div>}
+              {tab === "replies" && <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-[14px] font-bold">Reply Actions</h3>
+                    <p className="text-[12px] text-ink-muted">Configure how the system responds to customer replies</p>
+                  </div>
+                  <button onClick={() => setEditingAction({ name: "", action_type: "reply_only", keywords: [], response_template: "", enabled: true, priority: 30 })} className="rounded-xl bg-ink px-4 py-2 text-[12px] font-bold text-base-surface">
+                    + Add reply action
+                  </button>
+                </div>
+                {editingAction && (
+                  <div className="rounded-2xl border-2 border-brand bg-brand/5 p-5">
+                    <div className="mb-4 flex items-center justify-between border-b border-base-border/50 pb-2">
+                      <h4 className="text-[13px] font-bold">New Reply Action</h4>
+                      <button onClick={() => setEditingAction(null)} className="text-ink-muted hover:text-ink"><X size={16} /></button>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      <div><FieldLabel>Action Name</FieldLabel><input placeholder="e.g. Call me" value={editingAction.name} onChange={(e) => setEditingAction({ ...editingAction, name: e.target.value })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px] outline-none" /></div>
+                      <div>
+                        <FieldLabel>What should happen?</FieldLabel>
+                        <select value={editingAction.action_type} onChange={(e) => setEditingAction({ ...editingAction, action_type: e.target.value as any })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]">
+                          <option value="confirm_order">Confirm order</option>
+                          <option value="set_order_status">Change order status</option>
+                          <option value="request_callback">Request callback</option>
+                          <option value="cancel_order">Cancel order</option>
+                          <option value="add_note">Add note</option>
+                          <option value="opt_out">Opt out</option>
+                          <option value="reply_only">Reply only</option>
+                        </select>
+                      </div>
+                      {editingAction.action_type === "set_order_status" && (
+                        <div>
+                          <FieldLabel>Target Status</FieldLabel>
+                          <input placeholder="e.g. Call me" value={editingAction.target_status || ""} onChange={(e) => setEditingAction({ ...editingAction, target_status: e.target.value })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px] outline-none" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-4">
+                      <FieldLabel>Keywords (comma-separated)</FieldLabel>
+                      <input placeholder="e.g. 3, عيط ليا, call me" value={editingAction.keywords?.join(", ")} onChange={(e) => setEditingAction({ ...editingAction, keywords: e.target.value.split(",").map(v => v.trim()).filter(Boolean) })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px] outline-none" />
+                    </div>
+                    <div className="mt-4">
+                      <FieldLabel>Automatic reply</FieldLabel>
+                      <textarea placeholder="The bot reply..." value={editingAction.response_template} onChange={(e) => setEditingAction({ ...editingAction, response_template: e.target.value })} className="h-24 w-full rounded-xl border border-base-border bg-base-surface p-3 text-[13px] outline-none" />
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button onClick={() => addAction(editingAction as ReplyAction)} disabled={!editingAction.name || !editingAction.keywords?.length || !editingAction.response_template} className="rounded-xl bg-brand px-5 py-2 text-[12px] font-bold text-white disabled:opacity-50">Add this action</button>
+                    </div>
+                  </div>
+                )}
+                {actions.sort((a, b) => a.priority - b.priority).map((action) => (
+                  <div key={action.id} className={`rounded-2xl border ${!action.id?.startsWith("new_") && action.action_type === "opt_out" ? "border-danger/30 bg-danger/5" : "border-base-border"} p-5`}>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-base-border pb-4">
+                      <div>
+                        <h4 className="text-[14px] font-bold">{action.name}</h4>
+                        <div className="mt-1 flex gap-2">
+                          <span className="rounded bg-brand/10 px-2 py-0.5 text-[10px] font-bold text-brand">{action.action_type.replace(/_/g, " ")}</span>
+                          {action.target_status && <span className="rounded bg-base-raised px-2 py-0.5 text-[10px] font-bold text-ink-muted">→ {action.target_status}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-2 text-[12px] font-semibold"><input type="checkbox" checked={action.enabled} onChange={(e) => updateAction(action.id!, { enabled: e.target.checked })} className="accent-brand" /> Enabled</label>
+                        {(!action.id?.includes("confirm") && !action.id?.includes("callback") && !action.id?.includes("opt_out") && action.action_type !== "opt_out") && (
+                          <button onClick={() => removeAction(action.id!)} className="rounded p-1 text-danger hover:bg-danger/10"><Trash2 size={15} /></button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div>
+                        <FieldLabel>Keywords (comma-separated)</FieldLabel>
+                        <input value={action.keywords.join(", ")} onChange={(e) => updateAction(action.id!, { keywords: e.target.value.split(",").map(v => v.trim()).filter(Boolean) })} className="w-full rounded-xl border border-base-border bg-base-raised/30 px-3 py-2.5 text-[13px]" />
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {action.keywords.map((kw, i) => <span key={i} className="rounded-md border border-base-border bg-base-surface px-1.5 py-0.5 text-[10px] font-mono font-medium">{kw}</span>)}
+                        </div>
+                      </div>
+                      <div>
+                        <FieldLabel>Automatic reply</FieldLabel>
+                        <textarea value={action.response_template} onChange={(e) => updateAction(action.id!, { response_template: e.target.value })} className="h-24 w-full rounded-xl border border-base-border bg-base-raised/30 p-3 text-[13px]" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>}
               {tab === "schedule" && <div className="space-y-5"><div><FieldLabel>Timezone</FieldLabel><select value={settings.timezone} onChange={(e) => setSettings((current: any) => ({ ...current, timezone: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="Africa/Casablanca">Africa/Casablanca</option></select></div><div><FieldLabel>Active sending days</FieldLabel><div className="flex flex-wrap gap-2">{DAY_LABELS.map((label, day) => <button key={label} onClick={() => setSettings((current: any) => ({ ...current, active_days: current.active_days.includes(day) ? current.active_days.filter((value: number) => value !== day) : [...current.active_days, day].sort() }))} className={`rounded-lg px-3 py-2 text-[11px] font-semibold ${settings.active_days.includes(day) ? "bg-[#25D366] text-white" : "bg-base-raised text-ink-muted"}`}>{label}</button>)}</div></div><div className="grid gap-4 md:grid-cols-2"><div><FieldLabel>Quiet hours start</FieldLabel><input type="time" value={settings.quiet_hours_start || ""} onChange={(e) => setSettings((current: any) => ({ ...current, quiet_hours_start: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div><div><FieldLabel>Quiet hours end</FieldLabel><input type="time" value={settings.quiet_hours_end || ""} onChange={(e) => setSettings((current: any) => ({ ...current, quiet_hours_end: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div>{[["Minimum interval (seconds)", "minimum_interval_seconds"], ["Hourly limit", "hourly_rate_limit"], ["Daily limit", "daily_rate_limit"], ["Reply context (hours)", "reply_context_hours"], ["Callback delay (minutes)", "callback_delay_minutes"], ["Retry base (seconds)", "retry_base_seconds"], ["Retry maximum (seconds)", "retry_max_seconds"]].map(([label, key]) => <div key={key}><FieldLabel>{label}</FieldLabel><input type="number" min={0} value={(settings as any)[key]} onChange={(e) => setSettings((current: any) => ({ ...current, [key]: Number(e.target.value) }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div>)}</div></div>}
               {tab === "logs" && <div><div className="mb-3 flex items-center justify-between"><p className="text-[11.5px] text-ink-muted">Queue attempts, provider messages, receipts, errors and trigger events.</p><button onClick={loadData} className="rounded-lg border border-base-border p-2"><RefreshCw size={14} /></button></div><div className="overflow-hidden rounded-xl border border-base-border"><div className="max-h-[600px] overflow-auto">{logs.length === 0 ? <div className="p-10 text-center text-[12px] text-ink-muted">No WhatsApp activity yet.</div> : logs.map((row) => <div key={`${row.log_kind}-${row.id}`} className="border-b border-base-border p-3 last:border-0"><div className="flex items-start justify-between gap-3"><div><span className="mr-2 rounded bg-base-raised px-1.5 py-0.5 text-[9px] font-bold uppercase text-ink-muted">{row.log_kind}</span><span className="text-[11.5px] font-semibold">{row.event_type || row.message_type || row.direction || "activity"}</span><div className="mt-1 max-w-2xl truncate text-[11px] text-ink-muted">{row.message || row.body || row.last_error || row.status}</div></div><div className="flex items-center gap-2 text-right">{row.log_kind === "queue" && ["failed", "skipped", "cancelled"].includes(row.status) && <button onClick={() => retryJob(row.id)} className="rounded-lg border border-base-border px-2 py-1 text-[9px] font-bold text-brand hover:bg-base-raised">Retry</button>}<div><div className={`text-[10px] font-bold uppercase ${["failed", "error"].includes(row.status || row.severity) ? "text-danger" : "text-ink-muted"}`}>{row.status || row.severity || ""}</div><div className="mt-1 text-[9px] text-ink-faint">{new Date(row.log_date).toLocaleString()}</div></div></div></div></div>)}</div></div></div>}
             </>}
