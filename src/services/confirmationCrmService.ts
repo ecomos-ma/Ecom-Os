@@ -568,12 +568,14 @@ export async function getConfirmationOrderDetails(workspaceId: string, order: Co
   return { order, notes, callbacks, history, timeline, recordings };
 }
 
-export async function updateConfirmationStatus(workspaceId: string, order: ConfirmationOrder, status: string) {
+export async function updateConfirmationStatus(workspaceId: string, order: ConfirmationOrder, status: string, confirmedByUserId?: string | null) {
   const now = new Date().toISOString();
   const payload: Record<string, string | null> = { status };
   if (status === "confirmed") {
     payload.confirmed_at = now;
     payload.confirmation_method = 'call';
+    payload.confirmation_source = 'human';
+    payload.confirmed_by_user_id = confirmedByUserId ?? null;
   }
   if (status === "cancelled") payload.cancelled_at = now;
   console.log(`[DEBUG Confirmation] UPDATE PAYLOAD for order ${order.id}:`, JSON.stringify(payload, null, 2));

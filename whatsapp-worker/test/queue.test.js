@@ -124,6 +124,21 @@ test("provider error after the send boundary fails closed as delivery unknown", 
   assert.ok(!repository.updates.some((update) => update.status === "pending"));
 });
 
+test("seller-authored message steps send each text in order", async () => {
+  const repository = new MemoryRepository({ sequence: ["text"] });
+  repository.context.rule.message_steps = [
+    { id: "message-1", type: "text", text_template: "First {{customer_name}}", audio_recording_id: null },
+    { id: "message-2", type: "text", text_template: "Second {{customer_name}}", audio_recording_id: null },
+    { id: "message-3", type: "text", text_template: "Third {{customer_name}}", audio_recording_id: null },
+  ];
+  const sessions = new MemorySessionManager();
+  await processor(repository, sessions).processJob(job({ channel_sequence: ["text"] }));
+
+  assert.deepEqual(sessions.sent.map((item) => item.text), ["First Amine", "Second Amine", "Third Amine"]);
+  assert.equal(repository.messages.length, 3);
+  assert.ok(repository.updates.some((update) => update.status === "sent"));
+});
+
 test("a stale per-part send marker blocks automatic duplicate transmission", async () => {
   const repository = new MemoryRepository();
   const sessions = new MemorySessionManager();

@@ -8,6 +8,11 @@ function completedParts(payload) {
   return new Set(Array.isArray(payload?.completed_parts) ? payload.completed_parts : []);
 }
 
+function messageSteps(rule) {
+  if (!Array.isArray(rule?.message_steps)) return [];
+  return rule.message_steps.filter((step) => step && (step.type === "text" || step.type === "audio"));
+}
+
 function retryDelay(settings, attempts) {
   const base = Math.max(10, Number(settings?.retry_base_seconds || 60));
   const cap = Math.max(base, Number(settings?.retry_max_seconds || 3600));
@@ -181,19 +186,27 @@ export class QueueProcessor {
     }
 
     const variables = templateVariables(order, workspace || {});
-    const sequence = Array.isArray(job.channel_sequence) && job.channel_sequence.length
-      ? job.channel_sequence
-      : Array.isArray(rule?.channel_sequence) && rule.channel_sequence.length
-        ? rule.channel_sequence
-        : ["text"];
-    const textTemplate = rule?.text_template || settings.confirmation_message || "";
+    const configuredSteps = messageSteps(rule);
+    const sequence = configuredSteps.length
+      ? configuredSteps.map((step) => step.type)
+      : Array.isArray(job.channel_sequence) && job.channel_sequence.length
+        ? job.channel_sequence
+        : Array.isArray(rule?.channel_sequence) && rule.channel_sequence.length
+          ? rule.channel_sequence
+          : ["text"];
+    // Some reply-driven workflows use the same durable queue but provide their
+    // own seller-authored text.  The queue remains the only sender, so a worker
+    // restart cannot duplicate or silently lose a response between steps.
+    const textTemplate = typeof initialPayload.text_template === "string"
+      ? initialPayload.text_template
+      : rule?.text_template || settings.confirmation_message || "";
     const fallbackTemplate = rule?.fallback_text || textTemplate;
     const payload = { ...initialPayload, completed_parts: [...completed], part_message_ids: { ...(initialPayload.part_message_ids || {}) } };
     let sendToken = job.send_token || randomUUID();
     let primaryProviderId = job.wa_message_id || null;
     let sentThisRun = 0;
     let recording;
-    let recordingLoaded = false;
+    let loadedRecordingId = null;
 
     const persistPayload = async (extra = {}) => {
       payload.completed_parts = [...completed];
@@ -258,21 +271,22 @@ export class QueueProcessor {
     try {
       for (let index = 0; index < sequence.length; index += 1) {
         const part = sequence[index];
+        const step = configuredSteps[index] || null;
         const partKey = `${index}:${part}`;
         if (completed.has(partKey)) continue;
 
-        if (part === "text" && rule?.text_enabled !== false) {
-          const body = renderTemplate(textTemplate, variables);
+        if (part === "text" && (step || rule?.text_enabled !== false)) {
+          const body = renderTemplate(step?.text_template || textTemplate, variables);
           if (!body) { await completeWithoutSend(partKey); continue; }
           await transmit({ partKey, kind: "text", body, send: () => this.sessionManager.sendText(job.workspace_id, registration.jid, body) });
           continue;
         }
 
-        if (part === "audio" && rule?.audio_enabled) {
+        if (part === "audio" && (step || rule?.audio_enabled)) {
           try {
-            if (!recordingLoaded) {
-              recordingLoaded = true;
-              const recordingId = job.audio_recording_id || rule.audio_recording_id;
+            const recordingId = step?.audio_recording_id || job.audio_recording_id || rule?.audio_recording_id;
+            if (!recording || loadedRecordingId !== recordingId) {
+              loadedRecordingId = recordingId;
               await this.repository.logEvent({
                 workspace_id: job.workspace_id,
                 order_id: job.order_id,
@@ -295,20 +309,8 @@ export class QueueProcessor {
                   mime_type: recording.mimeType,
                   original_mime: recording.originalMime || null,
                   size_bytes: recording.buffer?.length || 0,
-                  conversion_skipped: recording.conversionSkipped || false,
-                  conversion_skip_reason: recording.conversionSkipReason || null,
                 },
               }).catch(() => { });
-              if (recording.conversionSkipped) {
-                await this.repository.logEvent({
-                  workspace_id: job.workspace_id,
-                  order_id: job.order_id,
-                  event_type: "audio_conversion_skipped",
-                  severity: "warning",
-                  message: `Audio codec conversion skipped (ffmpeg unavailable): ${recording.conversionSkipReason || "unknown"}`,
-                  metadata: { job_id: job.id, original_mime: recording.originalMime },
-                }).catch(() => { });
-              }
             }
             await this.repository.logEvent({
               workspace_id: job.workspace_id,

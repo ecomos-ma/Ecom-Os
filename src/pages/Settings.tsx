@@ -50,8 +50,8 @@ export default function Settings() {
     <div>
       <PageHeader title="Settings" subtitle="Manage your profile, workspace, and integrations." />
 
-      <div className="mb-5 flex flex-wrap gap-2">
-        <div className="inline-flex rounded-lg border border-base-border bg-base-surface p-1">
+      <div className="mb-5 -mx-3 overflow-x-auto px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0">
+        <div className="inline-flex min-w-max rounded-lg border border-base-border bg-base-surface p-1">
           {TABS.map((t) => (
             <button
               key={t}

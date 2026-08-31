@@ -204,6 +204,17 @@ export default function Orders() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
   useEffect(() => {
+    const navigationState = location.state as { createOrder?: boolean; viewOrderId?: string } | null;
+    if (!navigationState?.createOrder) return;
+
+    setShowNew(true);
+    navigate(location.pathname, {
+      replace: true,
+      state: { ...navigationState, createOrder: false },
+    });
+  }, [location.key, location.pathname, location.state, navigate]);
+
+  useEffect(() => {
     const requestedOrderId = (location.state as { viewOrderId?: string } | null)?.viewOrderId;
     if (!requestedOrderId || !allOrders.length) return;
     const requestedOrder = allOrders.find((order) => order.id === requestedOrderId);

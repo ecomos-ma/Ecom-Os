@@ -124,7 +124,7 @@ export default function Customers() {
       <PageHeader title="Customers" subtitle="A CRM-style customer panel with order lifetime value and contact history." />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[240px] max-w-[420px]">
+        <div className="relative w-full min-w-0 flex-1 sm:min-w-[240px] sm:max-w-[420px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" size={14} />
           <input
             value={search}
@@ -142,7 +142,7 @@ export default function Customers() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filteredCustomers.map((customer) => (
-            <article key={customer.id} onClick={() => openCustomer(customer)} className="cursor-pointer rounded-3xl border border-base-border bg-base-surface p-6 shadow-card transition hover:-translate-y-0.5 hover:shadow-xl">
+            <article key={customer.id} onClick={() => openCustomer(customer)} className="cursor-pointer rounded-3xl border border-base-border bg-base-surface p-4 shadow-card transition active:scale-[0.99] sm:p-6 hover:-translate-y-0.5 hover:shadow-xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-ink">{customer.name}</h2>

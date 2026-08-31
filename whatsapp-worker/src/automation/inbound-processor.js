@@ -11,10 +11,7 @@ export class InboundProcessor {
     if (!this.repository.configured) return;
     const safeId = message?.providerEventId || null;
     try {
-      // --------------------------------------------------------------------------
-      // 1. Persist inbound message + match reply action (via DB RPC)
-      // --------------------------------------------------------------------------
-      const result = await this.repository.processInbound({
+      const inbound = {
         workspaceId,
         providerEventId: safeId,
         remoteJid: message.remoteJid,
@@ -23,7 +20,12 @@ export class InboundProcessor {
         quotedMessageId: message.quotedMessageId || null,
         receivedAt: message.receivedAt,
         rawPayload: message.rawPayload || {},
-      });
+        messageType: message.rawPayload?.message_type || null,
+      };
+
+      // Process an inbound event once. A second handler would see the stored
+      // event as a duplicate and silently skip confirmation.
+      const result = await this.repository.processInbound(inbound);
 
       // --------------------------------------------------------------------------
       // 2. Log inbound_received in worker (lightweight, non-blocking)
@@ -40,6 +42,7 @@ export class InboundProcessor {
           action: result?.action || "unmatched",
           duplicate: result?.duplicate || false,
           manual_review: result?.manual_review || false,
+          address_flow: false,
         },
       }).catch(() => { });
 

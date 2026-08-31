@@ -277,6 +277,9 @@ export class BaileysWhatsAppProvider extends WhatsAppProvider {
   }
 
   async sendVoice(jid, { buffer, mimeType, seconds }) {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0 || mimeType !== "audio/ogg; codecs=opus") {
+      throw new WorkerError(ErrorCode.INVALID_REQUEST, "WhatsApp voice notes must be non-empty Ogg Opus audio", { retryable: false });
+    }
     const message = await this.#requireReady().sendMessage(jid, {
       audio: buffer,
       mimetype: mimeType,

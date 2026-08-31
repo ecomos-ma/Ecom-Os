@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Activity, Bot, CheckCircle2, Clock3, FileAudio, Headphones, Loader2,
-  MessageCircle, Mic, PauseCircle, PlayCircle, RefreshCw, Save, Send,
-  ShieldCheck, Smartphone, Trash2, Upload, X,
+  Activity, Bot, CheckCircle2, Clock3, FileAudio, Headphones, Inbox,
+  Loader2, MessageCircle, Mic, PauseCircle, PlayCircle, RefreshCw, Save,
+  Send, ShieldCheck, Smartphone, Trash2, Upload, X,
 } from "lucide-react";
 import QRCode from "react-qr-code";
 import { toast } from "../../../components/Toast";
@@ -20,11 +20,18 @@ const TABS = [
   ["delivery", "Delivery Messages", Send],
   ["audio", "Audio Recordings", Mic],
   ["replies", "Reply Actions", ShieldCheck],
+  ["inbox", "Inbox", Inbox],
   ["schedule", "Sending Schedule", Clock3],
   ["logs", "Logs", Activity],
 ] as const;
 
 type TabKey = typeof TABS[number][0];
+type MessageStep = {
+  id: string;
+  type: "text" | "audio";
+  text_template: string;
+  audio_recording_id: string | null;
+};
 type Rule = {
   id?: string;
   event_type: "confirmation" | "delivery";
@@ -38,6 +45,7 @@ type Rule = {
   fallback_text_enabled: boolean;
   fallback_text: string;
   channel_sequence: string[];
+  message_steps: MessageStep[];
   delay_minutes: number;
   expires_after_minutes: number;
 };
@@ -95,12 +103,14 @@ const DEFAULT_RULES: Record<Rule["event_type"], Rule> = {
   confirmation: {
     event_type: "confirmation", enabled: false, status_source: "status", trigger_statuses: ["pending", "new"],
     text_enabled: true, text_template: CONFIRMATION_TEMPLATE, audio_enabled: false, audio_recording_id: null,
-    fallback_text_enabled: true, fallback_text: CONFIRMATION_TEMPLATE, channel_sequence: ["text"], delay_minutes: 0, expires_after_minutes: 1440,
+    fallback_text_enabled: true, fallback_text: CONFIRMATION_TEMPLATE, channel_sequence: ["text"],
+    message_steps: [{ id: "confirmation-text-1", type: "text", text_template: CONFIRMATION_TEMPLATE, audio_recording_id: null }], delay_minutes: 0, expires_after_minutes: 1440,
   },
   delivery: {
     event_type: "delivery", enabled: false, status_source: "shipping_status", trigger_statuses: ["OUT_FOR_DELIVERY"],
     text_enabled: true, text_template: DELIVERY_TEMPLATE, audio_enabled: false, audio_recording_id: null,
-    fallback_text_enabled: true, fallback_text: DELIVERY_TEMPLATE, channel_sequence: ["text"], delay_minutes: 0, expires_after_minutes: 1440,
+    fallback_text_enabled: true, fallback_text: DELIVERY_TEMPLATE, channel_sequence: ["text"],
+    message_steps: [{ id: "delivery-text-1", type: "text", text_template: DELIVERY_TEMPLATE, audio_recording_id: null }], delay_minutes: 0, expires_after_minutes: 1440,
   },
 };
 
@@ -110,8 +120,29 @@ const DEFAULT_ACTIONS: ReplyAction[] = [
   { id: "new_opt_out", name: "Stop / Opt Out", action_type: "opt_out", priority: 0, enabled: true, keywords: ["stop", "توقف", "حبس", "désabonner"], response_template: "تم إيقاف رسائل واتساب لهاد الرقم. شكراً." },
 ];
 
+
 const VARIABLES = ["customer_name", "order_number", "products", "total", "city", "phone", "address", "shipping_company", "tracking_number", "workspace_name", "status", "current_date", "current_time"];
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function messageStepsFor(rule: Partial<Rule>): MessageStep[] {
+  const configured = Array.isArray(rule.message_steps)
+    ? rule.message_steps.filter((step): step is MessageStep => Boolean(step) && (step.type === "text" || step.type === "audio"))
+    : [];
+  if (configured.length) return configured.map((step, index) => ({
+    id: step.id || `${step.type}-${index + 1}`,
+    type: step.type,
+    text_template: step.text_template || "",
+    audio_recording_id: step.audio_recording_id || null,
+  }));
+
+  const sequence = Array.isArray(rule.channel_sequence) && rule.channel_sequence.length ? rule.channel_sequence : ["text"];
+  return sequence.filter((type): type is MessageStep["type"] => type === "text" || type === "audio").map((type, index) => ({
+    id: `${type}-${index + 1}`,
+    type,
+    text_template: type === "text" ? (rule.text_template || "") : "",
+    audio_recording_id: type === "audio" ? (rule.audio_recording_id || null) : null,
+  }));
+}
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return <label className="mb-1.5 block text-[12px] font-semibold text-ink">{children}</label>;
@@ -138,7 +169,7 @@ function TemplateEditor({ value, onChange }: { value: string; onChange: (value: 
       <div className="mb-2 flex justify-end"><button onClick={() => setPreview((current) => !current)} className="text-[12px] font-semibold text-brand">{preview ? "Edit" : "Preview"}</button></div>
       {preview ? <div className="min-h-[180px] whitespace-pre-wrap rounded-xl border border-[#25D366]/20 bg-[#25D366]/5 p-4 text-[13px] leading-relaxed">{rendered}</div> :
         <textarea value={value} onChange={(event) => onChange(event.target.value)} className="h-[220px] w-full resize-y rounded-xl border border-base-border bg-base-raised/30 p-4 font-mono text-[13px] outline-none focus:border-brand/40" />}
-      <div className="mt-2 flex flex-wrap gap-1.5">{VARIABLES.map((name) => <button key={name} onClick={() => onChange(`${value}${value.endsWith(" ") || !value ? "" : " "}{{${name}}}`)} className="rounded-md bg-base-raised px-2 py-1 text-[10.5px] text-ink-muted hover:text-ink">{`{{${name}}}`}</button>)}</div>
+      <div className="mt-3 rounded-xl border border-base-border bg-base-raised/20 p-2.5"><div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted">Insert order details</div><div className="flex flex-wrap gap-2">{VARIABLES.map((name) => <button key={name} onClick={() => onChange(`${value}${value.endsWith(" ") || !value ? "" : " "}{{${name}}}`)} className="min-h-8 rounded-lg border border-base-border bg-base-surface px-2.5 py-1 text-[10.5px] font-medium text-ink-muted hover:border-[#25D366]/40 hover:text-[#159447]">+ {`{{${name}}}`}</button>)}</div></div>
     </div>
   );
 }
@@ -153,6 +184,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   const [orderStatuses, setOrderStatuses] = useState<any[]>([]);
   const [recordings, setRecordings] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
+  const [inboxMessages, setInboxMessages] = useState<any[]>([]);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -225,12 +257,17 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
       if (settingsResult.data) setSettings((current: any) => ({ ...current, ...settingsResult.data }));
       if (statusesResult && statusesResult.data) setOrderStatuses(statusesResult.data);
       const nextRules: Record<Rule["event_type"], Rule> = { confirmation: { ...DEFAULT_RULES.confirmation }, delivery: { ...DEFAULT_RULES.delivery } };
-      for (const rule of rulesResult.data || []) nextRules[rule.event_type as Rule["event_type"]] = { ...nextRules[rule.event_type as Rule["event_type"]], ...rule };
+      for (const rule of rulesResult.data || []) {
+        const event = rule.event_type as Rule["event_type"];
+        const merged = { ...nextRules[event], ...rule } as Rule;
+        nextRules[event] = { ...merged, message_steps: messageStepsFor(merged) };
+      }
       setRules(nextRules);
       const nextActions = actionsResult.data && actionsResult.data.length > 0 ? actionsResult.data : [...DEFAULT_ACTIONS];
       setActions(nextActions);
       setDeletedActionIds([]);
       setRecordings(audioResult.data || []);
+      setInboxMessages(messagesResult.data || []);
       const combined = [
         ...(queueResult.data || []).map((row) => ({ ...row, log_kind: "queue", log_date: row.created_at })),
         ...(messagesResult.data || []).map((row) => ({ ...row, log_kind: "message", log_date: row.created_at })),
@@ -312,7 +349,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
     try {
       for (const rule of Object.values(rules)) {
         if (!rule.trigger_statuses.length) throw new Error(`${rule.event_type} needs at least one trigger status`);
-        if (!rule.text_enabled && !rule.audio_enabled) throw new Error(`${rule.event_type} must send text, audio, or both`);
+        if (!messageStepsFor(rule).length) throw new Error(`${rule.event_type} needs at least one message step`);
       }
       if (!settings.active_days.length) throw new Error("Choose at least one active sending day");
       const confirmAction = actions.find(a => a.action_type === "confirm_order") || DEFAULT_ACTIONS.find(a => a.action_type === "confirm_order")!;
@@ -332,7 +369,22 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
       };
       const { error: settingsError } = await supabase.from("whatsapp_settings").upsert(settingsPayload, { onConflict: "workspace_id" });
       if (settingsError) throw settingsError;
-      const { error: rulesError } = await supabase.from("whatsapp_automation_rules").upsert(Object.values(rules).map(({ id: _id, ...rule }) => ({ ...rule, workspace_id: workspace.id })), { onConflict: "workspace_id,event_type" });
+      const rulesPayload = Object.values(rules).map(({ id: _id, ...rule }) => {
+        const message_steps = messageStepsFor(rule);
+        const firstText = message_steps.find((step) => step.type === "text");
+        const firstAudio = message_steps.find((step) => step.type === "audio");
+        return {
+          ...rule,
+          workspace_id: workspace.id,
+          message_steps,
+          channel_sequence: message_steps.map((step) => step.type),
+          text_enabled: message_steps.some((step) => step.type === "text"),
+          audio_enabled: message_steps.some((step) => step.type === "audio"),
+          text_template: firstText?.text_template || "",
+          audio_recording_id: firstAudio?.audio_recording_id || null,
+        };
+      });
+      const { error: rulesError } = await supabase.from("whatsapp_automation_rules").upsert(rulesPayload, { onConflict: "workspace_id,event_type" });
       if (rulesError) throw rulesError;
 
       if (deletedActionIds.length > 0) {
@@ -346,12 +398,27 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
       const actionsPayload = actions.map(action => {
         const { id, ...rest } = action;
         const out: any = { ...rest, workspace_id: workspace.id, priority: rest.priority ?? 20 };
+        out.action = ({
+          confirm_order: "confirm",
+          request_callback: "callback",
+          opt_out: "opt_out",
+          cancel_order: "callback",
+          set_order_status: "callback",
+          add_note: "callback",
+          reply_only: "callback",
+        } as const)[rest.action_type];
         if (id && !id.startsWith("new_")) out.id = id;
         return out;
       });
 
-      if (actionsPayload.length > 0) {
-        const { error: actionsError } = await supabase.from("whatsapp_reply_actions").upsert(actionsPayload);
+      const dedupedActionsPayload = Array.from(new Map(
+        actionsPayload.map((action) => [action.action_type, action])
+      ).values());
+
+      if (dedupedActionsPayload.length > 0) {
+        const { error: actionsError } = await supabase
+          .from("whatsapp_reply_actions")
+          .upsert(dedupedActionsPayload, { onConflict: "id" });
         if (actionsError) throw actionsError;
       }
       toast.success("WhatsApp automation saved");
@@ -525,14 +592,35 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
 
   const messageEditor = (event: Rule["event_type"]) => {
     const rule = rules[event];
+    const steps = messageStepsFor(rule);
+    const updateSteps = (nextSteps: MessageStep[]) => {
+      const firstText = nextSteps.find((step) => step.type === "text");
+      const firstAudio = nextSteps.find((step) => step.type === "audio");
+      updateRule(event, {
+        message_steps: nextSteps,
+        channel_sequence: nextSteps.map((step) => step.type),
+        text_enabled: nextSteps.some((step) => step.type === "text"),
+        audio_enabled: nextSteps.some((step) => step.type === "audio"),
+        text_template: firstText?.text_template || "",
+        audio_recording_id: firstAudio?.audio_recording_id || null,
+      });
+    };
+    const addStep = (type: MessageStep["type"]) => updateSteps([...steps, {
+      id: `${type}-${crypto.randomUUID()}`,
+      type,
+      text_template: type === "text" ? "" : "",
+      audio_recording_id: null,
+    }]);
+    const moveStep = (index: number, direction: -1 | 1) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= steps.length) return;
+      const next = [...steps];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      updateSteps(next);
+    };
     return <div className="space-y-5">
-      <TemplateEditor value={rule.text_template} onChange={(text_template) => updateRule(event, { text_template })} />
-      <div className="grid gap-4 md:grid-cols-2">
-        <Toggle checked={rule.text_enabled} onChange={(text_enabled) => updateRule(event, { text_enabled })} label="Send text" />
-        <Toggle checked={rule.audio_enabled} onChange={(audio_enabled) => updateRule(event, { audio_enabled, channel_sequence: audio_enabled ? ["text", "audio"] : ["text"] })} label="Send voice recording" />
-      </div>
-      {rule.text_enabled && rule.audio_enabled && <div><FieldLabel>Message order</FieldLabel><select value={rule.channel_sequence.join(",")} onChange={(e) => updateRule(event, { channel_sequence: e.target.value.split(",") })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="text,audio">Text → voice recording</option><option value="audio,text">Voice recording → text</option></select></div>}
-      {rule.audio_enabled && <div><FieldLabel>Voice recording</FieldLabel><select value={rule.audio_recording_id || ""} onChange={(e) => updateRule(event, { audio_recording_id: e.target.value || null })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="">Select a private recording</option>{recordings.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></div>}
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-[14px] font-bold">Message sequence</h3><p className="mt-1 text-[11.5px] text-ink-muted">Every step is sent in this exact order. Add two or three messages when you need them.</p></div><div className="flex gap-2"><button onClick={() => addStep("text")} className="rounded-xl border border-base-border px-3 py-2 text-[11px] font-bold hover:bg-base-raised">+ Text</button><button onClick={() => addStep("audio")} className="rounded-xl bg-[#25D366] px-3 py-2 text-[11px] font-bold text-white">+ Voice note</button></div></div>
+      {steps.map((step, index) => <section key={step.id} className="rounded-2xl border border-base-border p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="text-[12px] font-bold">{index + 1}. {step.type === "text" ? "Text message" : "Voice note"}</div><div className="flex items-center gap-1"><button disabled={index === 0} onClick={() => moveStep(index, -1)} className="rounded-lg border border-base-border px-2 py-1 text-[10px] disabled:opacity-30">Move up</button><button disabled={index === steps.length - 1} onClick={() => moveStep(index, 1)} className="rounded-lg border border-base-border px-2 py-1 text-[10px] disabled:opacity-30">Move down</button><button disabled={steps.length === 1} onClick={() => updateSteps(steps.filter((item) => item.id !== step.id))} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-danger disabled:opacity-30">Remove</button></div></div>{step.type === "text" ? <TemplateEditor value={step.text_template} onChange={(text_template) => updateSteps(steps.map((item) => item.id === step.id ? { ...item, text_template } : item))} /> : <div><FieldLabel>Voice recording</FieldLabel><select value={step.audio_recording_id || ""} onChange={(e) => updateSteps(steps.map((item) => item.id === step.id ? { ...item, audio_recording_id: e.target.value || null } : item))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="">Select a recording</option>{recordings.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><p className="mt-2 text-[11px] text-ink-muted">A voice note is sent as a recorded WhatsApp message, not as a file attachment.</p></div>}</section>)}
       <Toggle checked={rule.fallback_text_enabled} onChange={(fallback_text_enabled) => updateRule(event, { fallback_text_enabled })} label="Use fallback text if media is unavailable" />
       {rule.fallback_text_enabled && <textarea value={rule.fallback_text} onChange={(e) => updateRule(event, { fallback_text: e.target.value })} className="h-24 w-full rounded-xl border border-base-border bg-base-raised/30 p-3 text-[13px]" />}
     </div>;
@@ -558,14 +646,18 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
               {tab === "connection" && <div className="space-y-5">
                 <div className="rounded-2xl border border-base-border p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-[12px] text-ink-muted">Connection state</div><div className={`mt-1 flex items-center gap-2 text-[15px] font-bold ${connected ? "text-[#159447]" : status === "error" ? "text-danger" : "text-ink"}`}>{connected ? <CheckCircle2 size={17} /> : <PauseCircle size={17} />}{status.replace(/_/g, " ")}</div>{settings.connected_phone && <div className="mt-1 text-[12px] text-ink-muted">+{settings.connected_phone}</div>}</div><div className="flex gap-2">{connected ? <button onClick={disconnect} disabled={busy} className="rounded-xl border border-danger/30 px-4 py-2.5 text-[12px] font-semibold text-danger">Disconnect</button> : <button onClick={connect} disabled={busy} className="rounded-xl bg-[#25D366] px-4 py-2.5 text-[12px] font-semibold text-white">Connect WhatsApp</button>}<button onClick={loadData} className="rounded-xl border border-base-border p-2.5"><RefreshCw size={15} /></button></div></div></div>
                 {qrCode && <div className="flex flex-col items-center rounded-2xl border border-base-border p-6"><div className="rounded-xl bg-white p-4"><QRCode value={qrCode} size={220} /></div><p className="mt-4 text-center text-[12px] text-ink-muted">Open WhatsApp → Linked devices → Link a device</p></div>}
-                <div className="grid gap-4 md:grid-cols-2"><div className="rounded-xl border border-base-border p-4"><div className="text-[11px] text-ink-muted">Worker health</div><div className={`mt-1 text-[13px] font-bold ${workerHealthy ? "text-[#159447]" : "text-danger"}`}>{workerHealthy ? "Healthy" : "No recent heartbeat"}</div><div className="mt-1 text-[10.5px] text-ink-muted">{settings.worker_version || "Version unavailable"}</div></div><div className="rounded-xl border border-amber-300/40 bg-amber-50/50 p-4 text-[11.5px] leading-relaxed text-amber-800">This installation uses an unofficial WhatsApp Web client. Keep sending transactional, consent-based, and rate-limited.</div></div>
+                <div className="rounded-xl border border-base-border p-4"><div className="text-[11px] text-ink-muted">Worker health</div><div className={`mt-1 text-[13px] font-bold ${workerHealthy ? "text-[#159447]" : "text-danger"}`}>{workerHealthy ? "Healthy" : "No recent heartbeat"}</div><div className="mt-1 text-[10.5px] text-ink-muted">{settings.worker_version || "Version unavailable"}</div></div>
                 <div className="rounded-xl border border-base-border p-4"><FieldLabel>Send a safe test</FieldLabel><div className="flex gap-2"><input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="06XXXXXXXX" className="min-w-0 flex-1 rounded-xl border border-base-border bg-base-raised/30 px-3 py-2.5 text-[13px]" /><button onClick={sendTest} disabled={busy || !connected} className="rounded-xl bg-ink px-4 py-2.5 text-[12px] font-semibold text-base-surface disabled:opacity-40"><PlayCircle size={14} className="mr-1 inline" />Test</button></div></div>
               </div>}
-              {tab === "automations" && <div className="space-y-7"><section><h3 className="mb-3 text-[13px] font-bold">Order confirmation trigger</h3>{ruleEditor("confirmation")}</section><hr className="border-base-border" /><section><h3 className="mb-3 text-[13px] font-bold">Delivery trigger</h3>{ruleEditor("delivery")}</section></div>}
-              {tab === "confirmation" && messageEditor("confirmation")}
-              {tab === "delivery" && messageEditor("delivery")}
-              {tab === "audio" && <div className="space-y-5"><div className="rounded-2xl border border-base-border p-5"><h3 className="text-[13px] font-bold">Record in the browser</h3><p className="mt-1 text-[11.5px] text-ink-muted">Recordings are stored in a private, workspace-isolated bucket (10 MB maximum).</p><div className="mt-4 flex flex-wrap items-center gap-3">{recording ? <button onClick={stopRecording} className="rounded-xl bg-danger px-4 py-2.5 text-[12px] font-semibold text-white"><PauseCircle size={15} className="mr-1 inline" />Stop</button> : <button onClick={startRecording} className="rounded-xl bg-[#25D366] px-4 py-2.5 text-[12px] font-semibold text-white"><Mic size={15} className="mr-1 inline" />Record</button>}<label className="cursor-pointer rounded-xl border border-base-border px-4 py-2.5 text-[12px] font-semibold"><Upload size={15} className="mr-1 inline" />Upload file<input type="file" accept="audio/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadAudio(file, file.name); }} /></label>{recordedUrl && <audio controls src={recordedUrl} className="h-10" />}{recordedBlob && <button onClick={() => uploadAudio(recordedBlob)} disabled={busy} className="rounded-xl bg-ink px-4 py-2.5 text-[12px] font-semibold text-base-surface">Save recording</button>}</div></div><div className="space-y-2">{recordings.length === 0 ? <div className="rounded-xl border border-dashed border-base-border p-8 text-center text-[12px] text-ink-muted">No recordings yet.</div> : recordings.map((row) => <div key={row.id} className="flex items-center justify-between rounded-xl border border-base-border p-4"><div className="flex items-center gap-3"><FileAudio size={18} className="text-[#25D366]" /><div><div className="text-[12.5px] font-semibold">{row.name}</div><div className="text-[10.5px] text-ink-muted">{Math.ceil(row.file_size / 1024)} KB · {row.mime_type}</div></div></div><div className="flex gap-1"><button onClick={() => playAudio(row)} className="rounded-lg p-2 text-[#159447] hover:bg-[#25D366]/10"><PlayCircle size={15} /></button><button onClick={() => removeAudio(row)} className="rounded-lg p-2 text-danger hover:bg-danger/10"><Trash2 size={15} /></button></div></div>)}</div></div>}
-              {tab === "replies" && <div className="space-y-5">
+              {tab === "automations" && <div className="space-y-7">
+                <div><h3 className="text-[14px] font-bold">Order automations</h3><p className="mt-1 text-[12px] text-ink-muted">A customer reply of 1 confirms the matching order immediately. Configure the outgoing message in Confirmation Messages.</p></div>
+                <section><h3 className="mb-3 text-[13px] font-bold">Order confirmation trigger</h3>{ruleEditor("confirmation")}</section>
+                <section className="border-t border-base-border pt-6"><h3 className="mb-3 text-[13px] font-bold">Delivery trigger</h3>{ruleEditor("delivery")}</section>
+              </div>}
+              {tab === "confirmation" && <div className="space-y-4"><div><h3 className="text-[14px] font-bold">Confirmation messages</h3><p className="mt-1 text-[12px] text-ink-muted">Add text and recorded voice notes in the exact order the customer should receive them.</p></div>{messageEditor("confirmation")}</div>}
+              {tab === "delivery" && <div className="space-y-4"><div><h3 className="text-[14px] font-bold">Delivery messages</h3><p className="mt-1 text-[12px] text-ink-muted">Build the delivery update as one, two, or three messages.</p></div>{messageEditor("delivery")}</div>}
+              {tab === "audio" && <div className="space-y-5"><div className="rounded-2xl border border-base-border p-5"><h3 className="text-[13px] font-bold">Record in the browser</h3><p className="mt-1 text-[11.5px] text-ink-muted">Each recording is sent as a WhatsApp voice note. Record it here or upload an audio file.</p><div className="mt-4 flex flex-wrap items-center gap-3">{recording ? <button onClick={stopRecording} className="rounded-xl bg-danger px-4 py-2.5 text-[12px] font-semibold text-white"><PauseCircle size={15} className="mr-1 inline" />Stop</button> : <button onClick={startRecording} className="rounded-xl bg-[#25D366] px-4 py-2.5 text-[12px] font-semibold text-white"><Mic size={15} className="mr-1 inline" />Record</button>}<label className="cursor-pointer rounded-xl border border-base-border px-4 py-2.5 text-[12px] font-semibold"><Upload size={15} className="mr-1 inline" />Upload file<input type="file" accept="audio/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadAudio(file, file.name); }} /></label>{recordedUrl && <audio controls src={recordedUrl} className="h-10" />}{recordedBlob && <button onClick={() => uploadAudio(recordedBlob)} disabled={busy} className="rounded-xl bg-ink px-4 py-2.5 text-[12px] font-semibold text-base-surface">Save recording</button>}</div></div><div className="space-y-2">{recordings.length === 0 ? <div className="rounded-xl border border-dashed border-base-border p-8 text-center text-[12px] text-ink-muted">No recordings yet.</div> : recordings.map((row) => <div key={row.id} className="flex items-center justify-between rounded-xl border border-base-border p-4"><div className="flex items-center gap-3"><FileAudio size={18} className="text-[#25D366]" /><div><div className="text-[12.5px] font-semibold">{row.name}</div><div className="text-[10.5px] text-ink-muted">{Math.ceil(row.file_size / 1024)} KB · {row.mime_type}</div></div></div><div className="flex gap-1"><button onClick={() => playAudio(row)} className="rounded-lg p-2 text-[#159447] hover:bg-[#25D366]/10"><PlayCircle size={15} /></button><button onClick={() => removeAudio(row)} className="rounded-lg p-2 text-danger hover:bg-danger/10"><Trash2 size={15} /></button></div></div>)}</div></div>}
+              {tab === "replies" && <div className="mt-8 space-y-5 border-t border-base-border pt-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-[14px] font-bold">Reply Actions</h3>
@@ -649,6 +741,12 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
                 ))}
               </div>}
               {tab === "schedule" && <div className="space-y-5"><div><FieldLabel>Timezone</FieldLabel><select value={settings.timezone} onChange={(e) => setSettings((current: any) => ({ ...current, timezone: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="Africa/Casablanca">Africa/Casablanca</option></select></div><div><FieldLabel>Active sending days</FieldLabel><div className="flex flex-wrap gap-2">{DAY_LABELS.map((label, day) => <button key={label} onClick={() => setSettings((current: any) => ({ ...current, active_days: current.active_days.includes(day) ? current.active_days.filter((value: number) => value !== day) : [...current.active_days, day].sort() }))} className={`rounded-lg px-3 py-2 text-[11px] font-semibold ${settings.active_days.includes(day) ? "bg-[#25D366] text-white" : "bg-base-raised text-ink-muted"}`}>{label}</button>)}</div></div><div className="grid gap-4 md:grid-cols-2"><div><FieldLabel>Quiet hours start</FieldLabel><input type="time" value={settings.quiet_hours_start || ""} onChange={(e) => setSettings((current: any) => ({ ...current, quiet_hours_start: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div><div><FieldLabel>Quiet hours end</FieldLabel><input type="time" value={settings.quiet_hours_end || ""} onChange={(e) => setSettings((current: any) => ({ ...current, quiet_hours_end: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div>{[["Minimum interval (seconds)", "minimum_interval_seconds"], ["Hourly limit", "hourly_rate_limit"], ["Daily limit", "daily_rate_limit"], ["Reply context (hours)", "reply_context_hours"], ["Callback delay (minutes)", "callback_delay_minutes"], ["Retry base (seconds)", "retry_base_seconds"], ["Retry maximum (seconds)", "retry_max_seconds"]].map(([label, key]) => <div key={key}><FieldLabel>{label}</FieldLabel><input type="number" min={0} value={(settings as any)[key]} onChange={(e) => setSettings((current: any) => ({ ...current, [key]: Number(e.target.value) }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div>)}</div></div>}
+              {tab === "inbox" && <div className="space-y-5">
+                <div className="flex items-center justify-between gap-3"><div><h3 className="text-[14px] font-bold">Customer inbox</h3><p className="mt-1 text-[12px] text-ink-muted">Every message stays linked to its matching order.</p></div><button onClick={loadData} className="rounded-xl border border-base-border p-2.5"><RefreshCw size={15} /></button></div>
+                <div className="overflow-hidden rounded-2xl border border-base-border">
+                  {inboxMessages.length === 0 ? <div className="p-10 text-center text-[12px] text-ink-muted">No WhatsApp messages yet.</div> : inboxMessages.map((message) => <div key={message.id} className="flex gap-3 border-b border-base-border p-4 last:border-0"><div className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full ${message.direction === "inbound" ? "bg-base-raised text-ink-muted" : "bg-[#25D366]/15 text-[#159447]"}`}><MessageCircle size={14} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-[12px] font-semibold">{message.direction === "inbound" ? "Customer" : "Automation"} · {message.phone || "Unknown number"}</div><time className="text-[10px] text-ink-faint">{new Date(message.created_at).toLocaleString()}</time></div><p className="mt-1 whitespace-pre-wrap break-words text-[12px] text-ink-muted">{message.body || "No text content"}</p>{message.order_id && <div className="mt-1 text-[10px] font-semibold text-[#159447]">Order {String(message.order_id).slice(0, 8)}</div>}</div></div>)}
+                </div>
+              </div>}
               {tab === "logs" && <div><div className="mb-3 flex items-center justify-between"><p className="text-[11.5px] text-ink-muted">Queue attempts, provider messages, receipts, errors and trigger events.</p><button onClick={loadData} className="rounded-lg border border-base-border p-2"><RefreshCw size={14} /></button></div><div className="overflow-hidden rounded-xl border border-base-border"><div className="max-h-[600px] overflow-auto">{logs.length === 0 ? <div className="p-10 text-center text-[12px] text-ink-muted">No WhatsApp activity yet.</div> : logs.map((row) => <div key={`${row.log_kind}-${row.id}`} className="border-b border-base-border p-3 last:border-0"><div className="flex items-start justify-between gap-3"><div><span className="mr-2 rounded bg-base-raised px-1.5 py-0.5 text-[9px] font-bold uppercase text-ink-muted">{row.log_kind}</span><span className="text-[11.5px] font-semibold">{row.event_type || row.message_type || row.direction || "activity"}</span><div className="mt-1 max-w-2xl truncate text-[11px] text-ink-muted">{row.message || row.body || row.last_error || row.status}</div></div><div className="flex items-center gap-2 text-right">{row.log_kind === "queue" && ["failed", "skipped", "cancelled"].includes(row.status) && <button onClick={() => retryJob(row.id)} className="rounded-lg border border-base-border px-2 py-1 text-[9px] font-bold text-brand hover:bg-base-raised">Retry</button>}<div><div className={`text-[10px] font-bold uppercase ${["failed", "error"].includes(row.status || row.severity) ? "text-danger" : "text-ink-muted"}`}>{row.status || row.severity || ""}</div><div className="mt-1 text-[9px] text-ink-faint">{new Date(row.log_date).toLocaleString()}</div></div></div></div></div>)}</div></div></div>}
             </>}
           </main>

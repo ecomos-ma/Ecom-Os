@@ -151,7 +151,8 @@ export default function App() {
                 <Route path="/tiktok-ads" element={<LoadablePage><PermissionGuard permission="tiktok_ads"><TikTokAds /></PermissionGuard></LoadablePage>} />
                 <Route path="/expenses" element={<LoadablePage><PermissionGuard permission="expenses"><Expenses /></PermissionGuard></LoadablePage>} />
                 <Route path="/finance" element={<LoadablePage><PermissionGuard permission="expenses"><Finance /></PermissionGuard></LoadablePage>} />
-                <Route path="/cod-scenarios" element={<LoadablePage><PermissionGuard permission="codscenarios"><CodScenarios /></PermissionGuard></LoadablePage>} />
+                <Route path="/scenario" element={<LoadablePage><PermissionGuard permission="codscenarios"><CodScenarios /></PermissionGuard></LoadablePage>} />
+                <Route path="/cod-scenarios" element={<Navigate to="/scenario" replace />} />
                 <Route path="/team" element={<LoadablePage><PermissionGuard permission="team"><Team /></PermissionGuard></LoadablePage>} />
                 <Route path="/settings" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
                 <Route path="/notifications" element={<LoadablePage><Notifications /></LoadablePage>} />

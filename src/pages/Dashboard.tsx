@@ -584,11 +584,11 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
           d.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-muted" /> : null
         }
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 overflow-x-auto pb-px md:w-auto">
             <div className="text-ink-muted flex items-center justify-center mr-1">
               <button
                 onClick={() => setShowDatePicker(!showDatePicker)}
-                className={`p-1 hover:bg-base-raised rounded transition-colors ${showDatePicker ? 'bg-base-raised text-brand' : ''}`}
+                className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition-colors hover:bg-base-raised md:h-auto md:w-auto md:p-1 md:rounded ${showDatePicker ? 'bg-base-raised text-brand' : ''}`}
                 title="Select custom date range"
               >
                 <Calendar size={18} />
@@ -603,7 +603,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
                     setRangeType(type);
                     setShowDatePicker(false);
                   }}
-                  className={`px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${isActive
+                  className={`min-h-11 shrink-0 px-3.5 py-1.5 rounded-xl text-[13px] font-medium transition-colors md:min-h-0 md:rounded-lg ${isActive
                     ? "bg-brand-accent text-white border border-brand-accent"
                     : "bg-transparent text-text-muted border border-brand-border hover:border-text-muted/50 hover:text-text-main"
                     }`}

@@ -47,7 +47,7 @@ export const Topbar = memo(function Topbar() {
     if (pathname.startsWith("/confirmation")) return "navigation.confirmation";
     if (pathname.startsWith("/expenses")) return "navigation.expenses";
     if (pathname.startsWith("/finance")) return "navigation.finance";
-    if (pathname.startsWith("/cod-scenarios")) return "navigation.codScenarios";
+    if (pathname.startsWith("/scenario") || pathname.startsWith("/cod-scenarios")) return "navigation.codScenarios";
     if (pathname.startsWith("/ads-manager")) return "navigation.adsManager";
     if (pathname.startsWith("/tiktok-ads")) return "navigation.tiktokAds";
     if (pathname.startsWith("/team")) return "navigation.team";

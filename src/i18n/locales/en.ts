@@ -33,7 +33,7 @@ const en = {
   "navigation.tiktokAds": "TikTok Ads",
   "navigation.expenses": "Expenses",
   "navigation.finance": "Finance",
-  "navigation.codScenarios": "COD Scenarios",
+  "navigation.codScenarios": "Scenario",
   "navigation.team": "Team",
   "navigation.settings": "Settings",
   "navigation.tools": "Tools",

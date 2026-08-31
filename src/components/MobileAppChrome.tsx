@@ -11,6 +11,7 @@ import {
   Megaphone,
   MoreHorizontal,
   Package,
+  Plus,
   ScanLine,
   Settings,
   SlidersHorizontal,
@@ -48,7 +49,7 @@ const secondaryDestinations: MobileDestination[] = [
   { to: "/tiktok-ads", label: "TikTok Ads", description: "TikTok campaign performance", icon: Megaphone, permission: "tiktok_ads" },
   { to: "/expenses", label: "Expenses", description: "Track operating costs", icon: Wallet, permission: "expenses" },
   { to: "/finance", label: "Finance", description: "Revenue and profitability", icon: CircleDollarSign, permission: "expenses" },
-  { to: "/cod-scenarios", label: "COD scenarios", description: "Model COD outcomes", icon: SlidersHorizontal, permission: "codscenarios" },
+  { to: "/scenario", label: "Scenario", description: "Model COD outcomes", icon: SlidersHorizontal, permission: "codscenarios" },
   { to: "/team", label: "Team", description: "Members and access", icon: Users, permission: "team" },
   { to: "/settings", label: "Settings", description: "Workspace and integrations", icon: Settings, permission: "settings" },
   { to: "/tools", label: "Tools", description: "Commerce utilities", icon: WandSparkles, permission: "settings" },
@@ -58,7 +59,7 @@ const secondaryDestinations: MobileDestination[] = [
 const routeTitles: Array<[string, string]> = [
   ["/products-inventory", "Products & inventory"],
   ["/settings/notifications", "Notification settings"],
-  ["/cod-scenarios", "COD scenarios"],
+  ["/scenario", "Scenario"],
   ["/confirmation", "Confirmation"],
   ["/delivering", "Delivering"],
   ["/shipping", "Shipping"],
@@ -85,6 +86,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
   const { profile, workspace, teamPermissions, signOut } = useAuth();
   const { unreadCount } = useNotifications();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
   const ownerLike = isOwnerLikeRole(profile?.role);
   const shippingEnabled = isShippingModuleEnabled(workspace);
@@ -99,7 +101,10 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
   const pageTitle = routeTitles.find(([path]) => isRouteActive(location.pathname, path))?.[1] ?? "EcomOS";
   const initials = getUserInitials(profile?.full_name);
 
-  useEffect(() => setMoreOpen(false), [location.pathname]);
+  useEffect(() => {
+    setMoreOpen(false);
+    setQuickActionsOpen(false);
+  }, [location.pathname]);
 
   const primaryItems = [
     can("dashboard") ? { to: "/dashboard", label: "Home", icon: Home } : null,
@@ -148,12 +153,17 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           </NavLink>
         ))}
 
-        {canScan && (
-          <button type="button" onClick={onScan} className="mobile-scan-action" aria-label="Scan inventory QR code">
-            <span><ScanLine size={24} strokeWidth={2.2} /></span>
-            <small>Scan</small>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setQuickActionsOpen(true)}
+          className="mobile-quick-action"
+          aria-label="Open quick seller actions"
+          aria-haspopup="dialog"
+          aria-expanded={quickActionsOpen}
+        >
+          <span><Plus size={25} strokeWidth={2.5} /></span>
+          <small>Create</small>
+        </button>
 
         {primaryItems.slice(2).map(({ to, label, icon: ItemIcon }) => (
           <NavLink key={to} to={to} className={({ isActive }) => `mobile-nav-item ${isActive ? "is-active" : ""}`}>
@@ -203,6 +213,67 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         >
           <LogOut size={17} /> Sign out
         </button>
+      </MobileBottomSheet>
+
+      <MobileBottomSheet isOpen={quickActionsOpen} onClose={() => setQuickActionsOpen(false)} title="Quick actions">
+        <div className="grid grid-cols-2 gap-2 pb-2">
+          {can("orders") && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickActionsOpen(false);
+                navigate("/orders", { state: { createOrder: true } });
+              }}
+              className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-brand/35 bg-brand/10 p-3 text-left transition active:scale-[0.98]"
+            >
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand text-white shadow-sm"><Plus size={19} /></span>
+              <span className="mt-3 text-[13px] font-bold text-ink">New order</span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Add a manual COD order</span>
+            </button>
+          )}
+          {can("confirmation") && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickActionsOpen(false);
+                navigate("/confirmation");
+              }}
+              className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-base-border bg-base-raised/55 p-3 text-left transition active:scale-[0.98]"
+            >
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/12 text-emerald-600"><ClipboardCheck size={19} /></span>
+              <span className="mt-3 text-[13px] font-bold text-ink">Confirm orders</span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Open your call queue</span>
+            </button>
+          )}
+          {can("shipping") && shippingEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickActionsOpen(false);
+                navigate("/delivering");
+              }}
+              className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-base-border bg-base-raised/55 p-3 text-left transition active:scale-[0.98]"
+            >
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/12 text-sky-600"><Truck size={19} /></span>
+              <span className="mt-3 text-[13px] font-bold text-ink">Delivering</span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Track active parcels</span>
+            </button>
+          )}
+          {canScan && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuickActionsOpen(false);
+                onScan();
+              }}
+              className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-base-border bg-base-raised/55 p-3 text-left transition active:scale-[0.98]"
+            >
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-500/12 text-violet-600"><ScanLine size={19} /></span>
+              <span className="mt-3 text-[13px] font-bold text-ink">Scan parcel</span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Find an order by QR code</span>
+            </button>
+          )}
+        </div>
       </MobileBottomSheet>
     </>
   );

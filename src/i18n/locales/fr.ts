@@ -35,7 +35,7 @@ const fr: Record<keyof typeof en, string> = {
   "navigation.tiktokAds": "Publicités TikTok",
   "navigation.expenses": "Dépenses",
   "navigation.finance": "Finances",
-  "navigation.codScenarios": "Scénarios COD",
+  "navigation.codScenarios": "Scénario",
   "navigation.team": "Équipe",
   "navigation.settings": "Paramètres",
   "navigation.tools": "Outils",

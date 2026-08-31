@@ -1,17 +1,64 @@
-import { Loader2 } from "lucide-react";
+import { BarChart3, MessageCircleCheck, PackageCheck, ShieldCheck, Truck } from "lucide-react";
+import ecomosLogo from "../assets/ecomos_logo_137x32.png";
+
+const workspaceModules = [
+  { label: "Orders", icon: PackageCheck },
+  { label: "Confirm", icon: MessageCircleCheck },
+  { label: "Delivery", icon: Truck },
+  { label: "Insights", icon: BarChart3 },
+] as const;
 
 export function PlatformLoading() {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(255,255,255,0.92)] backdrop-blur-sm">
-      <div className="flex flex-col items-center gap-4 rounded-[28px] border border-pink-200/60 bg-white/95 px-8 py-8 shadow-[0_24px_80px_rgba(219,106,143,0.16)]">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-pink-100 shadow-[0_16px_40px_rgba(219,106,143,0.18)]">
-          <Loader2 className="h-10 w-10 animate-spin text-pink-500" />
+    <div
+      className="platform-loader"
+      role="status"
+      aria-live="polite"
+      aria-label="Preparing your Ecom OS workspace"
+    >
+      <div className="platform-loader__glow platform-loader__glow--one" aria-hidden="true" />
+      <div className="platform-loader__glow platform-loader__glow--two" aria-hidden="true" />
+
+      <section className="platform-loader__panel">
+        <header className="platform-loader__brand">
+          <img src={ecomosLogo} alt="Ecom OS" width={137} height={32} draggable={false} />
+          <span className="platform-loader__badge"><i /> Seller workspace</span>
+        </header>
+
+        <div className="platform-loader__hero">
+          <div className="platform-loader__mark" aria-hidden="true">
+            <span className="platform-loader__ring" />
+            <span className="platform-loader__orbit-dot" />
+            <PackageCheck size={27} strokeWidth={2.15} />
+          </div>
+
+          <div className="platform-loader__copy">
+            <span className="platform-loader__eyebrow">Ecom OS command center</span>
+            <h1>Getting your operations ready</h1>
+            <p>Syncing orders, confirmations, delivery and live insights.</p>
+          </div>
         </div>
-        <div className="text-center">
-          <p className="text-lg font-semibold text-ink">Loading platform</p>
-          <p className="mt-1 text-sm text-ink-muted">Please wait while your workspace loads.</p>
+
+        <div className="platform-loader__progress" aria-hidden="true">
+          <span />
         </div>
-      </div>
+
+        <div className="platform-loader__modules" aria-hidden="true">
+          {workspaceModules.map(({ label, icon: Icon }, index) => (
+            <div key={label} className="platform-loader__module" style={{ "--module-delay": `${index * 110}ms` } as React.CSSProperties}>
+              <Icon size={15} strokeWidth={2} />
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <footer className="platform-loader__secure">
+          <ShieldCheck size={13} strokeWidth={2.2} />
+          Secure workspace startup
+        </footer>
+
+        <span className="sr-only">Please wait while your workspace loads.</span>
+      </section>
     </div>
   );
 }

@@ -183,13 +183,13 @@ export function useConfirmationCRM() {
       cancelledAt: nextStatus === "cancelled" ? new Date().toISOString() : item.cancelledAt,
     } : item));
     try {
-      await updateConfirmationStatus(workspaceId!, order, nextStatus);
+      await updateConfirmationStatus(workspaceId!, order, nextStatus, userId);
       void load({ silent: true });
     } catch (mutationError) {
       setOrders((current) => current.map((item) => item.id === order.id ? { ...item, status: previous } : item));
       throw mutationError;
     }
-  }, [workspaceId, load]);
+  }, [workspaceId, userId, load]);
 
   const openOrder = useCallback(async (order: ConfirmationOrder) => {
     if (!workspaceId || !userId) return;

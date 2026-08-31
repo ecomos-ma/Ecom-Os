@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import ffmpegStatic from "ffmpeg-static";
 import { ErrorCode, WorkerError } from "../utils/errors.js";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -14,24 +15,34 @@ const ALLOWED_MIME_TYPES = new Set([
   "audio/wav",
 ]);
 
-// WhatsApp PTT requires ogg/opus. Everything else must be converted.
-const OGG_OPUS_MIMES = new Set(["audio/ogg", "audio/ogg;codecs=opus"]);
+// WhatsApp PTT requires Ogg Opus. A bare audio/ogg upload can be Vorbis, so
+// only an explicit opus MIME bypasses conversion.
+const OGG_OPUS_MIMES = new Set(["audio/ogg;codecs=opus"]);
+const FFMPEG_BINARY = process.env.FFMPEG_PATH || ffmpegStatic;
 
 /**
  * Convert audio buffer to ogg/opus using ffmpeg.
- * Returns { buffer, mimeType } — ogg/opus on success, original on ffmpeg absence.
+ * Returns an Ogg Opus buffer. It never falls back to a source file WhatsApp
+ * cannot render as a voice note.
  */
 async function convertToOpusOgg(inputBuffer, inputMime) {
   if (OGG_OPUS_MIMES.has(inputMime)) {
-    return { buffer: inputBuffer, mimeType: "audio/ogg" };
+    return { buffer: inputBuffer, mimeType: "audio/ogg; codecs=opus" };
   }
 
-  return new Promise((resolve) => {
+  if (!FFMPEG_BINARY) throw new Error("Voice conversion is unavailable because no ffmpeg binary was configured");
+
+  return new Promise((resolve, reject) => {
     let stderr = "";
-    let didError = false;
+    let settled = false;
+    const fail = (message) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    };
 
     const chunks = [];
-    const proc = spawn("ffmpeg", [
+    const proc = spawn(FFMPEG_BINARY, [
       "-loglevel", "error",
       "-i", "pipe:0",
       "-c:a", "libopus",
@@ -46,24 +57,22 @@ async function convertToOpusOgg(inputBuffer, inputMime) {
     proc.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
 
     proc.on("error", (err) => {
-      didError = true;
-      // ffmpeg not installed — return original buffer with a warning flag
-      resolve({ buffer: inputBuffer, mimeType: inputMime, skipped: true, reason: err.message });
+      fail(`Voice conversion could not start: ${err.message}`);
     });
 
     proc.on("close", (code) => {
-      if (didError) return;
+      if (settled) return;
       if (code !== 0) {
-        // Conversion failed — fall back to original
-        resolve({ buffer: inputBuffer, mimeType: inputMime, skipped: true, reason: `ffmpeg exit ${code}: ${stderr.slice(0, 200)}` });
+        fail(`Voice conversion failed (ffmpeg exit ${code}): ${stderr.slice(0, 200)}`);
         return;
       }
       const converted = Buffer.concat(chunks);
       if (!converted.length) {
-        resolve({ buffer: inputBuffer, mimeType: inputMime, skipped: true, reason: "ffmpeg produced empty output" });
+        fail("Voice conversion produced an empty file");
         return;
       }
-      resolve({ buffer: converted, mimeType: "audio/ogg" });
+      settled = true;
+      resolve({ buffer: converted, mimeType: "audio/ogg; codecs=opus" });
     });
 
     proc.stdin.on("error", () => { }); // Suppress broken pipe
@@ -73,7 +82,7 @@ async function convertToOpusOgg(inputBuffer, inputMime) {
 
 /**
  * Download and validate a voice recording, converting to ogg/opus if needed.
- * Returns: { buffer, mimeType, seconds, name, conversionSkipped? }
+ * Returns: { buffer, mimeType, seconds, name }
  */
 export async function loadVoiceRecording(repository, workspaceId, recording) {
   try {
@@ -101,7 +110,7 @@ export async function loadVoiceRecording(repository, workspaceId, recording) {
     }
 
     // Convert to ogg/opus for real WhatsApp PTT compatibility
-    const { buffer, mimeType, skipped, reason } = await convertToOpusOgg(rawBuffer, mime);
+    const { buffer, mimeType } = await convertToOpusOgg(rawBuffer, mime);
 
     return {
       buffer,
@@ -109,8 +118,6 @@ export async function loadVoiceRecording(repository, workspaceId, recording) {
       seconds: recording.duration_seconds ? Number(recording.duration_seconds) : undefined,
       name: recording.name,
       originalMime: mime,
-      conversionSkipped: skipped || false,
-      conversionSkipReason: reason || null,
     };
   } catch (error) {
     if (error instanceof WorkerError) throw error;

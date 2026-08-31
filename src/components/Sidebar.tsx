@@ -60,7 +60,7 @@ const mainGroups: NavGroup[] = [
       { to: "/tiktok-ads", labelKey: "navigation.tiktokAds", icon: Music2, permission: "tiktok_ads" },
       { to: "/expenses", labelKey: "navigation.expenses", icon: Wallet, permission: "expenses" },
       { to: "/finance", labelKey: "navigation.finance", icon: Wallet, permission: "expenses" },
-      { to: "/cod-scenarios", labelKey: "navigation.codScenarios", icon: ClipboardCheck, permission: "codscenarios" },
+      { to: "/scenario", labelKey: "navigation.codScenarios", icon: ClipboardCheck, permission: "codscenarios" },
       { to: "/team", labelKey: "navigation.team", icon: Users, permission: "team" },
     ],
   },
