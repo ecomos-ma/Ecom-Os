@@ -32,6 +32,14 @@ import {
   PlanBadge as SharedPlanBadge,
 } from "./shared";
 const PAGE_SIZE = 25;
+const VALID_PLAN_CODES = ["starter", "growth", "pro", "scale", "business", "free"] as const;
+
+function normalizePlanCode(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  return VALID_PLAN_CODES.includes(normalized as (typeof VALID_PLAN_CODES)[number]) ? normalized : null;
+}
+
 export function BillingPage() {
   const { pathname } = useLocation();
   if (pathname.startsWith("/admin/payments")) return <PaymentsPage />;
@@ -900,103 +908,476 @@ function PlansPage() {
   const [plans, setPlans] = useState<OfficialPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorPlanId, setEditorPlanId] = useState<string | null>(null);
+  const [menuPlanId, setMenuPlanId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const defaultDraft = useCallback((plan?: Partial<OfficialPlan> | null): PlanDraft => {
+    const defaultCustomLimits = '{\n  "ai_messages": {"name": "AI Messages", "value": 10000, "unit": "messages"}\n}';
+    const defaultCustomBenefits = JSON.stringify([
+      { name: "Priority onboarding", enabled: true, category: "support", display_order: 1 },
+    ], null, 2);
+
+    const toJsonString = (value: unknown, fallback: string) => {
+      if (typeof value === "string") return value;
+      if (value == null) return fallback;
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return fallback;
+      }
+    };
+
+    return {
+      id: plan?.id ?? null,
+      code: normalizePlanCode(plan?.code) ?? "growth",
+      name: plan?.name ?? "Growth",
+      description: plan?.description ?? "",
+      monthly_price_mad: Number(plan?.monthly_price_mad ?? 999),
+      annual_price_mad: Number(plan?.annual_price_mad ?? 9990),
+      order_limit: Number(plan?.order_limit ?? 30000),
+      order_period: (plan?.order_period as "day" | "month") ?? "month",
+      workspace_limit: plan?.workspace_limit ?? 10,
+      team_member_limit: Number(plan?.team_member_limit ?? 25),
+      integration_limit: plan?.integration_limit ?? null,
+      is_popular: Boolean(plan?.is_popular ?? false),
+      is_active: Boolean(plan?.is_active ?? true),
+      is_public: Boolean(plan?.is_public ?? true),
+      display_order: Number(plan?.display_order ?? 100),
+      badge_text: plan?.badge_text ?? (plan?.is_popular ? "Most popular" : ""),
+      cta_text: plan?.cta_text ?? `Start with ${plan?.name ?? "Business"}`,
+      monthly_billing_enabled: plan?.monthly_billing_enabled ?? true,
+      annual_billing_enabled: plan?.annual_billing_enabled ?? true,
+      mobile_app: Boolean(plan?.entitlements?.mobile_app ?? false),
+      whatsapp_automation: Boolean(plan?.entitlements?.whatsapp_automation ?? false),
+      ai_whatsapp_confirmation_agent: Boolean(plan?.entitlements?.ai_whatsapp_confirmation_agent ?? false),
+      sawty_os: Boolean(plan?.entitlements?.sawty_os ?? false),
+      landing_page_os: Boolean(plan?.entitlements?.landing_page_os ?? false),
+      premium_support: Boolean(plan?.entitlements?.premium_support ?? false),
+      custom_limits: toJsonString(plan?.custom_limits, defaultCustomLimits),
+      custom_benefits: toJsonString(plan?.custom_benefits, defaultCustomBenefits),
+    };
+  }, []);
+
+  const [draft, setDraft] = useState<PlanDraft>(() => defaultDraft());
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      setPlans(await founderAdmin.officialPlans());
+      const { data, error: loadError } = await supabase
+        .from("subscription_plans")
+        .select("*")
+        .order("display_order", { ascending: true });
+      if (loadError) throw loadError;
+      const rows = (data ?? []) as OfficialPlan[];
+      const normalized = rows.map((plan) => ({
+        ...plan,
+        entitlements: {
+          mobile_app: Boolean((plan as any).mobile_app),
+          whatsapp_automation: Boolean((plan as any).whatsapp_automation),
+          ai_whatsapp_confirmation_agent: Boolean((plan as any).ai_whatsapp_confirmation_agent),
+          sawty_os: Boolean((plan as any).sawty_os),
+          landing_page_os: Boolean((plan as any).landing_page_os),
+          premium_support: Boolean((plan as any).premium_support),
+        },
+        is_public: Boolean((plan as any).is_public ?? true),
+        is_active: Boolean((plan as any).is_active ?? true),
+        is_popular: Boolean((plan as any).is_popular ?? false),
+        monthly_billing_enabled: (plan as any).monthly_billing_enabled ?? true,
+        annual_billing_enabled: (plan as any).annual_billing_enabled ?? true,
+        display_order: Number((plan as any).display_order ?? 100),
+      }));
+      setPlans(normalized);
     } catch (loadError) {
       setError(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
   }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  const openCreate = useCallback(() => {
+    setEditorPlanId(null);
+    setDraft(defaultDraft());
+    setEditorOpen(true);
+  }, [defaultDraft]);
+
+  const openEdit = useCallback((plan: OfficialPlan) => {
+    setEditorPlanId(plan.id ?? null);
+    setDraft(defaultDraft(plan));
+    setEditorOpen(true);
+  }, [defaultDraft]);
+
+  const savePlan = useCallback(async () => {
+    if (!draft.name.trim()) {
+      setError("Plan name is required.");
+      return;
+    }
+    const normalizedCode = normalizePlanCode(draft.code);
+    if (!normalizedCode) {
+      setError("Plan code is invalid. Use one of: starter, growth, pro, scale, business, free.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        id: draft.id ?? undefined,
+        code: normalizedCode,
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        monthly_price_mad: Number(draft.monthly_price_mad || 0),
+        annual_price_mad: Number(draft.annual_price_mad || 0),
+        order_limit: Number(draft.order_limit || 0),
+        order_period: draft.order_period,
+        workspace_limit: draft.workspace_limit == null || Number.isNaN(Number(draft.workspace_limit)) ? null : Number(draft.workspace_limit),
+        team_member_limit: Number(draft.team_member_limit || 0),
+        integration_limit: draft.integration_limit == null || Number.isNaN(Number(draft.integration_limit)) ? null : Number(draft.integration_limit),
+        mobile_app: Boolean(draft.mobile_app),
+        whatsapp_automation: Boolean(draft.whatsapp_automation),
+        ai_whatsapp_confirmation_agent: Boolean(draft.ai_whatsapp_confirmation_agent),
+        sawty_os: Boolean(draft.sawty_os),
+        landing_page_os: Boolean(draft.landing_page_os),
+        premium_support: Boolean(draft.premium_support),
+        is_popular: Boolean(draft.is_popular),
+        is_active: Boolean(draft.is_active),
+        is_public: Boolean(draft.is_public),
+        is_official: true,
+        display_order: Number(draft.display_order || 100),
+        badge_text: draft.badge_text?.trim() || null,
+        cta_text: draft.cta_text?.trim() || null,
+        monthly_billing_enabled: Boolean(draft.monthly_billing_enabled),
+        annual_billing_enabled: Boolean(draft.annual_billing_enabled),
+        custom_limits: draft.custom_limits ? JSON.parse(draft.custom_limits) : {},
+        custom_benefits: draft.custom_benefits ? JSON.parse(draft.custom_benefits) : [],
+      };
+
+      if (draft.is_popular) {
+        await supabase
+          .from("subscription_plans")
+          .update({ is_popular: false })
+          .neq("id", draft.id ?? "__none__");
+      }
+
+      const { data: savedPlan, error: saveError } = draft.id
+        ? await supabase.from("subscription_plans").update(payload).eq("id", draft.id).select("*").single()
+        : await supabase.from("subscription_plans").insert(payload).select("*").single();
+
+      if (saveError) throw saveError;
+
+      if (draft.id && savedPlan) {
+        await supabase.from("subscription_plans").update({ is_popular: Boolean(draft.is_popular) }).eq("id", savedPlan.id);
+      }
+
+      setEditorOpen(false);
+      setMenuPlanId(null);
+      await load();
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, load]);
+
+  const handleDuplicate = useCallback(async (plan: OfficialPlan) => {
+    if (!plan.id) return;
+    try {
+      const { data: source, error: sourceError } = await supabase.from("subscription_plans").select("*").eq("id", plan.id).single();
+      if (sourceError) throw sourceError;
+      const copyName = `${source.name} Copy`;
+      const stamp = Date.now().toString().slice(-4);
+      const generatedCode = normalizePlanCode(`${String(source.code || "growth").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-copy-${stamp}`) ?? null;
+      const { error: insertError } = await supabase.from("subscription_plans").insert({
+        ...source,
+        id: undefined,
+        name: copyName,
+        code: generatedCode,
+        is_public: false,
+        is_active: false,
+        is_popular: false,
+        display_order: Number(source.display_order ?? 100) + 10,
+        badge_text: "",
+        cta_text: "Start with copy",
+        archived_at: null,
+        created_at: undefined,
+        updated_at: undefined,
+      });
+      if (insertError) throw insertError;
+      setMenuPlanId(null);
+      await load();
+    } catch (dupError) {
+      setError(errorMessage(dupError));
+    }
+  }, [load]);
+
+  const handleToggle = useCallback(async (plan: OfficialPlan, field: "is_public" | "is_active") => {
+    if (!plan.id) return;
+    const nextValue = !(field === "is_public" ? plan.is_public : plan.is_active);
+    const { error } = await supabase.from("subscription_plans").update({ [field]: nextValue }).eq("id", plan.id);
+    if (error) {
+      setError(errorMessage(error));
+      return;
+    }
+    setMenuPlanId(null);
+    await load();
+  }, [load]);
+
+  const handleArchive = useCallback(async (plan: OfficialPlan) => {
+    if (!plan.id) return;
+    const { error } = await supabase.from("subscription_plans").update({ archived_at: new Date().toISOString(), is_active: false, is_public: false }).eq("id", plan.id);
+    if (error) {
+      setError(errorMessage(error));
+      return;
+    }
+    setMenuPlanId(null);
+    await load();
+  }, [load]);
+
+  const handleDelete = useCallback(async (plan: OfficialPlan) => {
+    if (!plan.id) return;
+    const { count, error: countError } = await supabase.from("user_subscriptions").select("id", { head: true, count: "exact" }).eq("plan_id", plan.id);
+    if (countError) {
+      setError(errorMessage(countError));
+      return;
+    }
+    if ((count ?? 0) > 0) {
+      setError(`Cannot delete ${plan.name} because ${count} subscriber(s) still use this plan. Archive it or move subscribers first.`);
+      return;
+    }
+    const { error } = await supabase.from("subscription_plans").delete().eq("id", plan.id);
+    if (error) {
+      setError(errorMessage(error));
+      return;
+    }
+    setMenuPlanId(null);
+    await load();
+  }, [load]);
+
   return (
     <div className="mx-auto max-w-[1400px] p-4 md:p-6 lg:p-8">
       <PageHeading
         eyebrow="Billing"
         title="Official plans"
-        description="The authoritative MAD catalog used by payment requests and effective limits. Null capacity means Unlimited; annual billing never multiplies operational quotas."
-        action={<RefreshButton onClick={() => void load()} loading={loading} />}
+        description="Manage the Ecom OS public plan catalog directly from the database. Every change flows to the homepage, checkout, entitlement checks, and customer-facing limits."
+        action={
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={openCreate} className="rounded-xl bg-brand-accent px-3 py-2 text-sm font-bold text-white hover:bg-brand-accent/90">+ Add Plan</button>
+            <RefreshButton onClick={() => void load()} loading={loading} />
+          </div>
+        }
       />
       {error ? (
-        <EmptyState title="Could not load official plans" copy={error} />
-      ) : loading ? (
-        <div className="grid h-64 place-items-center">
-          <Loader2 className="animate-spin text-brand-accent" />
-        </div>
+        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+      ) : null}
+      {loading ? (
+        <div className="grid h-64 place-items-center"><Loader2 className="animate-spin text-brand-accent" /></div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-4">
           {plans.map((plan) => (
-            <article
-              key={plan.code}
-              className={`relative overflow-hidden rounded-2xl border bg-base-surface p-5 shadow-sm ${planCardClass(plan.code, plan.is_popular)}`}
-            >
-              <div
-                className={`absolute inset-x-0 top-0 h-1 ${planStripeClass(plan.code)}`}
-              />
+            <article key={plan.id ?? plan.code} className={`relative overflow-hidden rounded-2xl border bg-base-surface p-5 shadow-sm ${planCardClass(plan.code, Boolean(plan.is_popular))}`}>
+              <div className={`absolute inset-x-0 top-0 h-1 ${planStripeClass(plan.code)}`} />
               {plan.is_popular && (
-                <span className="absolute right-3 top-3 rounded-full bg-pink-600 px-3 py-1 text-[10px] font-bold uppercase text-white">
-                  Most popular
-                </span>
+                <span className="absolute right-3 top-3 rounded-full bg-pink-600 px-3 py-1 text-[10px] font-bold uppercase text-white">Most popular</span>
+              )}
+              {!plan.is_public && (
+                <span className="absolute left-3 top-3 rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase text-slate-700">Hidden</span>
+              )}
+              {!plan.is_active && (
+                <span className="absolute left-3 top-11 rounded-full bg-amber-200 px-2 py-1 text-[10px] font-bold uppercase text-amber-800">Disabled</span>
               )}
               <PlanBadge code={plan.code} label={plan.name} />
-              <p className="mt-3 min-h-10 text-sm text-ink-muted">
-                {plan.description}
-              </p>
-              <p className="mt-5 text-3xl font-bold">
-                {currency.format(plan.monthly_price_mad)}
-                <span className="text-sm font-medium text-ink-muted">/mo</span>
-              </p>
-              <p className="mt-1 text-xs text-ink-muted">
-                {currency.format(plan.annual_price_mad)} annually
-              </p>
+              <p className="mt-3 min-h-10 text-sm text-ink-muted">{plan.description || "No description yet."}</p>
+              <p className="mt-5 text-3xl font-bold">{currency.format(Number(plan.monthly_price_mad || 0))}<span className="text-sm font-medium text-ink-muted">/mo</span></p>
+              <p className="mt-1 text-xs text-ink-muted">{currency.format(Number(plan.annual_price_mad || 0))} annually</p>
               <div className="mt-5 space-y-2 text-sm">
-                <PlanLine
-                  label="Orders"
-                  value={`${plan.order_limit.toLocaleString()} / ${plan.order_period}`}
-                />
-                <PlanLine
-                  label="Workspaces"
-                  value={limitCopy(plan.workspace_limit)}
-                />
-                <PlanLine
-                  label="Team members"
-                  value={limitCopy(plan.team_member_limit)}
-                />
-                <PlanLine
-                  label="Integrations"
-                  value={limitCopy(plan.integration_limit)}
-                />
+                <PlanLine label="Orders" value={`${Number(plan.order_limit ?? 0).toLocaleString()} / ${plan.order_period ?? "month"}`} />
+                <PlanLine label="Workspaces" value={limitCopy(plan.workspace_limit)} />
+                <PlanLine label="Team members" value={limitCopy(plan.team_member_limit)} />
+                <PlanLine label="Integrations" value={limitCopy(plan.integration_limit)} />
               </div>
               <div className="mt-5 border-t border-base-border pt-4">
-                <p className="text-xs font-bold uppercase text-ink-faint">
-                  Premium modules
-                </p>
-                {Object.entries(plan.entitlements).map(([key, enabled]) => (
-                  <div
-                    key={key}
-                    className={`mt-2 flex items-center gap-2 text-xs ${enabled ? "text-ink" : "text-ink-faint"}`}
-                  >
-                    {enabled ? (
-                      <Check size={13} className="text-emerald-600" />
-                    ) : (
-                      <X size={13} />
-                    )}
+                <p className="text-xs font-bold uppercase text-ink-faint">Premium modules</p>
+                {Object.entries(plan.entitlements || {}).map(([key, enabled]) => (
+                  <div key={key} className={`mt-2 flex items-center gap-2 text-xs ${enabled ? "text-ink" : "text-ink-faint"}`}>
+                    {enabled ? <Check size={13} className="text-emerald-600" /> : <X size={13} />}
                     <span>{key.replace(/_/g, " ")}</span>
                   </div>
                 ))}
               </div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button type="button" onClick={() => openEdit(plan)} className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-xs font-bold text-ink hover:bg-base-surface">Edit</button>
+                <button type="button" onClick={() => void handleDuplicate(plan)} className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-xs font-bold text-ink hover:bg-base-surface">Duplicate</button>
+                <button type="button" onClick={() => setMenuPlanId(menuPlanId === plan.id ? null : plan.id ?? null)} className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-xs font-bold text-ink hover:bg-base-surface">More</button>
+              </div>
+              {menuPlanId === (plan.id ?? null) && (
+                <div className="mt-3 rounded-xl border border-base-border bg-base-raised p-2">
+                  <div className="grid gap-2">
+                    <button type="button" onClick={() => void handleToggle(plan, "is_public")} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">{plan.is_public ? "Hide from public" : "Show publicly"}</button>
+                    <button type="button" onClick={() => void handleToggle(plan, "is_active")} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">{plan.is_active ? "Disable plan" : "Enable plan"}</button>
+                    <button type="button" onClick={() => void handleArchive(plan)} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">Archive plan</button>
+                    <button type="button" onClick={() => void handleDelete(plan)} className="rounded-lg bg-red-50 px-2 py-1.5 text-left text-xs font-medium text-red-700 hover:bg-red-100">Delete plan</button>
+                  </div>
+                </div>
+              )}
             </article>
           ))}
+        </div>
+      )}
+      {editorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050816]/75 p-4">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-base-border bg-base-surface p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-base-border pb-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-ink-faint">Plan editor</p>
+                <h3 className="mt-1 text-2xl font-bold">{editorPlanId ? "Edit plan" : "Create plan"}</h3>
+              </div>
+              <button type="button" onClick={() => setEditorOpen(false)} className="rounded-lg border border-base-border px-3 py-2 text-sm font-medium hover:bg-base-raised">Close</button>
+            </div>
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Plan name</label>
+                  <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} className="field w-full" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Plan code</label>
+                  <input value={draft.code} onChange={(event) => setDraft((current) => ({ ...current, code: event.target.value }))} className="field w-full" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Description</label>
+                  <textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} className="field min-h-[110px] w-full" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Badge text</label>
+                  <input value={draft.badge_text} onChange={(event) => setDraft((current) => ({ ...current, badge_text: event.target.value }))} className="field w-full" placeholder="Most popular" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">CTA text</label>
+                  <input value={draft.cta_text} onChange={(event) => setDraft((current) => ({ ...current, cta_text: event.target.value }))} className="field w-full" placeholder="Start with Business" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex items-center justify-between rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm"><span>Public</span><input type="checkbox" checked={draft.is_public} onChange={(event) => setDraft((current) => ({ ...current, is_public: event.target.checked }))} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm"><span>Active</span><input type="checkbox" checked={draft.is_active} onChange={(event) => setDraft((current) => ({ ...current, is_active: event.target.checked }))} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm"><span>Most popular</span><input type="checkbox" checked={draft.is_popular} onChange={(event) => setDraft((current) => ({ ...current, is_popular: event.target.checked }))} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm"><span>Monthly billing</span><input type="checkbox" checked={draft.monthly_billing_enabled} onChange={(event) => setDraft((current) => ({ ...current, monthly_billing_enabled: event.target.checked }))} /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm"><span>Annual billing</span><input type="checkbox" checked={draft.annual_billing_enabled} onChange={(event) => setDraft((current) => ({ ...current, annual_billing_enabled: event.target.checked }))} /></label>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Monthly price (MAD)</label>
+                    <input type="number" value={draft.monthly_price_mad} onChange={(event) => setDraft((current) => ({ ...current, monthly_price_mad: Number(event.target.value || 0) }))} className="field w-full" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Annual price (MAD)</label>
+                    <input type="number" value={draft.annual_price_mad} onChange={(event) => setDraft((current) => ({ ...current, annual_price_mad: Number(event.target.value || 0) }))} className="field w-full" />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Order limit</label>
+                    <input type="number" value={draft.order_limit} onChange={(event) => setDraft((current) => ({ ...current, order_limit: Number(event.target.value || 0) }))} className="field w-full" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Order period</label>
+                    <select value={draft.order_period} onChange={(event) => setDraft((current) => ({ ...current, order_period: event.target.value as "day" | "month" }))} className="field w-full">
+                      <option value="month">month</option>
+                      <option value="day">day</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Workspaces</label>
+                    <input type="number" value={draft.workspace_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, workspace_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Team members</label>
+                    <input type="number" value={draft.team_member_limit} onChange={(event) => setDraft((current) => ({ ...current, team_member_limit: Number(event.target.value || 0) }))} className="field w-full" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Integrations</label>
+                    <input type="number" value={draft.integration_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, integration_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Display order</label>
+                  <input type="number" value={draft.display_order} onChange={(event) => setDraft((current) => ({ ...current, display_order: Number(event.target.value || 100) }))} className="field w-full" />
+                </div>
+                <div className="rounded-xl border border-base-border bg-base-raised p-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Entitlements</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {[
+                      ["mobile_app", "Mobile App"],
+                      ["whatsapp_automation", "WhatsApp Automation"],
+                      ["ai_whatsapp_confirmation_agent", "AI WhatsApp Agent"],
+                      ["sawty_os", "Sawty.OS"],
+                      ["landing_page_os", "Landing Page.OS"],
+                      ["premium_support", "Premium Support"],
+                    ].map(([key, label]) => (
+                      <label key={key} className="flex items-center justify-between rounded-lg border border-base-border bg-base-surface px-3 py-2 text-sm"> 
+                        <span>{label}</span>
+                        <input type="checkbox" checked={(draft as any)[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.checked }))} />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-base-border bg-base-raised p-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Custom limits (JSON)</p>
+                  <textarea value={draft.custom_limits} onChange={(event) => setDraft((current) => ({ ...current, custom_limits: event.target.value }))} className="mt-2 min-h-[110px] w-full rounded-lg border border-base-border bg-base-surface px-3 py-2 text-xs" />
+                </div>
+                <div className="rounded-xl border border-base-border bg-base-raised p-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Custom benefits (JSON)</p>
+                  <textarea value={draft.custom_benefits} onChange={(event) => setDraft((current) => ({ ...current, custom_benefits: event.target.value }))} className="mt-2 min-h-[110px] w-full rounded-lg border border-base-border bg-base-surface px-3 py-2 text-xs" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-base-border pt-4">
+              <button type="button" onClick={() => setEditorOpen(false)} className="rounded-xl border border-base-border px-4 py-2 text-sm font-medium">Cancel</button>
+              <button type="button" onClick={() => void savePlan()} disabled={saving} className="rounded-xl bg-brand-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{saving ? "Saving..." : editorPlanId ? "Save changes" : "Create plan"}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+type PlanDraft = {
+  id: string | null;
+  code: string;
+  name: string;
+  description: string;
+  monthly_price_mad: number;
+  annual_price_mad: number;
+  order_limit: number;
+  order_period: "day" | "month";
+  workspace_limit: number | null;
+  team_member_limit: number;
+  integration_limit: number | null;
+  is_popular: boolean;
+  is_active: boolean;
+  is_public: boolean;
+  display_order: number;
+  badge_text: string;
+  cta_text: string;
+  monthly_billing_enabled: boolean;
+  annual_billing_enabled: boolean;
+  mobile_app: boolean;
+  whatsapp_automation: boolean;
+  ai_whatsapp_confirmation_agent: boolean;
+  sawty_os: boolean;
+  landing_page_os: boolean;
+  premium_support: boolean;
+  custom_limits: string;
+  custom_benefits: string;
+};
 function SearchBox({
   value,
   setValue,

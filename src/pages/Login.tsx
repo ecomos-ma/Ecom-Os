@@ -18,13 +18,12 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { BillingPeriod, PlanTier, PRICING_PLANS } from "../config/pricing";
+import type { BillingPeriod, PlanTier } from "../config/pricing";
+import { fetchOfficialPlans, getPlanPrice, type PublicPlanRecord } from "../lib/planEngine";
 import heroImage from "../assets/login-operations-hero.webp";
 
-const planOrder: PlanTier[] = ["starter", "growth", "pro", "scale"];
-
-function isPlanTier(value: string | null): value is PlanTier {
-  return value !== null && planOrder.includes(value as PlanTier);
+function isPlanTier(value: string | null, plans: PublicPlanRecord[]) {
+  return value !== null && plans.some((plan) => plan.code === value);
 }
 
 function GoogleIcon() {
@@ -50,12 +49,15 @@ function friendlyAuthError(message: string) {
 export default function Login() {
   const { session, loading, profile, defaultRoute, subscriptionStatus, operationalAccess } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
+  const [planLoaded, setPlanLoaded] = useState(false);
   const requestedPlan = searchParams.get("plan");
   const requestedBilling = searchParams.get("billing");
-  const startsInSignup = searchParams.get("mode") === "signup" || isPlanTier(requestedPlan);
+  const validRequestedPlan = isPlanTier(requestedPlan, plans) ? requestedPlan : null;
+  const startsInSignup = searchParams.get("mode") === "signup" || Boolean(validRequestedPlan);
 
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">(startsInSignup ? "sign-up" : "sign-in");
-  const [selectedPlan, setSelectedPlan] = useState<PlanTier>(isPlanTier(requestedPlan) ? requestedPlan : "growth");
+  const [selectedPlan, setSelectedPlan] = useState<PlanTier>(validRequestedPlan || "growth");
   const [billing, setBilling] = useState<BillingPeriod>(requestedBilling === "yearly" ? "yearly" : "monthly");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,15 +77,28 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
-    if (searchParams.get("mode") === "signup" || isPlanTier(searchParams.get("plan"))) setAuthMode("sign-up");
-    const planParam = searchParams.get("plan");
-    if (isPlanTier(planParam)) setSelectedPlan(planParam);
-    setBilling(searchParams.get("billing") === "yearly" ? "yearly" : "monthly");
+    void fetchOfficialPlans().then((data) => {
+      setPlans(data);
+      setPlanLoaded(true);
+      const planParam = searchParams.get("plan");
+      if (data.some((plan) => plan.code === planParam)) {
+        setSelectedPlan(planParam as PlanTier);
+      } else if (data[0]) {
+        setSelectedPlan(data[0].code as PlanTier);
+      }
+    }).catch(() => {
+      setPlanLoaded(true);
+      setPlans([]);
+    });
   }, [searchParams]);
 
-  const plan = PRICING_PLANS[selectedPlan];
-  const planPrice = billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
+  const plan = plans.find((item) => item.code === selectedPlan) ?? plans[0];
+  const planPrice = plan ? getPlanPrice(plan, billing) : 0;
   const isProcessing = busy || googleBusy || loading;
+
+  if (!planLoaded && !loading) {
+    return <Screen><Loader2 className="animate-spin text-brand-accent" /></Screen>;
+  }
 
   if (!loading && session) {
     const returnTo = searchParams.get("returnTo");
@@ -118,7 +133,7 @@ export default function Login() {
     const next = new URLSearchParams(searchParams);
     if (nextMode === "sign-up") {
       next.set("mode", "signup");
-      next.set("plan", selectedPlan);
+      if (selectedPlan) next.set("plan", selectedPlan);
       next.set("billing", billing);
     } else {
       next.delete("mode");
@@ -283,4 +298,8 @@ export default function Login() {
       </aside>
     </main>
   );
+}
+
+function Screen({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-screen bg-white text-slate-950">{children}</div>;
 }

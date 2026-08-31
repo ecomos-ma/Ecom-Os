@@ -15,6 +15,7 @@ import { InventoryQRScanner } from "../components/inventory/InventoryQRScanner";
 import { ProductModal } from "../components/products/ProductModal";
 import { StockAdjustmentModal } from "../components/products/StockAdjustmentModal";
 import { normalizeStatus } from "../utils/status";
+import { toast } from "../components/Toast";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,11 +24,7 @@ function mad(n: number) {
 }
 
 function showToast(msg: string, type: "success" | "error" = "success") {
-    const el = document.createElement("div");
-    el.textContent = msg;
-    el.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:12px;font-size:13px;font-weight:600;color:#fff;background:${type === "success" ? "#22c55e" : "#ef4444"};box-shadow:0 10px 25px rgba(0,0,0,.25);animation:fadein .2s ease;max-width:calc(100vw - 32px)`;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 2500);
+    toast[type](msg);
 }
 
 type FilterPillType = "ALL" | "LOW_STOCK" | "HAS_ORDERS" | "IN_STOCK" | "OUT_OF_STOCK" | "HIGH_MARGIN";

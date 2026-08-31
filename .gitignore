@@ -1,11 +1,11 @@
 node_modules
 dist
 .env
+.env.*
 *.local
 .DS_Store
 
 .vercel
-.env*
 temp_key.txt
 !.env.example
 dev-dist/
@@ -17,6 +17,7 @@ npm-debug.log*
 *.zip
 whatsapp-worker/sessions/
 fake_dashboard_data.json
+.tmp-mobile-qa-3/
+.tmp-mobile-qa.cjs
 
 .vercel
-.env*

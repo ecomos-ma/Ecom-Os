@@ -76,7 +76,24 @@ export function ConfirmationOrdersTable({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-sm">
-      <div className="overflow-x-auto">
+      <div className="space-y-2 p-2 md:hidden">
+        {orders.map((order) => (
+          <button
+            type="button"
+            key={`${order.id}-mobile`}
+            onClick={() => onOpen(order)}
+            className={`w-full rounded-xl border p-3 text-left transition active:scale-[0.99] ${selectedId === order.id ? "border-brand/35 bg-brand/5" : "border-base-border bg-base-raised/30"}`}
+          >
+            <span className="flex items-start justify-between gap-3">
+              <span className="min-w-0"><span className="block truncate text-[14px] font-bold text-ink">{order.customerName}</span><span className="mt-0.5 block truncate text-[11px] text-ink-muted">{order.phone || "No phone"} · {order.city || "No city"}</span></span>
+              <span className="shrink-0 font-mono text-[13px] font-bold text-ink">{money(order.total)}</span>
+            </span>
+            <span className="mt-3 block"><ProductPreview order={order} /></span>
+            <span className="mt-3 flex items-center justify-between gap-2 border-t border-base-border pt-3"><span className="flex min-w-0 items-center gap-2"><StatusBadge status={order.status} size="sm" /><span className="truncate font-mono text-[10px] text-ink-faint">#{order.orderNumber}</span></span><ChevronRight size={16} className="shrink-0 text-brand" /></span>
+          </button>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="min-w-[1030px] w-full border-collapse text-left">
           <thead className="sticky top-0 z-10 bg-base-raised/90 backdrop-blur">
             <tr className="border-b border-base-border text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-muted">

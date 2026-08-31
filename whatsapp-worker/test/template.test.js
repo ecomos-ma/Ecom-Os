@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { renderTemplate, templateVariables } from "../src/utils/template.js";
+import { renderTemplate, templateVariables } from "../src/automation/templates.js";
 
 test("renders supported order variables and removes unknown values", () => {
   const variables = templateVariables({

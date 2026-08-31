@@ -8,11 +8,7 @@ function money(value) {
 function productSummary(order) {
   const value = order.products ?? order.items ?? order.line_items ?? order["Line Items"];
   if (Array.isArray(value)) {
-    return value.map((item) => {
-      const name = item.name || item.title || item.product_name || "Product";
-      const quantity = item.quantity || item.qty || 1;
-      return `• ${name} × ${quantity}`;
-    }).join("\n");
+    return value.map((item) => `• ${item.name || item.title || item.product_name || "Product"} × ${item.quantity || item.qty || 1}`).join("\n");
   }
   if (typeof value === "string") return value;
   if (value && typeof value === "object") return Object.values(value).join("\n");
@@ -41,8 +37,7 @@ export function templateVariables(order, workspace = {}, now = new Date()) {
 
 export function renderTemplate(template, variables) {
   return String(template || "").replace(VARIABLE_PATTERN, (_match, key) => {
-    const value = variables[String(key).toLowerCase()];
-    return value === null || value === undefined ? "" : String(value);
+    const result = variables[String(key).toLowerCase()];
+    return result === null || result === undefined ? "" : String(result);
   }).trim();
 }
-

@@ -609,8 +609,15 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
   // Initialize scanner when modal opens
   useEffect(() => {
     if (isOpen) {
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
       console.log("[InventoryQRScanner] Modal opened, starting fresh scan");
       startFreshScan();
+      return () => {
+        document.body.style.overflow = previousOverflow;
+        stopCamera();
+        resetScannerState();
+      };
     } else {
       console.log("[InventoryQRScanner] Modal closed, stopping camera and resetting state");
       stopCamera();
@@ -639,10 +646,10 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-card">
+    <div className="qr-scanner-overlay fixed inset-0 flex h-dvh w-screen items-stretch justify-center bg-black" role="dialog" aria-modal="true" aria-label="Inventory QR scanner">
+      <div className="flex h-dvh w-full max-w-3xl flex-col overflow-hidden bg-base-surface md:my-6 md:h-[calc(100dvh-3rem)] md:rounded-2xl md:border md:border-base-border md:shadow-card">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-base-border px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-base-border px-[max(1rem,env(safe-area-inset-left))] pb-3 pt-[calc(.75rem+env(safe-area-inset-top))]">
           <div className="flex items-center gap-2">
             <Camera size={18} className="text-brand" />
             <span className="text-[14px] font-semibold text-ink">QR Scanner</span>
@@ -657,6 +664,8 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
                 className={`relative w-10 h-5 rounded-full transition-colors ${
                   autoReturnToStock ? 'bg-brand' : 'bg-base-border'
                 }`}
+                aria-label="Toggle automatic return to stock"
+                aria-pressed={autoReturnToStock}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
@@ -668,6 +677,7 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close scanner"
               className="rounded-full bg-base-raised/50 p-2 text-ink-faint hover:text-ink"
             >
               <X size={18} />
@@ -676,10 +686,10 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
         </div>
 
         {/* Scanner Content */}
-        <div className="p-4 space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {/* Camera View - only visible when cameraVisible is true */}
           {cameraVisible && (
-            <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-black">
+            <div className="relative min-h-[48dvh] overflow-hidden rounded-2xl bg-black md:min-h-0 md:aspect-[4/3]">
               <video
                 ref={videoRef}
                 className="w-full h-full object-cover"

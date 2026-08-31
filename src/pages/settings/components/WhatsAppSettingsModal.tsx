@@ -8,7 +8,10 @@ import QRCode from "react-qr-code";
 import { toast } from "../../../components/Toast";
 import { useAuth } from "../../../hooks/useAuth";
 import { supabase } from "../../../lib/supabase";
-import { callWhatsAppWorker } from "../../../services/whatsappWorkerService";
+import { callWhatsAppWorker, connectWhatsApp, normalizeWhatsAppStatus, getWorkerHealth } from "../../../services/whatsappWorkerService";
+
+// Use local worker in development
+const useLocalWorker = import.meta.env.DEV;
 
 const TABS = [
   ["connection", "Connection", Smartphone],
@@ -142,6 +145,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [testPhone, setTestPhone] = useState("");
   const [recording, setRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -150,8 +154,8 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  const status = String(settings.connection_status || "disconnected");
-  const connected = status === "ready" || status === "authenticated";
+  const status = normalizeWhatsAppStatus(settings.connection_status, "disconnected") || "disconnected";
+  const connected = ["ready", "authenticated"].includes(status);
 
   const invokeWorker = useCallback(async (action: "connect" | "disconnect" | "status" | "test", extra: Record<string, unknown> = {}) => {
     if (!workspace?.id) throw new Error("Workspace not found");
@@ -164,9 +168,36 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   }, [session?.access_token, workspace?.id]);
 
   const loadData = useCallback(async () => {
-    if (!workspace?.id) return;
+    if (!workspace?.id) {
+      setModalError("No workspace is selected for the WhatsApp integration.");
+      setLoading(false);
+      return;
+    }
+
+    // Local development: auth not required for WhatsApp worker control
+    if (!useLocalWorker && !session?.access_token) {
+      setModalError("Your Ecom OS session expired. Please sign in again.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
+    setModalError(null);
     try {
+      // In local development, also check worker health directly
+      let workerHealthData: { version?: string } | null = null;
+      if (useLocalWorker) {
+        workerHealthData = await getWorkerHealth();
+        if (workerHealthData) {
+          const workerVersion = workerHealthData.version || null;
+          setSettings((current: any) => ({
+            ...current,
+            worker_last_seen_at: new Date().toISOString(),
+            worker_version: workerVersion,
+          }));
+        }
+      }
+
       const [settingsResult, rulesResult, actionsResult, audioResult, queueResult, messagesResult, eventsResult, heartbeatResult] = await Promise.all([
         supabase.from("whatsapp_settings").select("*").eq("workspace_id", workspace.id).maybeSingle(),
         supabase.from("whatsapp_automation_rules").select("*").eq("workspace_id", workspace.id),
@@ -175,7 +206,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         supabase.from("whatsapp_queue").select("id, order_id, message_type, status, phone, attempts, max_attempts, last_error, error_code, scheduled_for, sent_at, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("whatsapp_messages").select("id, order_id, direction, message_type, status, phone, body, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("whatsapp_events").select("id, order_id, event_type, severity, message, created_at").eq("workspace_id", workspace.id).order("created_at", { ascending: false }).limit(50),
-        supabase.from("whatsapp_worker_heartbeats").select("*").eq("workspace_id", workspace.id).maybeSingle(),
+        !useLocalWorker ? supabase.from("whatsapp_worker_heartbeats").select("*").eq("workspace_id", workspace.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
       ]);
       if (settingsResult.error) throw settingsResult.error;
       if (settingsResult.data) setSettings((current: any) => ({ ...current, ...settingsResult.data }));
@@ -192,30 +223,69 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         ...(eventsResult.data || []).map((row) => ({ ...row, log_kind: "event", log_date: row.created_at })),
       ].sort((a, b) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime()).slice(0, 100);
       setLogs(combined);
-      if (heartbeatResult.data) setSettings((current: any) => ({ ...current, worker_last_seen_at: heartbeatResult.data.seen_at, worker_version: heartbeatResult.data.worker_version }));
+      if (heartbeatResult.data && !useLocalWorker) setSettings((current: any) => ({ ...current, worker_last_seen_at: heartbeatResult.data.seen_at, worker_version: heartbeatResult.data.worker_version }));
     } catch (error: any) {
-      toast.error(error.message || "Could not load WhatsApp settings");
+      const message = error?.message || "Could not load WhatsApp settings";
+      setModalError(message);
+      toast.error(message);
     } finally { setLoading(false); }
-  }, [workspace?.id]);
+  }, [session?.access_token, workspace?.id]);
 
   useEffect(() => { if (isOpen) loadData(); }, [isOpen, loadData]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
     if (!isOpen || !workspace?.id) return;
+
+    let cancelled = false;
+    let inFlight = false;
     const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const data = await invokeWorker("status");
-        if (data?.status) setSettings((current: any) => ({ ...current, connection_status: data.status }));
-        setQrCode(data?.status === "qr_required" ? data.qr || null : null);
-      } catch {
-        const { data } = await supabase.from("whatsapp_settings").select("connection_status, connected_phone, worker_last_seen_at").eq("workspace_id", workspace.id).maybeSingle();
-        if (data) setSettings((current: any) => ({ ...current, ...data }));
+        const nextStatus = normalizeWhatsAppStatus(data?.connection_status ?? data?.status ?? data?.state ?? data, settings.connection_status || "disconnected");
+        if (!cancelled && nextStatus) {
+          setSettings((current: any) => ({
+            ...current,
+            connection_status: nextStatus,
+            connected_phone: data?.connected_phone ?? data?.phoneNumber ?? current.connected_phone,
+            last_error: data?.last_error ?? current.last_error,
+          }));
+          setQrCode(["qr_required"].includes(nextStatus) ? (data?.qr || null) : null);
+        }
+      } catch (error) {
+        console.warn("[WhatsApp][STATUS] poll failed, keeping previous state", error);
+      } finally {
+        if (!cancelled) {
+          inFlight = false;
+        }
       }
     };
-    poll();
-    const interval = window.setInterval(poll, 5000);
-    return () => window.clearInterval(interval);
-  }, [isOpen, invokeWorker, workspace?.id]);
+
+    void poll();
+
+    // Poll more frequently during connection states
+    const shouldPollFrequently = ["initializing", "qr_required", "authenticated", "reconnecting"].includes(status);
+    const intervalMs = shouldPollFrequently ? 1500 : 5000;
+
+    const interval = window.setInterval(() => { void poll(); }, intervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isOpen, invokeWorker, workspace?.id, status]);
 
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -232,7 +302,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
       }
       if (!settings.active_days.length) throw new Error("Choose at least one active sending day");
       const settingsPayload = {
-        workspace_id: workspace.id, enabled: Boolean(settings.enabled), timezone: settings.timezone,
+        workspace_id: workspace.id, enabled: connected || Boolean(settings.enabled), timezone: settings.timezone,
         active_days: settings.active_days, quiet_hours_start: settings.quiet_hours_start || null,
         quiet_hours_end: settings.quiet_hours_end || null, minimum_interval_seconds: Number(settings.minimum_interval_seconds),
         hourly_rate_limit: Number(settings.hourly_rate_limit), daily_rate_limit: Number(settings.daily_rate_limit),
@@ -259,16 +329,27 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
     if (!workspace?.id) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from("whatsapp_settings").upsert({ workspace_id: workspace.id, enabled: true, connection_status: "initializing" }, { onConflict: "workspace_id" });
-      if (error) throw error;
-      setSettings((current: any) => ({ ...current, enabled: true, connection_status: "initializing" }));
-      const data = await invokeWorker("connect");
-      if (data?.status) setSettings((current: any) => ({ ...current, connection_status: data.status }));
-      setQrCode(data?.status === "qr_required" ? data.qr || null : null);
-      toast.info(data?.status === "qr_required" ? "Scan the QR code with WhatsApp" : "WhatsApp session is starting");
+      const data = await connectWhatsApp(workspace.id);
+      const nextStatus = normalizeWhatsAppStatus(data?.connection_status ?? data?.status ?? data?.state ?? "disconnected", "disconnected");
+
+      setSettings((current: any) => ({
+        ...current,
+        enabled: true,
+        connection_status: nextStatus || current.connection_status || "disconnected",
+        connected_phone: data?.connected_phone ?? data?.phoneNumber ?? current.connected_phone,
+        last_error: data?.last_error ?? current.last_error ?? null,
+      }));
+
+      setQrCode(nextStatus === "qr_required" ? (data?.qr || null) : null);
+      if (nextStatus === "qr_required") {
+        toast.info("Scan the QR code with WhatsApp");
+      } else if (nextStatus === "initializing") {
+        toast.info("WhatsApp session is starting");
+      } else {
+        await loadData();
+      }
     } catch (error: any) {
-      await supabase.from("whatsapp_settings").update({ enabled: false, connection_status: "error" }).eq("workspace_id", workspace.id);
-      setSettings((current: any) => ({ ...current, enabled: false, connection_status: "error" }));
+      setSettings((current: any) => ({ ...current, last_error: error.message || "Could not reach the WhatsApp worker" }));
       toast.error(error.message || "Could not reach the WhatsApp worker");
     }
     finally { setBusy(false); }
@@ -279,8 +360,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
     setBusy(true);
     try {
       await invokeWorker("disconnect", { revoke_session: true });
-      await supabase.from("whatsapp_settings").update({ enabled: false, connection_status: "disconnected", connected_phone: null }).eq("workspace_id", workspace?.id);
-      setSettings((current: any) => ({ ...current, enabled: false, connection_status: "disconnected", connected_phone: null }));
+      setSettings((current: any) => ({ ...current, connection_status: "disconnected", connected_phone: null, last_error: null }));
       setQrCode(null);
       toast.success("WhatsApp disconnected");
     } catch (error: any) { toast.error(error.message || "Disconnect failed"); }
@@ -363,10 +443,14 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
     } catch (error: any) { toast.error(error.message || "Could not retry job"); }
   };
 
-  const workerHealthy = useMemo(
-    () => settings.worker_last_seen_at && Date.now() - new Date(settings.worker_last_seen_at).getTime() < 120_000,
-    [settings.worker_last_seen_at],
-  );
+  const workerHealthy = useMemo(() => {
+    if (useLocalWorker) {
+      // In local development, trust the direct health check
+      return settings.worker_last_seen_at && Date.now() - new Date(settings.worker_last_seen_at).getTime() < 120_000;
+    }
+    // Production: use database heartbeat
+    return settings.worker_last_seen_at && Date.now() - new Date(settings.worker_last_seen_at).getTime() < 120_000;
+  }, [settings.worker_last_seen_at]);
 
   if (!isOpen) return null;
 
@@ -399,16 +483,21 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm">
-      <div className="flex h-[min(900px,95vh)] w-full max-w-6xl overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-2xl">
+    <div className="app-modal-backdrop fixed inset-0 flex items-center justify-center bg-black/45 p-0 backdrop-blur-sm md:p-3" role="dialog" aria-modal="true" aria-label="WhatsApp Automation settings">
+      <div className="flex h-dvh w-full max-w-6xl overflow-hidden bg-base-surface shadow-2xl md:h-[min(900px,95dvh)] md:rounded-2xl md:border md:border-base-border">
         <aside className="hidden w-60 shrink-0 border-r border-base-border bg-base-raised/30 p-3 md:block">
           <div className="px-3 py-4"><div className="text-[15px] font-bold">WhatsApp Automation</div><div className="mt-1 text-[11px] text-ink-muted">Workspace-scoped controls</div></div>
           <nav className="space-y-1">{TABS.map(([key, label, Icon]) => <button key={key} onClick={() => setTab(key)} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[12.5px] font-semibold ${tab === key ? "bg-[#25D366]/12 text-[#159447]" : "text-ink-muted hover:bg-base-raised hover:text-ink"}`}><Icon size={15} />{label}</button>)}</nav>
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-center justify-between border-b border-base-border px-5 py-4"><div><h2 className="text-[16px] font-bold">{TABS.find(([key]) => key === tab)?.[1]}</h2><p className="mt-0.5 text-[11px] text-ink-muted">Provider: whatsapp-web.js · tenant: {workspace?.name || "Workspace"}</p></div><button onClick={onClose} className="rounded-lg p-2 hover:bg-base-raised"><X size={18} /></button></header>
+          <header className="flex shrink-0 items-center justify-between border-b border-base-border px-4 pb-3 pt-[calc(.75rem+env(safe-area-inset-top))] md:px-5 md:py-4"><div className="min-w-0"><h2 className="truncate text-[16px] font-bold">{TABS.find(([key]) => key === tab)?.[1]}</h2><p className="mt-0.5 truncate text-[11px] text-ink-muted">Provider: whatsapp-web.js · tenant: {workspace?.name || "Workspace"}</p></div><button onClick={onClose} aria-label="Close WhatsApp settings" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl hover:bg-base-raised"><X size={18} /></button></header>
           <div className="flex gap-2 overflow-x-auto border-b border-base-border p-2 md:hidden">{TABS.map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-[11px] ${tab === key ? "bg-[#25D366]/10 text-[#159447]" : "text-ink-muted"}`}>{label}</button>)}</div>
-          <main className="flex-1 overflow-y-auto p-5 md:p-7">
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 md:p-7">
+            {modalError && (
+              <div className="mb-4 rounded-xl border border-danger/40 bg-danger/10 p-3 text-[12px] text-danger">
+                {modalError}
+              </div>
+            )}
             {loading ? <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin text-[#25D366]" /></div> : <>
               {tab === "connection" && <div className="space-y-5">
                 <div className="rounded-2xl border border-base-border p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div><div className="text-[12px] text-ink-muted">Connection state</div><div className={`mt-1 flex items-center gap-2 text-[15px] font-bold ${connected ? "text-[#159447]" : status === "error" ? "text-danger" : "text-ink"}`}>{connected ? <CheckCircle2 size={17} /> : <PauseCircle size={17} />}{status.replace(/_/g, " ")}</div>{settings.connected_phone && <div className="mt-1 text-[12px] text-ink-muted">+{settings.connected_phone}</div>}</div><div className="flex gap-2">{connected ? <button onClick={disconnect} disabled={busy} className="rounded-xl border border-danger/30 px-4 py-2.5 text-[12px] font-semibold text-danger">Disconnect</button> : <button onClick={connect} disabled={busy} className="rounded-xl bg-[#25D366] px-4 py-2.5 text-[12px] font-semibold text-white">Connect WhatsApp</button>}<button onClick={loadData} className="rounded-xl border border-base-border p-2.5"><RefreshCw size={15} /></button></div></div></div>
@@ -425,7 +514,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
               {tab === "logs" && <div><div className="mb-3 flex items-center justify-between"><p className="text-[11.5px] text-ink-muted">Queue attempts, provider messages, receipts, errors and trigger events.</p><button onClick={loadData} className="rounded-lg border border-base-border p-2"><RefreshCw size={14} /></button></div><div className="overflow-hidden rounded-xl border border-base-border"><div className="max-h-[600px] overflow-auto">{logs.length === 0 ? <div className="p-10 text-center text-[12px] text-ink-muted">No WhatsApp activity yet.</div> : logs.map((row) => <div key={`${row.log_kind}-${row.id}`} className="border-b border-base-border p-3 last:border-0"><div className="flex items-start justify-between gap-3"><div><span className="mr-2 rounded bg-base-raised px-1.5 py-0.5 text-[9px] font-bold uppercase text-ink-muted">{row.log_kind}</span><span className="text-[11.5px] font-semibold">{row.event_type || row.message_type || row.direction || "activity"}</span><div className="mt-1 max-w-2xl truncate text-[11px] text-ink-muted">{row.message || row.body || row.last_error || row.status}</div></div><div className="flex items-center gap-2 text-right">{row.log_kind === "queue" && ["failed", "skipped", "cancelled"].includes(row.status) && <button onClick={() => retryJob(row.id)} className="rounded-lg border border-base-border px-2 py-1 text-[9px] font-bold text-brand hover:bg-base-raised">Retry</button>}<div><div className={`text-[10px] font-bold uppercase ${["failed", "error"].includes(row.status || row.severity) ? "text-danger" : "text-ink-muted"}`}>{row.status || row.severity || ""}</div><div className="mt-1 text-[9px] text-ink-faint">{new Date(row.log_date).toLocaleString()}</div></div></div></div></div>)}</div></div></div>}
             </>}
           </main>
-          <footer className="flex items-center justify-between border-t border-base-border px-5 py-4"><div className="text-[10.5px] text-ink-muted"><Headphones size={13} className="mr-1 inline" />Inbound replies are matched by provider message or a single recent confirmation context.</div><div className="flex gap-2"><button onClick={onClose} className="rounded-xl px-4 py-2.5 text-[12px] font-semibold">Close</button>{tab !== "logs" && tab !== "connection" && <button onClick={save} disabled={busy} className="rounded-xl bg-ink px-5 py-2.5 text-[12px] font-semibold text-base-surface disabled:opacity-50">{busy ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <Save size={14} className="mr-1 inline" />}Save</button>}</div></footer>
+          <footer className="flex shrink-0 items-center justify-end border-t border-base-border px-4 pb-[calc(.75rem+env(safe-area-inset-bottom))] pt-3 md:justify-between md:px-5 md:py-4"><div className="hidden text-[10.5px] text-ink-muted md:block"><Headphones size={13} className="mr-1 inline" />Inbound replies are matched by provider message or a single recent confirmation context.</div><div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto"><button onClick={onClose} className="min-h-11 rounded-xl px-4 py-2.5 text-[12px] font-semibold">Close</button>{tab !== "logs" && tab !== "connection" && <button onClick={save} disabled={busy} className="min-h-11 rounded-xl bg-ink px-5 py-2.5 text-[12px] font-semibold text-base-surface disabled:opacity-50">{busy ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <Save size={14} className="mr-1 inline" />}Save</button>}</div></footer>
         </div>
       </div>
     </div>

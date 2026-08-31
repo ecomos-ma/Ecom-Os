@@ -19,8 +19,18 @@ alter table public.subscription_plans
   add column if not exists premium_support boolean not null default false,
   add column if not exists is_popular boolean not null default false,
   add column if not exists is_active boolean not null default false,
+  add column if not exists is_public boolean not null default true,
   add column if not exists is_official boolean not null default false,
-  add column if not exists display_order integer not null default 100;
+  add column if not exists display_order integer not null default 100,
+  add column if not exists badge_text text,
+  add column if not exists cta_text text,
+  add column if not exists monthly_billing_enabled boolean not null default true,
+  add column if not exists annual_billing_enabled boolean not null default true,
+  add column if not exists hidden_at timestamptz,
+  add column if not exists archived_at timestamptz,
+  add column if not exists custom_limits jsonb not null default '{}'::jsonb,
+  add column if not exists custom_benefits jsonb not null default '[]'::jsonb,
+  add column if not exists metadata jsonb not null default '{}'::jsonb;
 
 alter table public.subscription_plans
   drop constraint if exists subscription_plans_code_check;
@@ -318,7 +328,12 @@ end
 $$;
 create policy subscription_plans_official_read
   on public.subscription_plans for select to anon, authenticated
-  using (is_official and is_active);
+  using (is_official and is_active and coalesce(is_public, true) and archived_at is null);
+
+create policy subscription_plans_admin_manage
+  on public.subscription_plans for all to authenticated
+  using (public.has_platform_permission('billing.manage'))
+  with check (public.has_platform_permission('billing.manage'));
 
 drop policy if exists user_subscriptions_owner_read on public.user_subscriptions;
 create policy user_subscriptions_owner_read
@@ -458,18 +473,29 @@ as $$
     'team_member_limit', plan.team_member_limit,
     'integration_limit', plan.integration_limit,
     'entitlements', jsonb_build_object(
-      'mobile_app', plan.mobile_app,
-      'whatsapp_automation', plan.whatsapp_automation,
-      'ai_whatsapp_confirmation_agent', plan.ai_whatsapp_confirmation_agent,
-      'sawty_os', plan.sawty_os,
-      'landing_page_os', plan.landing_page_os,
-      'premium_support', plan.premium_support
+      'mobile_app', coalesce(plan.mobile_app, false),
+      'whatsapp_automation', coalesce(plan.whatsapp_automation, false),
+      'ai_whatsapp_confirmation_agent', coalesce(plan.ai_whatsapp_confirmation_agent, false),
+      'sawty_os', coalesce(plan.sawty_os, false),
+      'landing_page_os', coalesce(plan.landing_page_os, false),
+      'premium_support', coalesce(plan.premium_support, false)
     ),
-    'is_popular', plan.is_popular,
-    'display_order', plan.display_order
+    'is_popular', coalesce(plan.is_popular, false),
+    'is_active', coalesce(plan.is_active, false),
+    'is_public', coalesce(plan.is_public, true),
+    'badge_text', plan.badge_text,
+    'cta_text', plan.cta_text,
+    'monthly_billing_enabled', coalesce(plan.monthly_billing_enabled, true),
+    'annual_billing_enabled', coalesce(plan.annual_billing_enabled, true),
+    'custom_limits', coalesce(plan.custom_limits, '{}'::jsonb),
+    'custom_benefits', coalesce(plan.custom_benefits, '[]'::jsonb),
+    'display_order', coalesce(plan.display_order, 100)
   ) order by plan.display_order), '[]'::jsonb)
   from public.subscription_plans plan
-  where plan.is_official and plan.is_active;
+  where plan.is_official
+    and plan.is_active
+    and coalesce(plan.is_public, true)
+    and plan.archived_at is null;
 $$;
 
 create or replace function public.get_effective_subscription_v1(p_owner_user_id uuid)
@@ -657,6 +683,7 @@ as $$
 declare owner_id uuid;
 declare effective jsonb;
 declare member_access boolean;
+declare expires_at timestamptz;
 begin
   if p_user_id <> (select auth.uid())
      and not public.has_platform_permission('support.impersonate_read')
@@ -671,6 +698,15 @@ begin
   if not member_access then return jsonb_build_object('allowed', false, 'reason', 'not_active_workspace_member'); end if;
   if owner_id is null then return jsonb_build_object('allowed', false, 'reason', 'workspace_billing_owner_missing'); end if;
   effective := public.get_effective_subscription_v1(owner_id);
+  expires_at := nullif(effective ->> 'current_period_end', '')::timestamptz;
+  if effective ->> 'status' = 'active' and expires_at is not null and expires_at <= now() then
+    effective := effective || jsonb_build_object(
+      'status', 'expired',
+      'payment_status', 'unpaid',
+      'operational_access', false,
+      'access_reason', 'subscription_expired'
+    );
+  end if;
   return jsonb_build_object(
     'allowed', coalesce((effective ->> 'operational_access')::boolean, false),
     'reason', effective ->> 'access_reason',

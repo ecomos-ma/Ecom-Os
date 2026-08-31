@@ -1,8 +1,13 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const workerSecret = env.WHATSAPP_WORKER_API_SECRET;
+  const workerDevUrl = env.WHATSAPP_WORKER_DEV_URL || 'http://127.0.0.1:5000';
+
+  return {
   plugins: [
     react(),
     VitePWA({
@@ -26,7 +31,7 @@ export default defineConfig({
         short_name: "EcomOS",
         description: "Modern CRM for E-commerce",
         display: "standalone",
-        orientation: "portrait",
+        orientation: "any",
         start_url: "/",
         scope: "/",
         theme_color: "#0f172a",
@@ -73,8 +78,15 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',
     port: 8080,
     proxy: {
+      '/api/whatsapp-worker': {
+        target: workerDevUrl,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/whatsapp-worker/, ''),
+        headers: workerSecret ? { Authorization: `Bearer ${workerSecret}` } : undefined,
+      },
       '/api-ozon': {
         target: 'https://api.ozonexpress.ma',
         changeOrigin: true,
@@ -82,4 +94,5 @@ export default defineConfig({
       }
     }
   },
+  };
 });

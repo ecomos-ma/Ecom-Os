@@ -2346,7 +2346,47 @@ export default function Delivering() {
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-auto" ref={scrollContainerRef} onScroll={handleScroll}>
+              <div className="space-y-3 py-3 md:hidden">
+                {displayOrders.map((order, idx) => {
+                  const uniqueId = order.id || order.order_number || `temp-${idx}`;
+                  const isSelected = selectedOrderIds.includes(uniqueId);
+                  const dnRef = getDeliveryNoteRef(order);
+                  const tracking = order.tracking_number || order.coliaty_parcel_code || "";
+                  return (
+                    <article key={`${uniqueId}-mobile`} className={`rounded-2xl border bg-white p-4 shadow-sm ${isSelected ? "border-indigo-300 ring-2 ring-indigo-100" : "border-gray-200"}`}>
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select order ${order.order_number}`}
+                          checked={isSelected}
+                          disabled={Boolean(dnRef)}
+                          onChange={() => setSelectedOrderIds((previous) => previous.includes(uniqueId) ? previous.filter((id) => id !== uniqueId) : [...previous, uniqueId])}
+                          className="mt-1 h-5 w-5 shrink-0 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-40"
+                        />
+                        <button type="button" onClick={() => setPanelOrder(order)} className="min-w-0 flex-1 text-left">
+                          <span className="flex items-start justify-between gap-3">
+                            <span className="min-w-0">
+                              <span className="block truncate text-[15px] font-bold text-gray-900">{order.customer?.name ?? (order as any).customer_name ?? "Unknown customer"}</span>
+                              <span className="mt-0.5 block font-mono text-[11px] text-gray-500">#{order.order_number}</span>
+                            </span>
+                            <span className="shrink-0 text-[15px] font-bold text-gray-900">{mad(order.total)}</span>
+                          </span>
+                          <span className="mt-3 flex flex-wrap items-center gap-2">
+                            <ShippingStatusBadge status={order.shipping_status} />
+                            {order.city && <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">{order.city}</span>}
+                          </span>
+                          <span className="mt-3 grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 text-[11px] text-gray-500">
+                            <span className="min-w-0"><strong className="block text-gray-700">Tracking</strong><span className="block truncate font-mono">{tracking || "Not assigned"}</span></span>
+                            <span className="text-right"><strong className="block text-gray-700">Updated</strong>{formatDate(order.created_at)}</span>
+                          </span>
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="hidden flex-1 overflow-auto md:block" ref={scrollContainerRef} onScroll={handleScroll}>
                 <table className="w-full text-left text-[13px] whitespace-nowrap">
                   <thead className="sticky top-0 z-10 font-semibold text-gray-500 uppercase text-[11px] tracking-wider border-b border-gray-200 bg-white">
                     <tr>
@@ -2424,7 +2464,7 @@ export default function Delivering() {
               </div>
 
               {/* ── Progress Footer ── */}
-              <div className="h-[44px] flex shrink-0 items-center justify-between px-4 border-t border-gray-200 text-[13px] text-gray-500 font-medium">
+              <div className="hidden h-[44px] shrink-0 items-center justify-between border-t border-gray-200 px-4 text-[13px] font-medium text-gray-500 md:flex">
                 <div>Showing {displayOrders.length} of {filteredOrders.length} Orders</div>
               </div>
             </>

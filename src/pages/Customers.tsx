@@ -32,6 +32,13 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
   const [whatsappMessages, setWhatsappMessages] = useState<any[]>([]);
 
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [selectedCustomer]);
+
   async function openCustomer(customer: CustomerProfile) {
     setSelectedCustomer(customer);
     if (!workspace?.id) return;
@@ -157,13 +164,13 @@ export default function Customers() {
       )}
 
       {selectedCustomer && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm" onClick={() => setSelectedCustomer(null)}>
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-base-border p-5">
+        <div className="app-modal-backdrop fixed inset-0 flex items-end justify-center bg-black/45 p-0 pt-[calc(2rem+env(safe-area-inset-top))] backdrop-blur-sm md:items-center md:p-4" onClick={() => setSelectedCustomer(null)} role="dialog" aria-modal="true" aria-label={`${selectedCustomer.name} customer details`}>
+          <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-base-border bg-base-surface pb-[env(safe-area-inset-bottom)] shadow-2xl md:max-h-[90vh] md:rounded-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-base-border p-4 md:p-5">
               <div><h2 className="text-[16px] font-bold">{selectedCustomer.name}</h2><p className="mt-1 text-[11px] text-ink-muted">Orders and WhatsApp timeline</p></div>
-              <button onClick={() => setSelectedCustomer(null)} className="rounded-lg p-2 hover:bg-base-raised"><X size={17} /></button>
+              <button onClick={() => setSelectedCustomer(null)} aria-label="Close customer details" className="grid h-11 w-11 place-items-center rounded-xl hover:bg-base-raised"><X size={17} /></button>
             </div>
-            <div className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
+            <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 md:p-5">
               <section><h3 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ink-muted">Order history</h3><div className="space-y-2">{orders.filter((order) => order.customer_id === selectedCustomer.id).map((order) => <div key={order.id} className="flex items-center justify-between rounded-xl border border-base-border p-3"><div><div className="text-[12px] font-semibold">{order.order_number || order.id}</div><div className="text-[10px] text-ink-muted">{formatDateTime(order.created_at)}</div></div><div className="text-right"><StatusBadge status={order.status} size="sm" /><div className="text-[10px] text-ink-muted">{formatCurrency(Number(order.total || 0))}</div></div></div>)}</div></section>
               <section><h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#25D366]"><MessageCircle size={13} />WhatsApp</h3>{whatsappMessages.length === 0 ? <div className="rounded-xl border border-dashed border-base-border p-6 text-center text-[11px] text-ink-muted">No WhatsApp messages for this customer.</div> : <div className="space-y-2">{whatsappMessages.map((message) => <div key={message.id} className={`max-w-[85%] rounded-xl p-3 text-[11.5px] ${message.direction === "outbound" ? "ml-auto bg-[#25D366]/10" : "bg-base-raised"}`}><div>{message.body || `[${message.message_type}]`}</div><div className="mt-1 text-[9px] text-ink-faint">{message.status} · {new Date(message.created_at).toLocaleString()}</div></div>)}</div>}</section>
             </div>

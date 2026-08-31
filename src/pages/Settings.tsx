@@ -22,6 +22,7 @@ import YouCanIntegrationCard from "./settings/components/YouCanIntegrationCard";
 import ShopifyIntegrationCard from "./settings/components/ShopifyIntegrationCard";
 import WhatsAppIntegrationCard from "./settings/components/WhatsAppIntegrationCard";
 import NotificationSettingsTab from "./settings/components/NotificationSettingsTab";
+import WorkspaceDangerZone from "./settings/components/WorkspaceDangerZone";
 import { getIntegrationLogo } from "../lib/integrationLogos";
 import type { ShippingCarrier } from "../lib/types";
 
@@ -592,6 +593,8 @@ function WorkspaceTab() {
           {saved ? "Saved ✓" : busy ? "Saving…" : "Save Workspace"}
         </button>
       </form>
+
+      <WorkspaceDangerZone />
     </div>
   );
 }

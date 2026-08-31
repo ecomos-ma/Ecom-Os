@@ -9,7 +9,13 @@ export const currency = new Intl.NumberFormat("en-MA", {
 export const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
 
 export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Unable to load this data.";
+  if (error && typeof error === 'object') {
+    const details = error as { code?: string; message?: string; details?: string; hint?: string; status?: number };
+    const parts = [details.code ? `code: ${details.code}` : null, details.message ? details.message : null, details.details ? `details: ${details.details}` : null, details.hint ? `hint: ${details.hint}` : null].filter(Boolean);
+    if (parts.length) return parts.join(' • ');
+  }
+  if (error instanceof Error) return error.message;
+  return 'Unable to load this data.';
 }
 
 export function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {

@@ -20,7 +20,8 @@ Set these browser-safe values in `.env`:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY` — a Supabase publishable key or legacy anon key, never a secret/service-role key
-- `VITE_WHATSAPP_WORKER_URL` — public HTTPS URL of the VPS worker; localhost defaults to port 5000
+- `WHATSAPP_WORKER_API_SECRET` — server-side secret used by the Vite development proxy; it is never exposed through a `VITE_` variable
+- `WHATSAPP_WORKER_URL` — production Edge Function backend-to-worker URL
 - `VITE_YOUCAN_REDIRECT_URI` — optional, when YouCan OAuth is enabled
 
 The app renders a visible configuration error if the required Supabase browser values are missing or invalid.
@@ -37,7 +38,7 @@ npm run build
 
 ## Deployment
 
-The web app is configured for Vercel as a Vite SPA. Supabase remains the backend, and the unofficial WhatsApp Web worker remains a separate VPS process; it is not bundled into or hosted by Vercel.
+The web app is configured for Vercel as a Vite SPA. Supabase remains the backend, and the Chromium-free Baileys WhatsApp worker remains a separate VPS process; it is not bundled into or hosted by Vercel.
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for environment separation, preview/production commands, Supabase redirect URLs, worker setup, verification, and rollback.
 

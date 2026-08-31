@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Crown, Minus, ShieldCheck, Sparkles } from "lucide-react";
 import { LandingLanguage, i18n } from "../../i18n";
-import { BillingPeriod, PlanTier, PRICING_PLANS } from "../../../../config/pricing";
-
-const planOrder: PlanTier[] = ["starter", "growth", "pro", "scale"];
+import { fetchOfficialPlans, getPlanPrice, LANDING_PREMIUM_FEATURES, sortPlansByDisplay, type PublicPlanRecord } from "../../../../lib/planEngine";
+import type { BillingPeriod } from "../../../../config/pricing";
 
 const copy = {
     en: {
@@ -72,15 +71,6 @@ const copy = {
     },
 };
 
-const premiumFeatures = [
-    { key: "mobileApp", label: "Mobile App" },
-    { key: "whatsappAutomation", label: "WhatsApp Automation" },
-    { key: "aiConfirmationAgent", label: "AI WhatsApp Agent" },
-    { key: "sawtyOS", label: "Sawty.OS" },
-    { key: "landingPageOS", label: "Landing Page.OS" },
-    { key: "premiumSupport", label: "Premium Support" },
-] as const;
-
 function formatLimit(value: number | "unlimited") {
     return value === "unlimited" ? "Unlimited" : value.toLocaleString("en-US");
 }
@@ -89,6 +79,11 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
     const t = i18n[lang];
     const c = copy[lang];
     const [billing, setBilling] = useState<BillingPeriod>("monthly");
+    const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
+
+    useEffect(() => {
+        void fetchOfficialPlans().then((data) => setPlans(sortPlansByDisplay(data))).catch(() => setPlans([]));
+    }, []);
 
     return (
         <section className="relative overflow-hidden border-t border-[#35131e]/[0.07] bg-[#fcfafb] py-24 sm:py-28">
@@ -115,33 +110,32 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-3">
-                    {planOrder.map((tier) => {
-                        const plan = PRICING_PLANS[tier];
-                        const popular = tier === "growth";
-                        const price = billing === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
+                    {plans.map((plan) => {
+                        const popular = plan.isPopular || plan.badgeText.toLowerCase().includes("popular");
+                        const price = getPlanPrice(plan, billing);
                         const capacity = [
-                            plan.limits.ordersDaily
+                            plan.limits.ordersDaily && plan.limits.ordersDaily > 0
                                 ? `${plan.limits.ordersDaily} orders / day`
-                                : `${plan.limits.ordersMonthly.toLocaleString("en-US")} orders / month`,
+                                : `${(plan.limits.ordersMonthly ?? 0).toLocaleString("en-US")} orders / month`,
                             `${formatLimit(plan.limits.workspaces)} ${plan.limits.workspaces === 1 ? "workspace" : "workspaces"}`,
                             `${plan.limits.teamMembers} team members`,
                             `${formatLimit(plan.limits.integrations)} integrations`,
                         ];
 
                         return (
-                            <article key={tier} className={`relative flex min-h-[690px] flex-col rounded-[24px] bg-white p-5 transition duration-300 hover:-translate-y-1 sm:p-6 ${popular ? "border-2 border-[#DB3F73] shadow-[0_22px_60px_rgba(168,40,85,0.16)]" : "border border-slate-200 shadow-[0_8px_30px_rgba(30,20,24,0.04)] hover:shadow-[0_18px_45px_rgba(30,20,24,0.09)]"}`}>
+                            <article key={plan.code} className={`relative flex min-h-[690px] flex-col rounded-[24px] bg-white p-5 transition duration-300 hover:-translate-y-1 sm:p-6 ${popular ? "border-2 border-[#DB3F73] shadow-[0_22px_60px_rgba(168,40,85,0.16)]" : "border border-slate-200 shadow-[0_8px_30px_rgba(30,20,24,0.04)] hover:shadow-[0_18px_45px_rgba(30,20,24,0.09)]"}`}>
                                 {popular && (
                                     <div className="absolute -top-3.5 left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-[#DB3F73] px-4 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-white shadow-lg shadow-[#DB3F73]/20">
-                                        <Crown className="h-3 w-3" /> {c.mostPopular}
+                                        <Crown className="h-3 w-3" /> {plan.badgeText || c.mostPopular}
                                     </div>
                                 )}
 
                                 <div className="min-h-[132px] border-b border-slate-100 pb-5 pt-2">
                                     <div className="mb-2 flex items-center justify-between gap-3">
                                         <h3 className="text-xl font-bold tracking-tight text-slate-950">{plan.name}</h3>
-                                        {tier === "scale" && <ShieldCheck className="h-5 w-5 text-[#DB3F73]" />}
+                                        {plan.code === "scale" && <ShieldCheck className="h-5 w-5 text-[#DB3F73]" />}
                                     </div>
-                                    <p className="min-h-10 text-sm leading-5 text-slate-500">{c.descriptions[tier]}</p>
+                                    <p className="min-h-10 text-sm leading-5 text-slate-500">{plan.description || c.descriptions[plan.code as keyof typeof c.descriptions] || plan.name}</p>
                                     <div className="mt-5 flex items-end gap-1.5" dir="ltr">
                                         <span className="pb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">MAD</span>
                                         <span className="text-[2.75rem] font-bold leading-none tracking-[-0.05em] text-[#171116]">{price.toLocaleString("en-US")}</span>
@@ -150,7 +144,7 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
                                     {billing === "yearly" && <p className="mt-2 text-[11px] font-semibold text-emerald-600">{c.billed} · {c.save}</p>}
                                 </div>
 
-                                <Link to={`/login?mode=signup&plan=${tier}&billing=${billing}`} className={`mt-5 flex h-11 items-center justify-center rounded-xl text-sm font-bold transition ${popular ? "bg-[#DB3F73] text-white shadow-lg shadow-[#DB3F73]/20 hover:bg-[#c93265]" : "border border-slate-300 bg-white text-slate-900 hover:border-[#DB3F73] hover:bg-[#fff6f9] hover:text-[#b12958]"}`}>
+                                <Link to={`/login?mode=signup&plan=${plan.code}&billing=${billing}`} className={`mt-5 flex h-11 items-center justify-center rounded-xl text-sm font-bold transition ${popular ? "bg-[#DB3F73] text-white shadow-lg shadow-[#DB3F73]/20 hover:bg-[#c93265]" : "border border-slate-300 bg-white text-slate-900 hover:border-[#DB3F73] hover:bg-[#fff6f9] hover:text-[#b12958]"}`}>
                                     {c.cta} {plan.name}
                                 </Link>
 
@@ -169,8 +163,8 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
                                 <div className="mt-5">
                                     <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{c.premium}</p>
                                     <ul className="space-y-2.5">
-                                        {premiumFeatures.map((feature) => {
-                                            const enabled = plan.features[feature.key];
+                                        {LANDING_PREMIUM_FEATURES.map((feature) => {
+                                            const enabled = plan.features[feature.key as keyof typeof plan.features];
                                             return (
                                                 <li key={feature.key} className={`flex items-center gap-2 text-xs font-medium ${enabled ? "text-slate-700" : "text-slate-400"}`}>
                                                     <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${enabled ? "bg-emerald-50" : "bg-slate-100"}`}>

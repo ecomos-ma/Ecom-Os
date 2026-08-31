@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { EnhancedHeader } from "./EnhancedHeader";
 import { ToastContainer, toast } from "./Toast";
@@ -13,6 +13,8 @@ import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { supabase } from "../lib/supabase";
 import { RefreshCw } from "lucide-react";
+import { MobileAppChrome } from "./MobileAppChrome";
+import { InventoryQRScanner } from "./inventory/InventoryQRScanner";
 
 function PullToRefresh({ children }: { children: React.ReactNode }) {
   const [pullProgress, setPullProgress] = useState(0);
@@ -91,6 +93,8 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
 }
 
 export function Layout() {
+  const navigate = useNavigate();
+  const [scannerOpen, setScannerOpen] = useState(false);
   // Global haptic feedback
   useEffect(() => {
     const handleHaptic = (e: MouseEvent | TouchEvent) => {
@@ -261,13 +265,14 @@ export function Layout() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-surface">
         <DemoBanner />
         <ActivityTracker />
-        <EnhancedHeader />
+        <div className="hidden md:block"><EnhancedHeader /></div>
+        <MobileAppChrome onScan={() => setScannerOpen(true)} />
         <AdminPreviewBanner />
         <AnnouncementTray />
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
           <div className="h-full w-full md:hidden">
             <PullToRefresh>
-              <PageContent className="h-full min-h-full">
+              <PageContent className="mobile-page-content min-h-full">
                 <Outlet />
               </PageContent>
             </PullToRefresh>
@@ -282,6 +287,15 @@ export function Layout() {
       {/* Global toast notifications — mounted once here, used from anywhere */}
       <SupportTicketLauncher />
       <ToastContainer />
+      <InventoryQRScanner
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onQRDetected={() => undefined}
+        onViewOrder={(orderId) => {
+          setScannerOpen(false);
+          navigate("/orders", { state: { viewOrderId: orderId } });
+        }}
+      />
     </div>
   );
 }

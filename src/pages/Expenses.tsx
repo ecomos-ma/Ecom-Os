@@ -369,7 +369,16 @@ export default function Expenses() {
               </div>
             ) : (
               <div className="rounded-lg border border-base-border overflow-hidden mt-4">
-                <table className="w-full text-[12.5px]">
+                <div className="space-y-2 md:hidden">
+                  {skuCostsList.map((item) => (
+                    <div key={`${item.id}-mobile`} className="flex items-center gap-3 rounded-xl border border-base-border bg-base-raised/40 p-3">
+                      <span className="min-w-0 flex-1 truncate font-mono text-sm font-bold text-ink">{item.sku}</span>
+                      <input type="number" step="0.01" aria-label={`Cost for ${item.sku}`} value={item.cost} onChange={(event) => upsertSkuCost(item.sku, Number(event.target.value))} className="h-11 w-28 rounded-xl border border-base-border bg-base-surface px-3 text-right font-mono" />
+                      <button type="button" aria-label={`Delete ${item.sku}`} onClick={() => deleteSkuCost(item.id)} className="grid h-11 w-11 place-items-center rounded-xl text-danger"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                </div>
+                <table className="hidden w-full text-[12.5px] md:table">
                   <thead>
                     <tr className="border-b border-base-border text-left text-[10.5px] uppercase tracking-wider text-ink-muted bg-base-raised/30">
                       <th className="px-3 py-2 font-medium">Product/SKU</th>
@@ -419,7 +428,24 @@ export default function Expenses() {
           </button>
         </div>
 
-        <table className="w-full text-[12.5px]">
+        <div className="space-y-2 p-3 md:hidden">
+          {rules.map((rule) => (
+            <article key={`${rule.id}-mobile`} className={`rounded-xl border border-base-border bg-base-raised/35 p-3 ${!rule.enabled ? "opacity-55" : ""}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0"><p className="truncate text-sm font-bold text-ink">{rule.name}</p><p className="mt-0.5 text-xs text-ink-muted">{TRIGGER_LABELS[rule.trigger] || rule.trigger}</p></div>
+                <Toggle checked={rule.enabled} onChange={(value) => toggleRule(rule.id, value)} />
+              </div>
+              <div className="mt-3 flex items-center gap-2 border-t border-base-border pt-3">
+                <label className="min-w-0 flex-1 text-[10px] font-bold uppercase tracking-wide text-ink-faint">Amount<input type="number" step="0.01" value={rule.amount} onChange={(event) => updateRule(rule.id, { amount: Number(event.target.value) })} className="mt-1 h-11 w-full rounded-xl border border-base-border bg-base-surface px-3 font-mono text-base text-ink" /></label>
+                <button type="button" aria-label={`Edit ${rule.name}`} onClick={() => setEditingRule(rule)} className="mt-4 grid h-11 w-11 place-items-center rounded-xl bg-base-surface text-brand"><Edit2 size={16} /></button>
+                <button type="button" aria-label={`Delete ${rule.name}`} onClick={() => deleteRule(rule.id)} className="mt-4 grid h-11 w-11 place-items-center rounded-xl bg-danger/5 text-danger"><Trash2 size={16} /></button>
+              </div>
+            </article>
+          ))}
+          {!rules.length && <p className="py-6 text-center text-sm text-ink-muted">No fees configured.</p>}
+        </div>
+
+        <table className="hidden w-full text-[12.5px] md:table">
           <thead>
             <tr className="border-b border-base-border text-left text-[10.5px] uppercase tracking-wider text-ink-muted">
               <th className="px-5 py-2.5 font-medium w-12">Status</th>
@@ -512,8 +538,17 @@ export default function Expenses() {
         </button>
 
         {showExpenses && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px] min-w-[500px]">
+          <div>
+            <div className="space-y-2 p-3 md:hidden">
+              {expenses.map((expense) => (
+                <article key={`${expense.id}-mobile`} className="rounded-xl border border-base-border bg-base-raised/35 p-3">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-ink">{expense.description || expense.category}</p><p className="mt-1 text-xs text-ink-muted">{new Date(expense.date).toLocaleDateString()} · {expense.category}</p></div><strong className="shrink-0 font-mono text-sm text-ink">{mad(expense.amount)}</strong></div>
+                  <button type="button" onClick={async () => { await supabase.from("expenses").delete().eq("id", expense.id); loadExpenses(); computePnl(); }} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-danger/15 text-xs font-bold text-danger"><Trash2 size={14} /> Delete expense</button>
+                </article>
+              ))}
+              {!expenses.length && <p className="py-6 text-center text-sm text-ink-muted">No one-off expenses in this period.</p>}
+            </div>
+            <table className="hidden w-full min-w-[500px] text-[12.5px] md:table">
               <thead>
                 <tr className="border-b border-base-border text-left text-[10.5px] uppercase tracking-wider text-ink-muted">
                   <th className="px-5 py-2.5 font-medium">Date</th>

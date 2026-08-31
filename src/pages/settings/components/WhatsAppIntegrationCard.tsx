@@ -1,38 +1,38 @@
-import { useState, useEffect } from "react";
-import { CheckCircle2, Settings, X, MoreHorizontal } from "lucide-react";
+import { useCallback, useState, useEffect } from "react";
+import { CheckCircle2, MoreHorizontal } from "lucide-react";
 import { getIntegrationLogo } from "../../../lib/integrationLogos";
 import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../hooks/useAuth";
 import WhatsAppSettingsModal from "./WhatsAppSettingsModal";
 import { toast } from "../../../components/Toast";
-import { callWhatsAppWorker } from "../../../services/whatsappWorkerService";
+import { disconnectWhatsApp } from "../../../services/whatsappWorkerService";
 
 export default function WhatsAppIntegrationCard() {
-    const { workspace, session } = useAuth();
+    const { workspace } = useAuth();
     const [loading, setLoading] = useState(true);
     const [settings, setSettings] = useState<any>(null);
     const [isManageOpen, setIsManageOpen] = useState(false);
 
+    const loadSettings = useCallback(async () => {
+        if (!workspace) return;
+        try {
+            const { data, error } = await supabase
+                .from("whatsapp_settings")
+                .select("*")
+                .eq("workspace_id", workspace.id)
+                .maybeSingle();
+            if (error) throw error;
+            if (data) setSettings(data);
+        } catch (e) {
+            console.error("Error loading WhatsApp config:", e);
+        } finally {
+            setLoading(false);
+        }
+    }, [workspace]);
+
     useEffect(() => {
         let sub: any;
-        async function loadSettings() {
-            if (!workspace) return;
-            try {
-                const { data, error } = await supabase
-                    .from("whatsapp_settings")
-                    .select("*")
-                    .eq("workspace_id", workspace.id)
-                    .maybeSingle();
-
-                if (error) throw error;
-                if (data) setSettings(data);
-            } catch (e) {
-                console.error("Error loading WhatsApp config:", e);
-            } finally {
-                setLoading(false);
-            }
-        }
-        loadSettings();
+        void loadSettings();
 
         // Set up realtime subscription separately
         if (workspace) {
@@ -48,25 +48,16 @@ export default function WhatsAppIntegrationCard() {
         return () => {
             if (sub) { supabase.removeChannel(sub); }
         };
-    }, [workspace]);
+    }, [loadSettings, workspace]);
 
-    const isConnected = settings?.connection_status === "ready" || settings?.connection_status === "authenticated";
+    const isConnected = ["ready", "authenticated", "connected"].includes(String(settings?.connection_status || ""));
 
     const handleDisconnect = async () => {
         if (!workspace?.id || !confirm("Disconnect WhatsApp? Session will be terminated.")) return;
         try {
-            await callWhatsAppWorker({
-                action: "disconnect",
-                workspaceId: workspace.id,
-                accessToken: session?.access_token || "",
-                payload: { revoke_session: true },
-            });
-            const { error } = await supabase
-                .from("whatsapp_settings")
-                .update({ enabled: false, connection_status: "disconnected", connected_phone: null })
-                .eq("workspace_id", workspace.id);
-            if (error) throw error;
+            await disconnectWhatsApp(workspace.id);
             toast.success("WhatsApp disconnected");
+            await loadSettings();
         } catch (e) {
             console.error("Failed to disconnect WhatsApp:", e);
             toast.error(e instanceof Error ? e.message : "Failed to disconnect WhatsApp");

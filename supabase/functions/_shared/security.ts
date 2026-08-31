@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient, type User } from "npm:@supabase/supabase-js@2.111.0";
+import { corsHeaders as supabaseCorsHeaders } from "npm:@supabase/supabase-js@2.111.0/cors";
 
 export class HttpError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -18,17 +19,24 @@ export function serviceClient(): SupabaseClient {
   });
 }
 
-export function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("origin") ?? "";
-  const allowedOrigins = (Deno.env.get("ALLOWED_FRONTEND_ORIGINS") ??
-    "https://ecomscale.vercel.app,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173")
+export function corsHeaders(_req: Request): Record<string, string> {
+  const origin = _req.headers.get("origin") ?? "";
+  const configuredOrigins = (Deno.env.get("ALLOWED_FRONTEND_ORIGINS") ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+  const allowedOrigins = new Set([
+    "https://ecomscale.vercel.app",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    ...configuredOrigins,
+  ]);
+  const { "Access-Control-Allow-Origin": _wildcardOrigin, ...canonicalCorsHeaders } = supabaseCorsHeaders;
   return {
-    ...(allowedOrigins.includes(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    ...canonicalCorsHeaders,
+    ...(allowedOrigins.has(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
     "Content-Type": "application/json",
     "Vary": "Origin",
   };

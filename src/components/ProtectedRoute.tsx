@@ -4,7 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { PlatformLoading } from "./PlatformLoading";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { session, loading, profile, operationalAccess, subscriptionStatus } = useAuth();
+  const { session, loading, profile, operationalAccess, subscriptionStatus, isDemoMode } = useAuth();
   const location = useLocation();
 
   // HARD GATE: Wait for complete auth check before rendering anything
@@ -13,7 +13,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }
 
   // HARD GATE: Must have valid session
-  if (!session) {
+  if (!session && !isDemoMode) {
     const currentPath = location.pathname + location.search;
     const returnToUrl = currentPath === "/" || currentPath.includes("/login")
       ? ""

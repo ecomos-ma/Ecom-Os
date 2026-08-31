@@ -206,6 +206,13 @@ export default function Team() {
   const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+
+  useEffect(() => {
+    if (!selectedMember) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [selectedMember]);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -690,15 +697,15 @@ export default function Team() {
       )}
 
       {selectedMember && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedMember(null)}>
+        <div className="app-modal-backdrop fixed inset-0 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setSelectedMember(null)} role="dialog" aria-modal="true" aria-label="Member profile">
           <div
-            className="h-full w-full max-w-[420px] bg-base-surface shadow-2xl border-l border-base-border overflow-y-auto"
+            className="h-dvh w-full max-w-[420px] overflow-y-auto overscroll-contain border-l border-base-border bg-base-surface pb-[env(safe-area-inset-bottom)] shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-base-surface/95 backdrop-blur-sm border-b border-base-border px-5 py-4 flex items-center justify-between">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-base-border bg-base-surface/95 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-sm">
               <span className="text-[14px] font-bold text-ink">Member Profile</span>
-              <button onClick={() => setSelectedMember(null)} className="rounded-lg p-1.5 text-ink-muted hover:text-ink hover:bg-base-raised"><X size={16} /></button>
+              <button onClick={() => setSelectedMember(null)} aria-label="Close member profile" className="grid h-11 w-11 place-items-center rounded-xl text-ink-muted hover:bg-base-raised hover:text-ink"><X size={16} /></button>
             </div>
 
             {/* Profile hero */}

@@ -618,8 +618,8 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
 
       {/* Custom Date Picker Dropdown - Rendered outside PageHeader */}
       {showDatePicker && (
-        <div className="fixed top-20 right-8 z-[9999] animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="bg-base-surface border border-base-border rounded-xl shadow-2xl p-4 min-w-[320px] backdrop-blur-sm">
+        <div className="fixed left-3 right-3 top-[calc(var(--mobile-topbar-height)+var(--safe-top)+.75rem)] z-[5000] animate-in fade-in slide-in-from-top-2 duration-200 md:left-auto md:right-8 md:top-20">
+          <div className="w-full rounded-xl border border-base-border bg-base-surface p-4 shadow-2xl backdrop-blur-sm md:min-w-[320px]">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-ink">Custom Date Range</h3>
               <button

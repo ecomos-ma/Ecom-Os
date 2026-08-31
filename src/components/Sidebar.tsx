@@ -4,6 +4,8 @@ import { getPrefetchHandler } from "../hooks/usePrefetch";
 import { useAuth } from "../hooks/useAuth";
 import { getUserInitials } from "../services/avatarService";
 import { isShippingModuleEnabled } from "../lib/shippingModule";
+import { isOwnerLikeRole } from "../lib/rbac";
+import type { TeamPermissions } from "../lib/types";
 import {
   LayoutDashboard,
   Package,
@@ -35,38 +37,38 @@ import { useI18n, type TranslationKey } from "../i18n";
 
 // ─── Nav Data ─────────────────────────────────────────────────────────────────
 
-type NavItem = { to: string; labelKey: TranslationKey; icon: LucideIcon };
+type NavItem = { to: string; labelKey: TranslationKey; icon: LucideIcon; permission?: keyof TeamPermissions };
 type NavGroup = { labelKey: TranslationKey; links: NavItem[] };
 
 const mainGroups: NavGroup[] = [
   {
     labelKey: "navigation.main",
     links: [
-      { to: "/dashboard", labelKey: "navigation.dashboard", icon: LayoutDashboard },
-      { to: "/orders", labelKey: "navigation.orders", icon: Package },
-      { to: "/confirmation", labelKey: "navigation.confirmation", icon: ClipboardCheck },
-      { to: "/delivering", labelKey: "navigation.delivering", icon: Truck },
-      { to: "/shipping", labelKey: "navigation.shipping", icon: Truck },
+      { to: "/dashboard", labelKey: "navigation.dashboard", icon: LayoutDashboard, permission: "dashboard" },
+      { to: "/orders", labelKey: "navigation.orders", icon: Package, permission: "orders" },
+      { to: "/confirmation", labelKey: "navigation.confirmation", icon: ClipboardCheck, permission: "confirmation" },
+      { to: "/delivering", labelKey: "navigation.delivering", icon: Truck, permission: "shipping" },
+      { to: "/shipping", labelKey: "navigation.shipping", icon: Truck, permission: "shipping" },
     ],
   },
   {
     labelKey: "navigation.management",
     links: [
-      { to: "/customers", labelKey: "navigation.customers", icon: Users },
-      { to: "/products-inventory", labelKey: "navigation.productsInventory", icon: Box },
-      { to: "/ads-manager", labelKey: "navigation.adsManager", icon: ChartBar },
-      { to: "/tiktok-ads", labelKey: "navigation.tiktokAds", icon: Music2 },
-      { to: "/expenses", labelKey: "navigation.expenses", icon: Wallet },
-      { to: "/finance", labelKey: "navigation.finance", icon: Wallet },
-      { to: "/cod-scenarios", labelKey: "navigation.codScenarios", icon: ClipboardCheck },
-      { to: "/team", labelKey: "navigation.team", icon: Users },
+      { to: "/customers", labelKey: "navigation.customers", icon: Users, permission: "customers" },
+      { to: "/products-inventory", labelKey: "navigation.productsInventory", icon: Box, permission: "products" },
+      { to: "/ads-manager", labelKey: "navigation.adsManager", icon: ChartBar, permission: "ads" },
+      { to: "/tiktok-ads", labelKey: "navigation.tiktokAds", icon: Music2, permission: "tiktok_ads" },
+      { to: "/expenses", labelKey: "navigation.expenses", icon: Wallet, permission: "expenses" },
+      { to: "/finance", labelKey: "navigation.finance", icon: Wallet, permission: "expenses" },
+      { to: "/cod-scenarios", labelKey: "navigation.codScenarios", icon: ClipboardCheck, permission: "codscenarios" },
+      { to: "/team", labelKey: "navigation.team", icon: Users, permission: "team" },
     ],
   },
   {
     labelKey: "navigation.system",
     links: [
-      { to: "/settings", labelKey: "navigation.settings", icon: SettingsIcon },
-      { to: "/tools", labelKey: "navigation.tools", icon: Wand2 },
+      { to: "/settings", labelKey: "navigation.settings", icon: SettingsIcon, permission: "settings" },
+      { to: "/tools", labelKey: "navigation.tools", icon: Wand2, permission: "settings" },
     ],
   },
 ];
@@ -313,11 +315,14 @@ function SidebarContent({
 }) {
   const { profile, session, signOut, subscriptionStatus, workspace, teamPermissions } = useAuth();
   const isAdmin = profile?.role === "founder" && session?.user?.email?.trim().toLowerCase() === "amineelaaouamecom@gmail.com";
+  const ownerLike = isOwnerLikeRole(profile?.role);
 
   // Filter mainGroups based on workspace settings and permissions
   const filteredMainGroups = mainGroups.map(group => ({
     ...group,
     links: group.links.filter(link => {
+      if (link.permission && !ownerLike && !teamPermissions[link.permission]) return false;
+      if ((link.to === "/delivering" || link.to === "/shipping") && !isShippingModuleEnabled(workspace)) return false;
       // Hide "Shipping" link if shipping module is disabled OR show_shipping_column is false
       if (link.to === "/shipping") {
         return isShippingModuleEnabled(workspace) && workspace?.show_shipping_column === true;
@@ -345,6 +350,7 @@ function SidebarContent({
             key={group.labelKey}
             group={group}
             collapsed={collapsed}
+            onNavigate={onNavigate}
           />
         ))}
 

@@ -4,7 +4,8 @@ import QRCode from "react-qr-code";
 import { ArrowRight, BadgeCheck, Building2, Check, ChevronDown, Copy, CreditCard, FileUp, Headphones, Landmark, Loader2, LockKeyhole, QrCode, ShieldCheck, Sparkles } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
-import { PRICING_PLANS, type BillingPeriod, type PlanTier } from "../config/pricing";
+import type { BillingPeriod, PlanTier } from "../config/pricing";
+import { fetchOfficialPlans, getPlanPrice, type PublicPlanRecord } from "../lib/planEngine";
 import { downloadPaymentReceiptPdf } from "../lib/paymentReceipt";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 
@@ -57,13 +58,13 @@ const previewMethod: PaymentMethod = {
 };
 
 const inputClass = "h-12 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10";
-const planTiers = Object.keys(PRICING_PLANS) as PlanTier[];
 
 export default function Payment() {
   const { session, loading, operationalAccess, subscriptionStatus } = useAuth();
   const navigate = useNavigate();
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "checkout";
   const [request, setRequest] = useState<PaymentRequest | null>(null);
+  const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
   const [checkout, setCheckout] = useState<CheckoutSettings>(checkoutDefaults);
   const [methods, setMethods] = useState<PaymentMethod[]>(previewMode ? [previewMethod] : []);
   const [selectedMethod, setSelectedMethod] = useState(previewMode ? previewMethod.slug : "");
@@ -82,6 +83,10 @@ export default function Payment() {
   const blockMessage = normalizedBlockReason === "order_limit_reached" ? "Your current plan reached its monthly order limit. Complete a new payment to regain access." : normalizedBlockReason === "subscription_expired" ? "Your subscription expired. Complete a new payment to reactivate access." : normalizedBlockReason === "grace_period" ? "Your subscription is in its grace period until payment is resolved." : normalizedBlockReason === "subscription_suspended" ? "Your subscription is suspended. Complete a payment to restore access." : "Your workspace will activate after the payment is verified.";
 
   useEffect(() => {
+    void fetchOfficialPlans().then((data) => setPlans(data)).catch(() => setPlans([]));
+  }, []);
+
+  useEffect(() => {
     if (previewMode) { setBusy(false); return; }
     if (!session?.user.id) return;
     let active = true;
@@ -97,14 +102,15 @@ export default function Payment() {
       setCheckout(loadedSettings);
       const loadedRequest = requestResult.data as PaymentRequest | null;
       setRequest(loadedRequest);
-      setSelectedPlan(loadedRequest?.requested_plan_id && loadedRequest.requested_plan_id in PRICING_PLANS ? loadedRequest.requested_plan_id as PlanTier : loadedSettings.default_plan);
+      const preferredPlan = loadedRequest?.requested_plan_id && plans.some((plan) => plan.id === loadedRequest.requested_plan_id || plan.code === loadedRequest.requested_plan_id) ? (plans.find((plan) => plan.id === loadedRequest.requested_plan_id || plan.code === loadedRequest.requested_plan_id)?.code ?? loadedSettings.default_plan) : loadedSettings.default_plan;
+      setSelectedPlan(preferredPlan as PlanTier);
       setBilling(loadedRequest?.billing_cycle ? (["annual", "yearly"].includes(loadedRequest.billing_cycle.toLowerCase()) ? "yearly" : "monthly") : loadedSettings.default_billing);
       const availableMethods = (methodsResult.data as PaymentMethod[]) || [];
       setMethods(availableMethods);
       setSelectedMethod(loadedRequest?.payment_method || availableMethods[0]?.slug || "");
     }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
-  }, [previewMode, session?.user.id]);
+  }, [plans, previewMode, session?.user.id]);
 
   if (loading) return <Screen><Loader2 className="h-7 w-7 animate-spin text-[#e73773]" /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
@@ -114,7 +120,7 @@ export default function Payment() {
   const requestStatus = String(request?.status || "").toLowerCase();
   if (request && ["submitted", "reviewing", "under_review", "pending_payment", "awaiting_review", "awaiting_verification"].includes(requestStatus)) return <Navigate to="/waiting-verification" replace />;
 
-  const selectedPlanData = PRICING_PLANS[selectedPlan];
+  const selectedPlanData = plans.find((plan) => plan.code === selectedPlan) ?? plans[0] ?? { code: selectedPlan, name: selectedPlan, description: "", monthlyPrice: 0, yearlyPrice: 0, currency: "MAD", billingEnabled: { monthly: true, annual: true }, isActive: true, isPublic: true, isInternal: false, isPopular: false, displayOrder: 100, badgeText: "", ctaText: "", limits: { ordersMonthly: 0, workspaces: 0, teamMembers: 0, integrations: 0 }, features: { mobileApp: false, whatsappAutomation: false, aiConfirmationAgent: false, sawtyOS: false, landingPageOS: false, premiumSupport: false } };
   const monthlyEquivalent = billing === "monthly" ? selectedPlanData.monthlyPrice : Math.round(selectedPlanData.yearlyPrice / 12);
   const totalAmount = billing === "monthly" ? selectedPlanData.monthlyPrice : selectedPlanData.yearlyPrice;
   const annualSavings = (selectedPlanData.monthlyPrice * 12) - selectedPlanData.yearlyPrice;
@@ -122,7 +128,7 @@ export default function Payment() {
   const paymentQrUrl = selectedMethodData?.qr_code_path ? paymentAssetUrl(selectedMethodData.qr_code_path) : "";
   const billedTo = String(session?.user.user_metadata?.full_name || session?.user.email || "Demo workspace");
   const workspaceCopy = selectedPlanData.limits.workspaces === "unlimited" ? "Unlimited workspaces" : `${selectedPlanData.limits.workspaces} workspace${selectedPlanData.limits.workspaces === 1 ? "" : "s"}`;
-  const unlocks = [`${selectedPlanData.limits.ordersMonthly.toLocaleString()} orders per month`, `${selectedPlanData.limits.teamMembers} team members`, workspaceCopy, selectedPlanData.features.whatsappAutomation ? "WhatsApp automation + premium support" : "Core order and delivery tools"];
+  const unlocks = [`${(selectedPlanData.limits.ordersMonthly ?? 0).toLocaleString()} orders per month`, `${selectedPlanData.limits.teamMembers} team members`, workspaceCopy, selectedPlanData.features.whatsappAutomation ? "WhatsApp automation + premium support" : "Core order and delivery tools"];
   const showBlockingMessage = operationalAccess === false && !!normalizedBlockReason && !["checking", "under_review", "active", "legacy_access_needs_plan_assignment", "workspace_missing", "missing_profile", "billing_unavailable", "unavailable"].includes(subscriptionStatus || "");
 
   const createRequest = async () => {
@@ -191,7 +197,7 @@ export default function Payment() {
         <h1 className="mt-4 max-w-xl text-[32px] font-black leading-[1.04] tracking-[-0.055em] text-slate-950 sm:text-[40px]">Activate your EcomOS workspace</h1>
         <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">{checkout.subheadline}</p>
         <div className="mt-8 flex items-center justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#c92561]">Choose your offer</p><h2 className="mt-1 text-lg font-black text-slate-950">A plan built for your volume</h2></div><span className="hidden rounded-full bg-white px-3 py-1.5 text-[10px] font-bold text-slate-500 shadow-sm ring-1 ring-slate-200 sm:inline">Prices in MAD</span></div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{planTiers.map((tier) => <PlanOption key={tier} tier={tier} active={selectedPlan === tier} onClick={() => setSelectedPlan(tier)} accent={checkout.accent_color} />)}</div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{plans.map((plan) => <PlanOption key={plan.code} plan={plan} active={selectedPlan === plan.code} onClick={() => setSelectedPlan(plan.code as PlanTier)} accent={checkout.accent_color} />)}</div>
         <div className="mt-5 space-y-3"><BillingChoice active={billing === "monthly"} onClick={() => setBilling("monthly")} title="Monthly plan" copy="Flexible billing. Change plans whenever your operation changes." price={selectedPlanData.monthlyPrice} suffix="/ month" accent={checkout.accent_color} /><BillingChoice active={billing === "yearly"} onClick={() => setBilling("yearly")} title="Annual plan" copy={`Pay yearly and keep ${annualSavings.toLocaleString()} MAD in your operation.`} price={Math.round(selectedPlanData.yearlyPrice / 12)} suffix="/ month" accent={checkout.accent_color} badge="Best value" /></div>
         <div className="mt-8 rounded-2xl border border-[#e73773]/10 bg-white/80 p-5 shadow-[0_18px_50px_rgba(92,28,57,0.06)] backdrop-blur"><div className="flex items-center justify-between"><h3 className="text-base font-black text-slate-950">What you’ll unlock</h3><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-700">Instant access</span></div><div className="mt-4 grid gap-2.5 sm:grid-cols-2">{unlocks.map((item) => <span key={item} className="flex items-center gap-2 text-xs font-bold text-slate-700"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#e73773]/10 text-[#d32b68]"><Check size={12} strokeWidth={3} /></span>{item}</span>)}</div></div>
         <div className="mt-auto flex flex-wrap items-center gap-x-5 gap-y-2 pt-8 text-[10px] font-semibold text-slate-400"><span className="flex items-center gap-1.5"><BadgeCheck size={13} className="text-emerald-500" />No hidden setup fees</span><span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-[#e73773]" />Secure verification</span></div>
@@ -222,9 +228,8 @@ export default function Payment() {
   </form></main></Screen>;
 }
 
-function PlanOption({ tier, active, onClick, accent }: { tier: PlanTier; active: boolean; onClick: () => void; accent: string }) {
-  const plan = PRICING_PLANS[tier];
-  return <button type="button" onClick={onClick} className={`relative min-h-[72px] rounded-xl border px-3 py-2.5 text-left transition ${active ? "bg-white shadow-[0_10px_24px_rgba(140,35,79,0.12)]" : "border-slate-200 bg-white/55 hover:bg-white"}`} style={active ? { borderColor: accent } : undefined}><span className="block text-xs font-black text-slate-950">{plan.name}</span><span className="mt-1 block text-[10px] font-bold text-slate-500">{plan.monthlyPrice.toLocaleString()} MAD</span>{tier === "growth" && <span className="absolute -top-2 end-2 rounded-full px-2 py-0.5 text-[7px] font-black uppercase tracking-wide text-white" style={{ backgroundColor: accent }}>Popular</span>}{active && <span className="absolute bottom-2.5 end-2.5 grid h-4 w-4 place-items-center rounded-full text-white" style={{ backgroundColor: accent }}><Check size={10} strokeWidth={3} /></span>}</button>;
+function PlanOption({ plan, active, onClick, accent }: { plan: PublicPlanRecord; active: boolean; onClick: () => void; accent: string }) {
+  return <button type="button" onClick={onClick} className={`relative min-h-[72px] rounded-xl border px-3 py-2.5 text-left transition ${active ? "bg-white shadow-[0_10px_24px_rgba(140,35,79,0.12)]" : "border-slate-200 bg-white/55 hover:bg-white"}`} style={active ? { borderColor: accent } : undefined}><span className="block text-xs font-black text-slate-950">{plan.name}</span><span className="mt-1 block text-[10px] font-bold text-slate-500">{plan.monthlyPrice.toLocaleString()} MAD</span>{plan.isPopular && <span className="absolute -top-2 end-2 rounded-full px-2 py-0.5 text-[7px] font-black uppercase tracking-wide text-white" style={{ backgroundColor: accent }}>Popular</span>}{active && <span className="absolute bottom-2.5 end-2.5 grid h-4 w-4 place-items-center rounded-full text-white" style={{ backgroundColor: accent }}><Check size={10} strokeWidth={3} /></span>}</button>;
 }
 
 function BillingChoice({ active, onClick, title, copy, price, suffix, accent, badge }: { active: boolean; onClick: () => void; title: string; copy: string; price: number; suffix: string; accent: string; badge?: string }) {

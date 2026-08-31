@@ -207,19 +207,31 @@ export type PlatformBillingSummary = {
 };
 
 export type OfficialPlan = {
-  code: "starter" | "growth" | "pro" | "scale";
+  id?: string;
+  code: string;
   name: string;
   description: string | null;
   monthly_price_mad: number;
   annual_price_mad: number;
-  order_limit: number;
-  order_period: "day" | "month";
+  order_limit: number | null;
+  order_period: "day" | "month" | string | null;
   workspace_limit: number | null;
-  team_member_limit: number;
+  team_member_limit: number | null;
   integration_limit: number | null;
   entitlements: Record<string, boolean>;
   is_popular: boolean;
+  is_active: boolean;
+  is_public: boolean;
+  is_official?: boolean;
   display_order: number;
+  badge_text?: string | null;
+  cta_text?: string | null;
+  monthly_billing_enabled?: boolean;
+  annual_billing_enabled?: boolean;
+  custom_limits?: Record<string, unknown> | null;
+  custom_benefits?: unknown[] | null;
+  metadata?: Record<string, unknown> | null;
+  archived_at?: string | null;
 };
 
 export type PlatformPaymentRequest = {

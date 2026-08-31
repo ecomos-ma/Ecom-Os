@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
-import { Plus, Search, RefreshCw, MessageCircle, Phone } from "lucide-react";
+import { Plus, Search, RefreshCw, MessageCircle, Phone, SlidersHorizontal } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { StatusBadge } from "../components/StatusBadge";
@@ -18,6 +18,8 @@ import { normalizeStatus as getInternalStatus } from "../utils/status";
 import { formatOzonAddress, initializeOzonCities } from "../services/ozonService";
 import { useGlobalOrders } from "../contexts/OrdersContext";
 import { isShippingModuleEnabled } from "../lib/shippingModule";
+import MobileBottomSheet from "../components/MobileBottomSheet";
+import { useLocation, useNavigate } from "react-router-dom";
 
 function WhatsAppBadge({ status }: { status: string }) {
   if (!status) return null;
@@ -189,14 +191,25 @@ export async function runGoogleSheetSync(
 }
 
 export default function Orders() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { workspace, refreshProfile } = useAuth();
   const { globalOrders: allOrders, loading, reloadGlobalOrders: reload } = useGlobalOrders();
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "youcan" | "sheets" | "manual">("all");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+
+  useEffect(() => {
+    const requestedOrderId = (location.state as { viewOrderId?: string } | null)?.viewOrderId;
+    if (!requestedOrderId || !allOrders.length) return;
+    const requestedOrder = allOrders.find((order) => order.id === requestedOrderId);
+    if (requestedOrder) setEditingOrder(requestedOrder);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [allOrders, location.pathname, location.state, navigate]);
 
   // Infinite Scroll state
   const [visibleCount, setVisibleCount] = useState(50);
@@ -281,10 +294,10 @@ export default function Orders() {
         title="Orders"
         subtitle="Full CRM for your COD orders — search, filter, edit, ship."
         action={
-          <div className="flex gap-2 items-center">
+          <div className="grid w-full grid-cols-2 items-center gap-2 md:flex md:w-auto">
             <button
               onClick={handleToggleAutoSync}
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-all ${autoSync
+              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-medium transition-all md:min-h-0 md:rounded-lg md:text-[13px] ${autoSync
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                 : "border-base-border bg-base-surface text-ink-muted hover:bg-base-raised hover:text-ink"
                 }`}
@@ -294,7 +307,7 @@ export default function Orders() {
             </button>
             <button
               onClick={() => setShowNew(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-accent px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-accentHover"
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand-accent px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-accentHover md:min-h-0 md:rounded-lg"
             >
               <Plus size={14} /> New order
             </button>
@@ -302,7 +315,7 @@ export default function Orders() {
         }
       />
 
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex items-center gap-2 md:gap-3">
         <div className="relative flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
           <input
@@ -317,20 +330,61 @@ export default function Orders() {
           onChange={(val) => setStatus(val)}
           includeAll={true}
           allLabel="All statuses"
-          className="rounded-lg border border-base-border bg-base-surface px-3 py-2 text-[13px] text-ink"
+          className="hidden rounded-lg border border-base-border bg-base-surface px-3 py-2 text-[13px] text-ink md:block"
         />
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as "all" | "youcan" | "sheets" | "manual")}
-          className="rounded-lg border border-base-border bg-base-surface px-3 py-2 text-[13px] text-ink"
+          className="hidden rounded-lg border border-base-border bg-base-surface px-3 py-2 text-[13px] text-ink md:block"
         >
           <option value="all">All sources</option>
           <option value="youcan">YouCan</option>
           <option value="sheets">Google Sheets</option>
           <option value="manual">Manual</option>
         </select>
-        <div className="text-[12.5px] text-ink-muted">{orders.filter(o => sourceFilter === "all" || o.source === sourceFilter).length} orders</div>
+        <button
+          type="button"
+          onClick={() => setMobileFiltersOpen(true)}
+          className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-base-border bg-base-surface text-ink-muted md:hidden"
+          aria-label="Open order filters"
+        >
+          <SlidersHorizontal size={18} />
+          {(status !== "all" || sourceFilter !== "all") && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-brand" />}
+        </button>
+        <div className="hidden text-[12.5px] text-ink-muted sm:block">{orders.length} orders</div>
       </div>
+
+      <MobileBottomSheet isOpen={mobileFiltersOpen} onClose={() => setMobileFiltersOpen(false)} title="Filter orders">
+        <div className="space-y-4">
+          <label className="block text-xs font-bold uppercase tracking-wide text-ink-faint">
+            Order status
+            <StatusSelect
+              value={status}
+              onChange={setStatus}
+              includeAll
+              allLabel="All statuses"
+              className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-raised px-3 text-base text-ink"
+            />
+          </label>
+          <label className="block text-xs font-bold uppercase tracking-wide text-ink-faint">
+            Source
+            <select
+              value={sourceFilter}
+              onChange={(event) => setSourceFilter(event.target.value as "all" | "youcan" | "sheets" | "manual")}
+              className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-raised px-3 text-base text-ink"
+            >
+              <option value="all">All sources</option>
+              <option value="youcan">YouCan</option>
+              <option value="sheets">Google Sheets</option>
+              <option value="manual">Manual</option>
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <button type="button" onClick={() => { setStatus("all"); setSourceFilter("all"); }} className="min-h-12 rounded-xl border border-base-border font-bold text-ink-muted">Reset</button>
+            <button type="button" onClick={() => setMobileFiltersOpen(false)} className="min-h-12 rounded-xl bg-brand font-bold text-white">Show {orders.length} orders</button>
+          </div>
+        </div>
+      </MobileBottomSheet>
 
       <div className="hidden md:block overflow-x-auto rounded-xl border border-base-border bg-base-surface shadow-card max-h-[100vh] lg:max-h-[calc(100vh-180px)] overflow-y-auto relative" ref={scrollContainerRef} onScroll={handleScroll}>
         <table className="w-full text-[13px]">

@@ -40,7 +40,7 @@ verify_jwt = false
 
 [functions.whatsapp-control]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 
 [functions.whatsapp-webhook]
 enabled = true
@@ -71,5 +71,9 @@ enabled = true
 verify_jwt = true
 
 [functions.platform-account-admin]
+enabled = true
+verify_jwt = true
+
+[functions.reset-workspace]
 enabled = true
 verify_jwt = true

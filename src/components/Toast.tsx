@@ -92,7 +92,7 @@ export function ToastContainer() {
     <div
       id="toast-container"
       aria-live="polite"
-      className="fixed bottom-5 right-5 left-5 md:left-auto z-[9999] flex flex-col gap-2 pointer-events-none"
+      className="app-toast-container fixed bottom-[calc(var(--mobile-nav-total)+.75rem)] right-3 left-3 md:bottom-5 md:right-5 md:left-auto flex flex-col gap-2 pointer-events-none"
     >
       {toasts.map((t) => {
         const { wrapper, icon } = KIND_STYLES[t.kind];
