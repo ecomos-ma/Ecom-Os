@@ -222,7 +222,14 @@ create trigger whatsapp_prepare_address_flow_queue
 before insert on public.whatsapp_queue
 for each row execute function public.prepare_whatsapp_address_flow_queue();
 
-create or replace function public.process_whatsapp_inbound(
+-- Drop ALL old versions of process_whatsapp_inbound to avoid signature conflicts
+drop function if exists public.process_whatsapp_inbound(uuid, text, text, text, text) cascade;
+drop function if exists public.process_whatsapp_inbound(uuid, text, text, text, text, text) cascade;
+drop function if exists public.process_whatsapp_inbound(uuid, text, text, text, text, text, timestamptz) cascade;
+drop function if exists public.process_whatsapp_inbound(uuid, text, text, text, text, text, timestamptz, jsonb) cascade;
+drop function if exists public.process_whatsapp_inbound(uuid, text, text, text, text, text, timestamptz, jsonb, text) cascade;
+
+create function public.process_whatsapp_inbound(
   p_workspace_id uuid,
   p_provider_event_id text,
   p_remote_jid text,
