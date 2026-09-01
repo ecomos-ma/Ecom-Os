@@ -20,6 +20,11 @@ function retryDelay(settings, attempts) {
   return backoff + Math.floor(Math.random() * Math.max(1, Math.floor(backoff * 0.2)));
 }
 
+function normalizeStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return ({ nouveau: "new", en_attente: "pending", ramasse: "picked_up", livre: "delivered", injoignable: "customer_unreachable", ne_repond_pas: "no_answer", retourne: "returned", annule: "cancelled" })[normalized] || normalized;
+}
+
 export class QueueProcessor {
   constructor({ repository, sessionManager, config, logger }) {
     this.repository = repository;
@@ -69,7 +74,7 @@ export class QueueProcessor {
         workspaceId: workspace.workspace_id,
         workerId: this.config.workerId,
         workerVersion: this.config.version,
-        status: state.connection_status === "initializing" ? "starting" : state.connection_status,
+        status: state.connection_status,
         queueDepth: depth,
         lastError: state.lastError,
         metadata: {
@@ -150,6 +155,28 @@ export class QueueProcessor {
     const { settings, order, workspace, rule } = context;
     if (!settings || !order) {
       await this.#markRetry(job, settings || {}, new WorkerError(ErrorCode.QUEUE_CONTEXT_MISSING, "Order or WhatsApp settings are missing"), true);
+      return;
+    }
+    const expectedStatus = normalizeStatus(initialPayload.status);
+    const statusSource = String(initialPayload.status_source || rule?.status_source || "");
+    if (expectedStatus && statusSource && normalizeStatus(order[statusSource]) !== expectedStatus) {
+      await this.repository.updateJob(job.id, job.workspace_id, {
+        status: "cancelled",
+        processing_at: null,
+        next_retry_at: null,
+        last_error: "Order status changed before the delayed WhatsApp automation was sent",
+        error_code: "STALE_STATUS_AUTOMATION",
+        error_class: "stale",
+        locked_by: null,
+      });
+      await this.repository.logEvent({
+        workspace_id: job.workspace_id,
+        order_id: job.order_id,
+        event_type: "stale_automation_cancelled",
+        severity: "info",
+        message: "Delayed WhatsApp automation cancelled because the order status changed",
+        metadata: { job_id: job.id, status_source: statusSource, expected_status: expectedStatus, current_status: normalizeStatus(order[statusSource]) },
+      }).catch(() => {});
       return;
     }
     if (!settings.enabled) {

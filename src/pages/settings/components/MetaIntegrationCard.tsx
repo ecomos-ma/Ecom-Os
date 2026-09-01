@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CheckCircle2, MoreHorizontal, X, Loader2, Eye, EyeOff, Zap } from "lucide-react";
 import { getIntegrationLogo } from "../../../lib/integrationLogos";
 import { useAuth } from "../../../hooks/useAuth";
 import { supabase } from "../../../lib/supabase";
 
-function MetaIntegrationCard() {
+function MetaIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [token, setToken] = useState(workspace?.meta_access_token ?? "");
   const [adId, setAdId] = useState(workspace?.meta_ad_account_id ?? "");
@@ -13,6 +13,11 @@ function MetaIntegrationCard() {
   const [showToken, setShowToken] = useState(false);
 
   const connected = !!workspace?.meta_access_token && !!workspace?.meta_ad_account_id;
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(connected);
+  }, [connected, onConnectionChange]);
 
   const handleSave = async () => {
     if (!workspace) return;

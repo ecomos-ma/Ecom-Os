@@ -14,18 +14,33 @@ type SyncResult = {
   errors?: string[];
 };
 
-function YouCanIntegrationCard() {
+function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [connecting, setConnecting] = useState(false);
+  const [canonicalConnected, setCanonicalConnected] = useState<boolean | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Webhook registration state
   const [registeringWebhook, setRegisteringWebhook] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setCanonicalConnected(null);
+    if (!workspace?.id) return () => { cancelled = true; };
+    void supabase.rpc("get_store_integration_status_v1", {
+      p_workspace_id: workspace.id,
+      p_provider: "youcan",
+    }).then(({ data, error }) => {
+      if (!cancelled) setCanonicalConnected(error ? false : Boolean(data?.connected));
+    });
+    return () => { cancelled = true; };
+  }, [workspace?.id]);
+
+  useEffect(() => {
     const youcanStatus = searchParams.get("youcan");
     if (youcanStatus === "success") {
       toast.success("YouCan connecté avec succès !");
+      void refreshProfile();
       // Remove query params to prevent toast on refresh
       searchParams.delete("youcan");
       setSearchParams(searchParams, { replace: true });
@@ -36,7 +51,7 @@ function YouCanIntegrationCard() {
       searchParams.delete("details");
       setSearchParams(searchParams, { replace: true });
     }
-  }, [searchParams, setSearchParams]);
+  }, [refreshProfile, searchParams, setSearchParams]);
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -117,16 +132,13 @@ function YouCanIntegrationCard() {
     if (!confirm("Voulez-vous vraiment déconnecter YouCan ?")) return;
 
     try {
-      const { error } = await supabase
-        .from("workspaces")
-        .update({
-          youcan_access_token: null,
-          youcan_refresh_token: null,
-          youcan_token_expires_at: null,
-        })
-        .eq("id", workspace?.id);
-
+      if (!workspace?.id) return;
+      const { data, error } = await supabase.functions.invoke("youcan-disconnect", {
+        body: { workspace_id: workspace.id },
+      });
       if (error) throw error;
+      if (!data?.success) throw new Error("YouCan could not be disconnected");
+      setCanonicalConnected(false);
       await refreshProfile();
       setSyncResult(null);
       setSyncError(null);
@@ -136,8 +148,13 @@ function YouCanIntegrationCard() {
     }
   };
 
-  const isConnected = !!workspace?.youcan_access_token;
+  const isConnected = canonicalConnected ?? !!workspace?.youcan_access_token;
   const [manageOpen, setManageOpen] = useState(false);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(isConnected);
+  }, [isConnected, onConnectionChange]);
 
   return (
     <>

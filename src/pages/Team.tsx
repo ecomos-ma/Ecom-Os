@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useTeamData, type TeamMember } from "../hooks/useTeamData";
 import { ALL_ALLOWED_SECTIONS, normalizeAllowedSections, ROLE_LABELS, ROLE_OPTIONS } from "../lib/rbac";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
 import { Modal } from "../components/Modal";
 import { toast } from "../components/Toast";
 import type { WorkspaceInvitation, TeamRole } from "../lib/types";
@@ -437,6 +438,30 @@ export default function Team() {
                 <div key={i} className="h-48 rounded-2xl bg-base-raised animate-pulse" />
               ))}
             </div>
+          ) : members.length <= 1 ? (
+            <div className="py-16 md:py-24">
+              <EmptyState 
+                title="Working solo" 
+                description="Invite team members to assign orders, share workload, and track performance." 
+                primaryAction={
+                  isAdmin ? (
+                    <button onClick={() => setShowInviteModal(true)} className="flex items-center gap-1.5 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-medium text-white hover:bg-brand/90">
+                      <UserPlus size={14} /> Invite Member
+                    </button>
+                  ) : undefined
+                }
+              />
+            </div>
+          ) : filteredMembers.length === 0 ? (
+            <div className="py-16 md:py-24">
+              <EmptyState 
+                title="No members found" 
+                description="Try adjusting your search to find team members." 
+                primaryAction={
+                  <button onClick={() => setSearch("")} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Search</button>
+                }
+              />
+            </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filteredMembers.map(m => (
@@ -523,7 +548,7 @@ export default function Team() {
               </div>
               <div className="max-h-[400px] overflow-y-auto divide-y divide-base-border/50">
                 {unassignedOrders.length === 0 ? (
-                  <div className="py-10 text-center text-ink-muted text-[13px]">No unassigned orders 🎉</div>
+                  <div className="py-12"><EmptyState title="No unassigned orders 🎉" description="All confirmed orders are currently assigned to agents." compact /></div>
                 ) : unassignedOrders.map(order => (
                   <div key={order.id} className="flex items-center justify-between px-4 py-3">
                     <div>
@@ -641,9 +666,8 @@ export default function Team() {
             <span className="text-[12px] text-ink-muted ml-auto">Last 200 events</span>
           </div>
           {activityLog.length === 0 ? (
-            <div className="py-16 text-center text-ink-muted text-[13px]">
-              <Activity size={36} className="mx-auto mb-3 opacity-20" />
-              Activity logs will appear here as members interact with the platform.
+            <div className="py-16">
+              <EmptyState title="No activity yet" description="Activity logs will appear here as members interact with the platform." />
             </div>
           ) : (
             <div className="divide-y divide-base-border/50 max-h-[600px] overflow-y-auto">

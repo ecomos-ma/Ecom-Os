@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, KeyRound, Loader2, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Loader2, Pencil, PlayCircle, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 
 type ProviderKind = "gemini" | "removebg" | "tiktok";
@@ -11,6 +11,10 @@ type Provider = {
   priority: number;
   enabled: boolean;
   failure_count: number;
+  credential_last4: string | null;
+  health_status: "unknown" | "healthy" | "cooldown" | "unhealthy";
+  last_error: string | null;
+  cooldown_until: string | null;
   last_used_at: string | null;
   last_success_at: string | null;
 };
@@ -32,6 +36,7 @@ export default function ToolsApiProviders() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [testingId, setTestingId] = useState("");
   const [message, setMessage] = useState("");
 
   const invoke = async (body: Record<string, unknown>) => {
@@ -94,6 +99,21 @@ export default function ToolsApiProviders() {
     }
   };
 
+  const testConnection = async (provider: Provider) => {
+    setTestingId(provider.id);
+    setMessage("");
+    try {
+      await invoke({ action: "test", id: provider.id });
+      setMessage(`${provider.name} connected successfully.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Provider connection failed.");
+      await load();
+    } finally {
+      setTestingId("");
+    }
+  };
+
   const kindLabel: Record<ProviderKind, string> = { gemini: "Gemini AI", removebg: "remove.bg", tiktok: "TikTok resolver" };
 
   return (
@@ -113,8 +133,8 @@ export default function ToolsApiProviders() {
         <div className="space-y-3">
           <div className="flex items-center justify-between"><h2 className="font-semibold text-white">Configured providers</h2><span className="text-sm text-slate-400">{providers.length} total</span></div>
           {loading ? <div className="flex h-36 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900"><Loader2 className="animate-spin text-fuchsia-300" /></div> : providers.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-8 text-center text-sm text-slate-400">No providers yet. Add a Gemini and/or remove.bg key to activate the matching tool for every user.</div> : providers.map((provider) => <article key={provider.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><h3 className="font-semibold text-white">{provider.name}</h3><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${provider.enabled ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>{provider.enabled ? "Active" : "Disabled"}</span></div><p className="mt-1 text-sm text-slate-400">{kindLabel[provider.provider]} · priority {provider.priority} · {provider.endpoint || defaults[provider.provider]}</p></div><div className="flex gap-2"><button onClick={() => edit(provider)} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-fuchsia-400 hover:text-fuchsia-200" title="Edit provider"><Pencil size={16} /></button><button onClick={() => void remove(provider)} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-red-400 hover:text-red-300" title="Remove provider"><Trash2 size={16} /></button></div></div>
-            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-500"><span>Failures: {provider.failure_count}</span><span>Last used: {provider.last_used_at ? new Date(provider.last_used_at).toLocaleString() : "Never"}</span><span>Last success: {provider.last_success_at ? new Date(provider.last_success_at).toLocaleString() : "Never"}</span></div>
+            <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-white">{provider.name}</h3><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${provider.enabled ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>{provider.enabled ? "Active" : "Disabled"}</span><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${provider.health_status === "healthy" ? "bg-emerald-500/15 text-emerald-300" : provider.health_status === "unhealthy" ? "bg-red-500/15 text-red-300" : provider.health_status === "cooldown" ? "bg-amber-500/15 text-amber-300" : "bg-slate-700 text-slate-300"}`}>{provider.health_status || "unknown"}</span></div><p className="mt-1 text-sm text-slate-400">{kindLabel[provider.provider]} · key ••••{provider.credential_last4 || "—"} · priority {provider.priority}</p><p className="mt-1 max-w-xl truncate text-xs text-slate-500">{provider.endpoint || defaults[provider.provider]}</p></div><div className="flex gap-2">{provider.provider === "gemini" && <button onClick={() => void testConnection(provider)} disabled={testingId === provider.id} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-2 text-xs text-slate-300 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-50" title="Test connection">{testingId === provider.id ? <Loader2 size={15} className="animate-spin" /> : <PlayCircle size={15} />} Test</button>}<button onClick={() => edit(provider)} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-fuchsia-400 hover:text-fuchsia-200" title="Edit provider"><Pencil size={16} /></button><button onClick={() => void remove(provider)} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-red-400 hover:text-red-300" title="Remove provider"><Trash2 size={16} /></button></div></div>
+            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-500"><span>Failures: {provider.failure_count}</span><span>Last used: {provider.last_used_at ? new Date(provider.last_used_at).toLocaleString() : "Never"}</span><span>Last success: {provider.last_success_at ? new Date(provider.last_success_at).toLocaleString() : "Never"}</span>{provider.cooldown_until && <span>Cooldown until: {new Date(provider.cooldown_until).toLocaleString()}</span>}</div>{provider.last_error && <p className="mt-3 rounded-lg bg-red-500/10 p-2 text-xs text-red-200">{provider.last_error}</p>}
           </article>)}</div>
 
         <form onSubmit={save} className="h-fit rounded-2xl border border-slate-800 bg-slate-900 p-5">

@@ -22,6 +22,8 @@ const AccessDenied = lazy(() => import("./pages/AccessDenied"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const Contact = lazy(() => import("./pages/public/Contact"));
 import { OrdersProvider } from "./contexts/OrdersContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 const EcomOSLanding = lazy(() => import("./pages/LandingV3"));
@@ -121,6 +123,8 @@ export default function App() {
               <Route path="/404" element={<LoadablePage><NotFound /></LoadablePage>} />
               <Route path="/privacy" element={<LoadablePage><Privacy /></LoadablePage>} />
               <Route path="/terms" element={<LoadablePage><Terms /></LoadablePage>} />
+              <Route path="/refund-policy" element={<LoadablePage><RefundPolicy /></LoadablePage>} />
+              <Route path="/contact" element={<LoadablePage><Contact /></LoadablePage>} />
               <Route path="/landing-page/:id" element={<LoadablePage><PublicLandingPage /></LoadablePage>} />
               <Route path="/invite" element={<LoadablePage><Invite /></LoadablePage>} />
 
@@ -155,6 +159,7 @@ export default function App() {
                 <Route path="/cod-scenarios" element={<Navigate to="/scenario" replace />} />
                 <Route path="/team" element={<LoadablePage><PermissionGuard permission="team"><Team /></PermissionGuard></LoadablePage>} />
                 <Route path="/settings" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
+                <Route path="/settings/billing" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
                 <Route path="/notifications" element={<LoadablePage><Notifications /></LoadablePage>} />
                 <Route path="/settings/notifications" element={<LoadablePage><NotificationPreferences /></LoadablePage>} />
                 <Route path="/tools" element={<LoadablePage><Amine /></LoadablePage>} />

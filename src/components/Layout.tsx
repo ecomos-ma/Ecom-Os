@@ -15,6 +15,7 @@ import { supabase } from "../lib/supabase";
 import { RefreshCw } from "lucide-react";
 import { MobileAppChrome } from "./MobileAppChrome";
 import { InventoryQRScanner } from "./inventory/InventoryQRScanner";
+import { OfflineBanner } from "./ErrorStates";
 
 function PullToRefresh({ children }: { children: React.ReactNode }) {
   const [pullProgress, setPullProgress] = useState(0);
@@ -93,6 +94,13 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
 }
 
 export function Layout() {
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    window.addEventListener("online", online); window.addEventListener("offline", offline);
+    return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); };
+  }, []);
   const navigate = useNavigate();
   const [scannerOpen, setScannerOpen] = useState(false);
   // Global haptic feedback
@@ -264,6 +272,7 @@ export function Layout() {
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-surface">
         <DemoBanner />
+        <OfflineBanner online={isOnline} />
         <ActivityTracker />
         <div className="hidden md:block"><EnhancedHeader /></div>
         <MobileAppChrome onScan={() => setScannerOpen(true)} />

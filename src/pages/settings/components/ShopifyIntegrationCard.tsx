@@ -7,7 +7,7 @@ import { toast } from "../../../components/Toast";
 import { shopifyAuthorizeUrl } from "../../../lib/oauth";
 import { useSearchParams } from "react-router-dom";
 
-function ShopifyIntegrationCard() {
+function ShopifyIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [connecting, setConnecting] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -82,7 +82,12 @@ function ShopifyIntegrationCard() {
   };
 
   // It's connected if shopify_enabled is true and we have an access token
-  const isConnected = workspace?.shopify_enabled && workspace?.shopify_access_token;
+  const isConnected = Boolean(workspace?.shopify_enabled && workspace?.shopify_access_token);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(isConnected);
+  }, [isConnected, onConnectionChange]);
 
   return (
     <>

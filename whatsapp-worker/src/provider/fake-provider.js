@@ -13,8 +13,8 @@ export class FakeWhatsAppProvider extends WhatsAppProvider {
   }
 
   async connect() {
-    this.state = "initializing";
-    this.emit("initializing", {});
+    this.state = "starting";
+    this.emit("starting", {});
     queueMicrotask(() => {
       if (this.autoReady) this.emitReady();
       else this.emitQr(`fake-qr-${this.workspaceId}`);
@@ -23,8 +23,8 @@ export class FakeWhatsAppProvider extends WhatsAppProvider {
   }
 
   emitQr(qr = "fake-qr") {
-    this.state = "qr_required";
-    this.emit("qr", { qr });
+    this.state = "qr_ready";
+    this.emit("qr", { qr, generatedAt: new Date().toISOString() });
   }
 
   emitAuthenticated() {

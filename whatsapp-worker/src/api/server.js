@@ -2,7 +2,7 @@ import express from "express";
 import { corsMiddleware, controlAuthMiddleware, errorMiddleware } from "./middleware.js";
 import { createRoutes } from "./routes.js";
 
-export function createApiServer({ config, sessionManager, repository, logger }) {
+export function createApiServer({ config, sessionManager, repository, aiProcessor, logger }) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "256kb" }));
@@ -20,7 +20,7 @@ export function createApiServer({ config, sessionManager, repository, logger }) 
   });
 
   app.use(controlAuthMiddleware(config));
-  app.use(createRoutes({ sessionManager, repository, logger }));
+  app.use(createRoutes({ sessionManager, repository, aiProcessor, logger }));
   app.use((_req, res) => res.status(404).json({ ok: false, error: "Route not found", code: "NOT_FOUND" }));
   app.use(errorMiddleware(logger));
   return app;

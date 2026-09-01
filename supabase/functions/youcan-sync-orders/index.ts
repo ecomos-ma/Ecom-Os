@@ -1,11 +1,16 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import {
+  assertOnlyKeys,
+  authenticate,
+  authorizeOperationalWorkspace,
+  corsHeaders,
+  errorResponse,
+  HttpError,
+  json,
+  requireUuid,
+  serviceClient,
+} from "../_shared/security.ts";
 
 // ---------------------------------------------------------------------------
 // Token refresh helper
@@ -184,65 +189,64 @@ function mapYouCanOrder(order: any, workspaceId: string): Record<string, any> {
 // Main handler
 // ---------------------------------------------------------------------------
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(req) });
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json(req, { error: "Method not allowed" }, 405);
   }
 
   try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = serviceClient();
+    const user = await authenticate(req, supabase);
+    const body = await req.json() as Record<string, unknown>;
+    assertOnlyKeys(body, ["workspace_id"]);
+    const workspace_id = requireUuid(body.workspace_id, "workspace_id");
+    await authorizeOperationalWorkspace(supabase, user.id, workspace_id);
 
-    const { workspace_id } = await req.json();
-    if (!workspace_id) throw new Error("workspace_id is required");
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-    // ── 1. Load workspace tokens (stored by youcan-oauth-callback in workspaces table) ──
-    const { data: workspace, error: wsError } = await supabase
-      .from("workspaces")
-      .select(
-        "youcan_access_token, youcan_refresh_token, youcan_token_expires_at"
-      )
-      .eq("id", workspace_id)
-      .single();
-
-    if (wsError || !workspace) throw new Error("Workspace not found");
-    if (!workspace.youcan_access_token) {
-      throw new Error("YouCan not connected. Please complete OAuth flow in Settings → Integrations.");
+    // The canonical integration row is the only import authority.
+    const { data: integration, error: integrationError } = await supabase
+      .from("integrations")
+      .select("id, access_token, refresh_token, expires_at, status")
+      .eq("workspace_id", workspace_id)
+      .eq("provider", "youcan")
+      .maybeSingle();
+    if (integrationError) throw new HttpError("YouCan connection could not be verified", 503);
+    if (!integration || integration.status !== "active" || !integration.access_token) {
+      throw new HttpError("YouCan is disconnected", 409);
     }
 
     // ── 2. Refresh token if expired ──
-    let accessToken: string = workspace.youcan_access_token;
+    let accessToken: string = integration.access_token;
 
-    if (workspace.youcan_token_expires_at) {
-      const expiresAt = new Date(workspace.youcan_token_expires_at);
+    if (integration.expires_at) {
+      const expiresAt = new Date(integration.expires_at);
       // Refresh 5 minutes before expiry to avoid race conditions
       if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
         const YOUCAN_CLIENT_ID = Deno.env.get("YOUCAN_CLIENT_ID");
         const YOUCAN_CLIENT_SECRET = Deno.env.get("YOUCAN_CLIENT_SECRET");
         
-        if (!workspace.youcan_refresh_token || !YOUCAN_CLIENT_ID || !YOUCAN_CLIENT_SECRET) {
-          throw new Error("Cannot refresh token — missing refresh_token or global client credentials.");
+        if (!integration.refresh_token || !YOUCAN_CLIENT_ID || !YOUCAN_CLIENT_SECRET) {
+          await supabase.from("integrations").update({ status: "auth_expired" }).eq("id", integration.id);
+          throw new HttpError("YouCan authentication expired. Reconnect the store.", 409);
         }
         const newTokens = await refreshYouCanToken(
-          workspace.youcan_refresh_token,
+          integration.refresh_token,
           YOUCAN_CLIENT_ID,
           YOUCAN_CLIENT_SECRET
         );
         accessToken = newTokens.access_token;
-        await supabase
-          .from("workspaces")
-          .update({
+        const refreshedExpiry = new Date(Date.now() + newTokens.expires_in * 1000).toISOString();
+        await Promise.all([
+          supabase.from("integrations").update({
+            access_token: newTokens.access_token, refresh_token: newTokens.refresh_token,
+            expires_at: refreshedExpiry, status: "active",
+          }).eq("id", integration.id).eq("status", "active"),
+          supabase.from("workspaces").update({
             youcan_access_token: newTokens.access_token,
             youcan_refresh_token: newTokens.refresh_token,
-            youcan_token_expires_at: new Date(Date.now() + newTokens.expires_in * 1000).toISOString(),
-          })
-          .eq("id", workspace_id);
+            youcan_token_expires_at: refreshedExpiry,
+          }).eq("id", workspace_id),
+        ]);
       }
     }
 
@@ -334,6 +338,8 @@ serve(async (req) => {
         // Build order payload
         const orderPayload: Record<string, any> = {
           workspace_id,
+          source_integration_id: integration.id,
+          external_order_id: String(mapped.youcan_order_id),
           youcan_order_id: mapped.youcan_order_id,
           order_number: mapped.order_number,
           phone: mapped.phone,
@@ -357,24 +363,24 @@ serve(async (req) => {
         };
         if (customerId) orderPayload.customer_id = customerId;
 
-        // Upsert on (workspace_id, youcan_order_id)
+        // The database trigger rejects this write if disconnect won the race.
         const { error: upsertError } = await supabase
           .from("orders")
           .upsert(orderPayload, {
-            onConflict: "workspace_id,youcan_order_id",
+            onConflict: "workspace_id,source_integration_id,external_order_id",
             ignoreDuplicates: false,
           });
 
         if (upsertError) {
           console.error(`[YouCan Sync] Upsert error for order ${order.id}:`, upsertError);
-          errors.push(`Order ${order.reference || order.id}: ${upsertError.message}`);
+          errors.push(`Order ${order.reference || order.id}: not imported`);
           skippedCount++;
         } else {
           syncedCount++;
         }
       } catch (orderErr: any) {
         console.error(`[YouCan Sync] Processing error for order ${order.id}:`, orderErr);
-        errors.push(`Order ${order.reference || order.id}: ${orderErr.message}`);
+        errors.push(`Order ${order.reference || order.id}: not imported`);
         skippedCount++;
       }
     }
@@ -389,14 +395,9 @@ serve(async (req) => {
 
     console.log(`[YouCan Sync] Done:`, result);
 
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json(req, result);
   } catch (err: any) {
-    console.error("[YouCan Sync] Fatal error:", err);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[YouCan Sync] Fatal error:", err instanceof HttpError ? err.message : "internal_error");
+    return errorResponse(req, err);
   }
 });

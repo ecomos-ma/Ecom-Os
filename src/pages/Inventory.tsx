@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, Package, Truck, PackageCheck, AlertTriangle, BarChart3 } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
 import { supabase } from "../lib/supabase";
 import type { Product } from "../lib/types";
 import { useAuth } from "../hooks/useAuth";
@@ -267,7 +268,24 @@ export default function Inventory() {
         }
       />
 
-      <div className="grid grid-cols-2 max-md:grid-cols-2 md:grid-cols-4 gap-3 max-md:gap-4">
+      {!loading && stocks.length === 0 ? (
+        <div className="py-12 md:py-24">
+          <EmptyState
+            title="Your inventory is empty"
+            description="Add your products to manage your inventory."
+            primaryAction={
+              <button 
+                onClick={() => window.location.href = '/products'} 
+                className="flex items-center gap-1.5 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-medium text-white hover:bg-brand/90"
+              >
+                <Package size={14} /> Add Products
+              </button>
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 max-md:grid-cols-2 md:grid-cols-4 gap-3 max-md:gap-4">
         <div className="max-md:col-span-2">
           <SummaryCard
             icon={<Package size={16} className="text-blue-400" />}
@@ -321,14 +339,6 @@ export default function Inventory() {
                 <td colSpan={8} className="px-4 py-12 text-center text-ink-muted">
                   <RefreshCw size={20} className="animate-spin mx-auto mb-2 opacity-40" />
                   Calculating…
-                </td>
-              </tr>
-            ) : stocks.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-14 text-center text-ink-muted">
-                  <Package size={28} className="mx-auto mb-3 opacity-25" />
-                  <div className="text-[13px] font-medium text-ink mb-1">No products found</div>
-                  <div className="text-[12px]">Add products from the Products page.</div>
                 </td>
               </tr>
             ) : (
@@ -465,11 +475,6 @@ export default function Inventory() {
               <div className="h-2 w-full bg-base-raised rounded-full" />
             </div>
           ))
-        ) : stocks.length === 0 ? (
-          <div className="py-14 text-center text-ink-muted">
-            <Package size={32} className="mx-auto mb-3 opacity-25" />
-            <div className="text-[15px] font-semibold text-ink mb-1">No products found</div>
-          </div>
         ) : (
           stocks.map(({ product: p, initialStock, outForDelivery, delivered, returnedCancelled, remaining, isTemporary }) => {
             const pct = initialStock > 0 ? (remaining / initialStock) * 100 : 0;
@@ -554,6 +559,8 @@ export default function Inventory() {
           })
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

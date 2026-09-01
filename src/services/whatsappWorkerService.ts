@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 
-export type WhatsAppWorkerAction = "connect" | "disconnect" | "status" | "test" | "reconnect" | "logout" | "send";
+export type WhatsAppWorkerAction = "connect" | "disconnect" | "status" | "test" | "reconnect" | "logout" | "send" | "ai_test";
 
 type WorkerRequest = {
   action: WhatsAppWorkerAction;
@@ -11,8 +11,9 @@ type WorkerRequest = {
 
 const VALID_WHATSAPP_STATUS = new Set([
   "disconnected",
-  "initializing",
-  "qr_required",
+  "starting",
+  "qr_ready",
+  "connecting",
   "authenticated",
   "ready",
   "reconnecting",
@@ -87,14 +88,16 @@ export function normalizeWhatsAppStatus(value: unknown, fallback?: string): stri
   const mapped: Record<string, string> = {
     connected: "ready",
     ready: "ready",
-    qr_ready: "qr_required",
-    waiting_for_qr: "qr_required",
-    qr_required: "qr_required",
-    qrrequired: "qr_required",
+    qr_ready: "qr_ready",
+    waiting_for_qr: "qr_ready",
+    qr_required: "qr_ready",
+    qrrequired: "qr_ready",
     authenticated: "authenticated",
     auth_failure: "error",
     authfailed: "error",
-    initializing: "initializing",
+    initializing: "starting",
+    starting: "starting",
+    connecting: "connecting",
     reconnecting: "reconnecting",
     disconnected: "disconnected",
     error: "error",
@@ -116,6 +119,7 @@ async function callLocalWorker(action: WhatsAppWorkerAction, workspaceId: string
     reconnect: `/sessions/${workspaceId}/reconnect`,
     logout: `/sessions/${workspaceId}/logout`,
     send: `/sessions/${workspaceId}/send`,
+    ai_test: `/sessions/${workspaceId}/ai/test`,
   };
 
   const url = `${LOCAL_WORKER_URL}${endpoints[action]}`;

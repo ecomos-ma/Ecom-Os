@@ -94,6 +94,25 @@ export async function authorizeWorkspace(
   return { role };
 }
 
+export async function authorizeOperationalWorkspace(
+  client: SupabaseClient,
+  userId: string,
+  workspaceId: string,
+  allowedRoles: string[] = ["owner", "admin", "manager"],
+): Promise<{ role: string }> {
+  const authorization = await authorizeWorkspace(client, userId, workspaceId, allowedRoles);
+  const { data, error } = await client.rpc("resolve_workspace_access_v1", {
+    p_user_id: userId,
+    p_workspace_id: workspaceId,
+  });
+  if (error) throw new HttpError("Workspace subscription could not be verified", 503);
+  if (!data?.allowed) {
+    const reason = String(data?.reason ?? "subscription_access_denied");
+    throw new HttpError(`Workspace operational access denied: ${reason}`, 403);
+  }
+  return authorization;
+}
+
 export function assertOnlyKeys(body: Record<string, unknown>, allowed: string[]): void {
   if (Object.keys(body).some((key) => !allowed.includes(key))) {
     throw new HttpError("Request contains unsupported fields", 400);

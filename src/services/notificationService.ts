@@ -46,6 +46,7 @@ function cleanSearch(value: string): string {
 }
 
 export async function listNotifications(workspaceId: string, filters: NotificationFilters = {}): Promise<NotificationPage> {
+  console.log("[notificationService] listNotifications called with:", { workspaceId, filters });
   const limit = Math.min(Math.max(filters.limit ?? 30, 1), 100);
   let query = supabase.from("notifications").select("id, workspace_id, recipient_user_id, event_key, category, priority, title, message, related_entity_type, related_entity_id, action_url, payload, occurrence_count, is_read, read_at, is_archived, archived_at, expires_at, created_at, updated_at, sound_requested")
     .eq("workspace_id", workspaceId).eq("in_app_visible", true).eq("is_archived", false)
@@ -58,8 +59,21 @@ export async function listNotifications(workspaceId: string, filters: Notificati
   if (filters.cursor) query = query.or(`created_at.lt.${filters.cursor.createdAt},and(created_at.eq.${filters.cursor.createdAt},id.lt.${filters.cursor.id})`);
   const search = cleanSearch(filters.search ?? "");
   if (search) query = query.or(`title.ilike.%${search}%,message.ilike.%${search}%`);
+  
+  console.log("[notificationService] Executing Supabase query...");
   const { data, error } = await query;
-  if (error) throw error;
+  
+  if (error) {
+    console.error("[notificationService] Supabase query failed:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+  
+  console.log("[notificationService] Query successful, data length:", data?.length);
   const rows = (data ?? []) as NotificationRecord[];
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
@@ -68,9 +82,20 @@ export async function listNotifications(workspaceId: string, filters: Notificati
 }
 
 export async function unreadNotificationCount(workspaceId: string): Promise<number> {
+  console.log("[notificationService] unreadNotificationCount called for workspace:", workspaceId);
   const { data, error } = await supabase.rpc("notification_unread_count", { p_workspace_id: workspaceId });
-  if (error) throw error;
-  return Number(data ?? 0);
+  if (error) {
+    console.error("[notificationService] unreadNotificationCount RPC failed:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+  const count = Number(data ?? 0);
+  console.log("[notificationService] unreadNotificationCount result:", count);
+  return count;
 }
 
 export async function markNotificationsRead(workspaceId: string, ids: string[], isRead: boolean): Promise<void> {
@@ -94,12 +119,29 @@ export async function deleteNotifications(workspaceId: string, ids: string[]): P
 }
 
 export async function loadNotificationSettings(workspaceId: string, userId: string): Promise<NotificationUserSettings> {
+  console.log("[notificationService] loadNotificationSettings called for workspace:", workspaceId, "user:", userId);
   const { data, error } = await supabase.from("notification_user_settings").select("*").eq("workspace_id", workspaceId).eq("user_id", userId).maybeSingle();
-  if (error) throw error;
-  if (data) return data as NotificationUserSettings;
+  if (error) {
+    console.error("[notificationService] loadNotificationSettings query failed:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+  if (data) {
+    console.log("[notificationService] Found existing settings:", data);
+    return data as NotificationUserSettings;
+  }
+  console.log("[notificationService] No existing settings, creating defaults");
   const defaults = DEFAULT_SETTINGS(workspaceId, userId);
   const { data: inserted, error: insertError } = await supabase.from("notification_user_settings").upsert(defaults, { onConflict: "workspace_id,user_id" }).select("*").single();
-  if (insertError) throw insertError;
+  if (insertError) {
+    console.error("[notificationService] Failed to insert default settings:", insertError);
+    throw insertError;
+  }
+  console.log("[notificationService] Created default settings:", inserted);
   return inserted as NotificationUserSettings;
 }
 

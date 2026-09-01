@@ -5,7 +5,7 @@ import { useAuth } from "../../../hooks/useAuth";
 import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../components/Toast";
 
-function OzonShippingIntegrationCard() {
+function OzonShippingIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [isOzonModalOpen, setIsOzonModalOpen] = useState(false);
 
@@ -26,6 +26,11 @@ function OzonShippingIntegrationCard() {
   }, [isOzonModalOpen, workspace?.ozon_api_key, workspace?.ozon_client_id, workspace?.ozon_warehouse_id]);
 
   const isConnected = Boolean(workspace?.ozon_api_key && workspace?.ozon_client_id);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(isConnected);
+  }, [isConnected, onConnectionChange]);
 
   const handleSaveIntegration = async () => {
     if (!workspace?.id) return;

@@ -27,7 +27,7 @@ type AmeexShippingIntegrationCardProps = {
   initialCity?: string;
 };
 
-export default function AmeexShippingIntegrationCard({ autoOpen = false, initialCity = "" }: AmeexShippingIntegrationCardProps) {
+export default function AmeexShippingIntegrationCard({ autoOpen = false, initialCity = "", onConnectionChange }: AmeexShippingIntegrationCardProps & { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace } = useAuth();
   const [status, setStatus] = useState<AmeexStatus>(EMPTY_STATUS);
   const [open, setOpen] = useState(false);
@@ -48,6 +48,11 @@ export default function AmeexShippingIntegrationCard({ autoOpen = false, initial
   };
 
   useEffect(() => { void load(); }, [workspace?.id]);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(status.connected);
+  }, [status.connected, onConnectionChange]);
 
   useEffect(() => {
     if (!autoOpen) return;

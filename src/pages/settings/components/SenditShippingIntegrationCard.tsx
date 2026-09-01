@@ -24,7 +24,7 @@ const DEFAULT_PICKUP_ID = 46; // Casablanca
 
 type PickupCity = { sendit_city_id: number; city_name: string; arabic_name?: string | null };
 
-export default function SenditShippingIntegrationCard() {
+export default function SenditShippingIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace } = useAuth();
   const [status, setStatus] = useState<SenditStatus>(EMPTY_STATUS);
   const [pickupCities, setPickupCities] = useState<PickupCity[]>([]);
@@ -64,6 +64,11 @@ export default function SenditShippingIntegrationCard() {
   useEffect(() => { void load(); }, [workspace?.id]);
   useEffect(() => { if (open) void loadProviderOptions(); }, [open, workspace?.id, status.connected]);
 
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(status.connected);
+  }, [status.connected, onConnectionChange]);
+
   // Auto-save Casablanca as default pickup city if nothing is configured yet
   useEffect(() => {
     if (
@@ -78,7 +83,7 @@ export default function SenditShippingIntegrationCard() {
         void savePreferences({ pickup_district_id: DEFAULT_PICKUP_ID });
       }
     }
-  }, [open, status.connected, status.pickup_district_id, pickupCities]);
+  }, [open, status.connected, status.pickup_district_id, pickupCities, workspace?.id]);
 
   const saveCredentials = async () => {
     if (!workspace?.id || !publicKey.trim() || !secretKey.trim()) return;

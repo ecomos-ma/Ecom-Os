@@ -80,6 +80,9 @@ export function createWorkerConfig(env = process.env, root = workerRoot) {
     claimLimit: 1,
     reconnectBaseMs: integer(env, "PROVIDER_RECONNECT_BASE_MS", 1000, 250),
     reconnectMaxMs: integer(env, "PROVIDER_RECONNECT_MAX_MS", 30000, 1000),
+    toolsEncryptionKey: value(env, "TOOLS_API_ENCRYPTION_KEY") || null,
+    aiModel: value(env, "WHATSAPP_AI_MODEL") || "gemini-3.6-flash",
+    aiTimeoutMs: integer(env, "WHATSAPP_AI_TIMEOUT_MS", 20000, 1000),
   });
 }
 

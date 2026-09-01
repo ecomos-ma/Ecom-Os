@@ -2,8 +2,9 @@ import { normalizeMoroccanPhone } from "../utils/phone.js";
 import { renderTemplate, templateVariables } from "./templates.js";
 
 export class InboundProcessor {
-  constructor({ repository, logger }) {
+  constructor({ repository, aiProcessor = null, logger }) {
     this.repository = repository;
+    this.aiProcessor = aiProcessor;
     this.logger = logger;
   }
 
@@ -25,7 +26,11 @@ export class InboundProcessor {
 
       // Process an inbound event once. A second handler would see the stored
       // event as a duplicate and silently skip confirmation.
-      const result = await this.repository.processInbound(inbound);
+      const normalResult = await this.repository.processInbound(inbound);
+      const aiResult = this.aiProcessor
+        ? await this.aiProcessor.fallback(workspaceId, inbound, normalResult)
+        : null;
+      const result = aiResult || normalResult;
 
       // --------------------------------------------------------------------------
       // 2. Log inbound_received in worker (lightweight, non-blocking)
@@ -42,7 +47,8 @@ export class InboundProcessor {
           action: result?.action || "unmatched",
           duplicate: result?.duplicate || false,
           manual_review: result?.manual_review || false,
-          address_flow: false,
+          address_flow: ["request_address", "confirm_with_address", "address_save_failed"].includes(result?.action),
+          conversation_state: result?.conversation_state || null,
         },
       }).catch(() => { });
 
@@ -96,6 +102,7 @@ export class InboundProcessor {
           provider_event_id: safeId,
           wa_message_id: sent.id,
           action: result.action,
+          conversation_state: result.conversation_state || null,
         },
       }).catch(() => { });
     } catch (error) {

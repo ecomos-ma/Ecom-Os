@@ -28,6 +28,9 @@ import {
   Users,
   Wrench,
   X,
+  Scale,
+  Trash2,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -84,6 +87,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Legal & compliance",
+    items: [
+      { to: "/admin/legal-settings", label: "Legal settings", icon: Scale, permission: "settings.read" },
+      { to: "/admin/deletion-requests", label: "Data deletion", icon: Trash2, permission: "settings.read" },
+      { to: "/admin/refund-requests", label: "Refund requests", icon: DollarSign, permission: "billing.read" },
+    ],
+  },
+  {
     label: "Platform",
     items: [
       { to: "/admin/operations?tab=integrations", label: "Integrations", icon: Wrench, permission: "health.read" },
@@ -115,6 +126,9 @@ const pageMeta = [
   ["/admin/plans", "Revenue", "Plans & limits", "Pricing and operating capacity."],
   ["/admin/support", "Customer success", "Support inbox", "Resolve seller issues with full context."],
   ["/admin/announcements", "Customer success", "Broadcast center", "Send targeted platform communication."],
+  ["/admin/legal-settings", "Legal & compliance", "Legal settings", "Configure legal documents, company info, and policies."],
+  ["/admin/deletion-requests", "Legal & compliance", "Data deletion", "Review and manage user data deletion requests."],
+  ["/admin/refund-requests", "Legal & compliance", "Refund requests", "Process subscription refund requests."],
   ["/admin/ai-tools", "Platform", "AI & providers", "Provider health, routing and usage."],
   ["/admin/operations", "Platform", "Platform operations", "Health, integrations, incidents and audit."],
   ["/admin/users", "Access & control", "Users & roles", "Account access and membership management."],

@@ -2340,9 +2340,19 @@ export default function Delivering() {
                 <div key={i} className="h-[56px] animate-pulse rounded bg-gray-100" />
               ))}
             </div>
+          ) : orders.length === 0 ? (
+            <div className="py-12 md:py-24">
+              <EmptyState 
+                title="No parcels tracked yet" 
+                description="Orders pushed to your shipping provider will appear here." 
+              />
+            </div>
           ) : filteredOrders.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center py-12">
-              <EmptyState icon={<Inbox size={24} />} title={`No orders found`} subtitle="Try adjusting your filters or search." />
+            <div className="py-12 md:py-24">
+              <EmptyState 
+                title="No orders match your filters"
+                description="Select another shipping status to view matching orders."
+              />
             </div>
           ) : (
             <>

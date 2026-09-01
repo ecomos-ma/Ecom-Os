@@ -150,3 +150,18 @@ test("a stale per-part send marker blocks automatic duplicate transmission", asy
   assert.equal(sessions.sent.length, 0);
   assert.ok(repository.updates.some((update) => update.error_code === ErrorCode.DELIVERY_UNKNOWN));
 });
+
+test("a delayed status automation is cancelled when the order has moved on", async () => {
+  const repository = new MemoryRepository({ sequence: ["text"] });
+  repository.context.order.status = "confirmed";
+  repository.context.rule.status_source = "status";
+  const sessions = new MemorySessionManager();
+  await processor(repository, sessions).processJob(job({
+    message_type: "status_update",
+    payload: { status_source: "status", status: "pending" },
+  }));
+
+  assert.equal(sessions.sent.length, 0);
+  assert.ok(repository.updates.some((update) => update.status === "cancelled" && update.error_code === "STALE_STATUS_AUTOMATION"));
+  assert.ok(repository.events.some((event) => event.event_type === "stale_automation_cancelled"));
+});

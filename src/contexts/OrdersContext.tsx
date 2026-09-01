@@ -35,7 +35,6 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     const { workspace } = useAuth();
     const [globalOrders, setGlobalOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
-    const isLoadingRef = useRef(false);
     const loadRef = useRef<((forceReload?: boolean) => Promise<void>) | null>(null);
     const hasLoadedRef = useRef(false);
     const activeWorkspaceRef = useRef<string | null>(null);
@@ -51,8 +50,6 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             return;
         }
 
-        if (isLoadingRef.current) return;
-
         if (!workspace?.id) {
             activeWorkspaceRef.current = null;
             hasLoadedRef.current = false;
@@ -66,9 +63,12 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             hasLoadedRef.current = false;
         }
 
-        const cacheKey = `orders:${workspace.id}:list`;
+        const requestedWorkspaceId = workspace.id;
+
+        const cacheKey = `orders:${requestedWorkspaceId}:list`;
         const cachedOrders = getCached<Order[]>(cacheKey, true);
         if (!forceReload && cachedOrders) {
+            if (activeWorkspaceRef.current !== requestedWorkspaceId) return;
             setGlobalOrders(cachedOrders);
             hasLoadedRef.current = true;
             setLoading(false);
@@ -83,7 +83,6 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             return;
         }
 
-        isLoadingRef.current = true;
         setLoading(!cachedOrders);
 
         const existingRequest = ordersLoadRequests.get(cacheKey);
@@ -92,12 +91,12 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                 await existingRequest;
                 const sharedOrders = getCached<Order[]>(cacheKey, true);
                 if (sharedOrders) {
+                    if (activeWorkspaceRef.current !== requestedWorkspaceId) return;
                     setGlobalOrders(sharedOrders);
                     hasLoadedRef.current = true;
                 }
             } finally {
-                isLoadingRef.current = false;
-                setLoading(false);
+                if (activeWorkspaceRef.current === requestedWorkspaceId) setLoading(false);
             }
             return;
         }
@@ -144,10 +143,13 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
         coliaty_city_id,
         source,
         confirmation_method,
+        whatsapp_handoff_active,
+        whatsapp_handoff_reason,
+        whatsapp_handoff_at,
         customers(id, name, phone, city),
         ozon_cities(id, name, delivered_price, returned_price, refused_price)
       `)
-                .eq("workspace_id", workspace.id)
+                .eq("workspace_id", requestedWorkspaceId)
                 .order("created_at", { ascending: false })
                 .limit(500);
 
@@ -155,8 +157,8 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                 // Fallback: flat query without joins
                 const fbRes = await supabase
                     .from("orders")
-                    .select('"Order ID", order_number, customer_id, customer_name, city, city_name, address, total, status, delivery_status, shipping_status, shipping_provider, tracking_number, shipment_id, shipment_status, shipping_status_raw, shipping_updated_at, last_tracking_sync, last_shipping_sync_at, shipping_company, shipping_cost, parcel_created_at, delivery_note_ref, ozon_raw_response, coliaty_parcel_code, phone, sku, product_variant, campaign_id, created_at, ozon_city_id, coliaty_city_id, source, confirmation_method')
-                    .eq("workspace_id", workspace.id)
+                    .select('"Order ID", order_number, customer_id, customer_name, city, city_name, address, total, status, delivery_status, shipping_status, shipping_provider, tracking_number, shipment_id, shipment_status, shipping_status_raw, shipping_updated_at, last_tracking_sync, last_shipping_sync_at, shipping_company, shipping_cost, parcel_created_at, delivery_note_ref, ozon_raw_response, coliaty_parcel_code, phone, sku, product_variant, campaign_id, created_at, ozon_city_id, coliaty_city_id, source, confirmation_method, whatsapp_handoff_active, whatsapp_handoff_reason, whatsapp_handoff_at')
+                    .eq("workspace_id", requestedWorkspaceId)
                     .order("created_at", { ascending: false })
                     .limit(500);
 
@@ -170,7 +172,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                         let custQuery = supabase
                             .from("customers")
                             .select("id, name, phone, city")
-                            .eq("workspace_id", workspace.id);
+                            .eq("workspace_id", requestedWorkspaceId);
                         if (customerIds.length > 0 && phones.length > 0) {
                             custQuery = custQuery.or(
                                 `id.in.(${customerIds.map((id) => `"${id}"`).join(",")}), phone.in.(${phones.map((p) => `"${p}"`).join(",")})`
@@ -197,7 +199,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                             || (o.customer_name || o.phone
                                 ? {
                                     id: o.customer_id || `order:${o["Order ID"]}`,
-                                    workspace_id: workspace.id,
+                                    workspace_id: requestedWorkspaceId,
                                     name: o.customer_name || "Unknown customer",
                                     phone: o.phone || null,
                                     city: o.city_name || o.city || null,
@@ -221,7 +223,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                         customer: customer || (o.customer_name || o.phone
                             ? {
                                 id: o.customer_id || `order:${o["Order ID"]}`,
-                                workspace_id: workspace.id,
+                                workspace_id: requestedWorkspaceId,
                                 name: o.customer_name || "Unknown customer",
                                 phone: o.phone || null,
                                 city: o.city_name || o.city || null,
@@ -243,7 +245,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                         ? supabase
                             .from("meta_campaigns")
                             .select("id, campaign_name")
-                            .eq("workspace_id", workspace.id)
+                            .eq("workspace_id", requestedWorkspaceId)
                             .in("id", campaignIds)
                         : { data: [], error: null },
                     orderIds.length > 0
@@ -329,18 +331,19 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                     }
                     return b.order_number.localeCompare(a.order_number);
                 });
-                setGlobalOrders(sorted);
                 setCached(cacheKey, sorted, 120_000);
-                hasLoadedRef.current = true;
+                if (activeWorkspaceRef.current === requestedWorkspaceId) {
+                    setGlobalOrders(sorted);
+                    hasLoadedRef.current = true;
+                }
             } else {
                 if (error) console.error("[OrdersContext] Failed to load orders:", error);
-                setGlobalOrders([]);
+                if (activeWorkspaceRef.current === requestedWorkspaceId) setGlobalOrders([]);
             }
         } finally {
             resolveRequest();
             if (ordersLoadRequests.get(cacheKey) === request) ordersLoadRequests.delete(cacheKey);
-            isLoadingRef.current = false;
-            setLoading(false);
+            if (activeWorkspaceRef.current === requestedWorkspaceId) setLoading(false);
         }
     }, [workspace?.id]);
 
@@ -349,12 +352,20 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     }, [load]);
 
     useEffect(() => {
-        if (!workspace?.id) return;
-
-        // Only load if we don't have data yet (state preservation)
-        if (!hasLoadedRef.current) {
-            loadRef.current?.();
+        if (!workspace?.id) {
+            activeWorkspaceRef.current = null;
+            hasLoadedRef.current = false;
+            setGlobalOrders([]);
+            setLoading(false);
+            return;
         }
+
+        activeWorkspaceRef.current = workspace.id;
+        hasLoadedRef.current = false;
+        setGlobalOrders([]);
+        setLoading(true);
+
+        loadRef.current?.();
 
         // Debounced RT reload — batch rapid events (100ms for faster refresh)
         const debouncedReload = createDebounce(100);

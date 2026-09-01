@@ -100,7 +100,7 @@ export class BaileysWhatsAppProvider extends WhatsAppProvider {
   }
 
   async #openSocket(forceFreshAuth = false) {
-    this.state = this.reconnectAttempts ? "reconnecting" : "initializing";
+    this.state = this.reconnectAttempts ? "reconnecting" : "starting";
     this.emit(this.state, { workspaceId: this.workspaceId });
     
     if (forceFreshAuth) {
@@ -138,12 +138,18 @@ export class BaileysWhatsAppProvider extends WhatsAppProvider {
     if (socket !== this.socket) return;
     
     if (update.qr) {
-      this.state = "qr_required";
-      this.emit("qr", { qr: update.qr });
+      this.state = "qr_ready";
+      this.emit("qr", { qr: update.qr, generatedAt: new Date().toISOString() });
       this.logger.info({ workspaceId: this.workspaceId, connectionAttemptId: this.connectionAttemptId }, "[WA QR] received");
       return;
     }
     
+    if (update.connection === "connecting" && !update.qr) {
+      this.state = "connecting";
+      this.emit("connecting", {});
+      this.logger.info({ workspaceId: this.workspaceId, connectionAttemptId: this.connectionAttemptId }, "[WA CONNECT] socket connecting");
+    }
+
     if (update.isNewLogin && !this.authenticatedEmitted) {
       this.authenticatedEmitted = true;
       this.state = "authenticated";

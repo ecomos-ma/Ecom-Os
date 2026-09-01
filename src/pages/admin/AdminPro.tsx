@@ -11,6 +11,7 @@ import { WorkspacesPage } from "./admin-pro/WorkspacesPage";
 import { BillingPage } from "./admin-pro/BillingPage";
 import { CampaignsPage, ProductsPage, SellersPage } from "./admin-pro/BusinessPages";
 import { PaymentMethodsPage } from "./admin-pro/BankTransferSettings";
+import ErrorCenter from "./ErrorCenter";
 
 export default function AdminPro() {
   const { pathname } = useLocation();
@@ -30,5 +31,6 @@ export default function AdminPro() {
   if (pathname.startsWith("/admin/announcements") || pathname.startsWith("/admin/communications")) return <CommunicationsPageV3 />;
   if (pathname.startsWith("/admin/platform")) return <PlatformSettingsPageV3 />;
   if (pathname.startsWith("/admin/ai-tools")) return <AiToolsConsole />;
+  if (pathname.startsWith("/admin/errors")) return <ErrorCenter />;
   return <CommandCenter />;
 }

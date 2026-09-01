@@ -160,6 +160,7 @@ export default function Login() {
     rememberPlan();
     setBusy(true);
     try {
+      console.log("[Login] Starting signup with:", { email: email.trim(), fullName: fullName.trim(), workspaceName: workspaceName.trim(), selectedPlan, billing });
       const { error: authError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -174,11 +175,14 @@ export default function Login() {
         },
       });
       if (authError) {
+        console.error("[Login] Signup failed:", authError);
         setError(friendlyAuthError(authError.message));
       } else {
+        console.log("[Login] Signup successful");
         setSignupSuccess(true);
       }
     } catch (caught) {
+      console.error("[Login] Signup exception:", caught);
       setError(friendlyAuthError(caught instanceof Error ? caught.message : ""));
     } finally {
       setBusy(false);
@@ -200,11 +204,18 @@ export default function Login() {
       return;
     }
 
+    console.log("[Login] Starting sign-in with:", { email: email.trim() });
     setBusy(true);
     try {
       const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (authError) setError(friendlyAuthError(authError.message));
+      if (authError) {
+        console.error("[Login] Sign-in failed:", authError);
+        setError(friendlyAuthError(authError.message));
+      } else {
+        console.log("[Login] Sign-in successful");
+      }
     } catch (caught) {
+      console.error("[Login] Sign-in exception:", caught);
       setError(friendlyAuthError(caught instanceof Error ? caught.message : ""));
     } finally {
       setBusy(false);

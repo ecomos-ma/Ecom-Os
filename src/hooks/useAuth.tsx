@@ -23,6 +23,7 @@ import {
 import { toast } from "../components/Toast";
 import { prefetchRoute } from "./usePrefetch";
 import { getDemoSession, clearDemoSession, type DemoSession } from "../demo";
+import { recordLegalAcceptance, hasAcceptedCurrentVersions } from "../lib/legalService";
 
 function sessionIssuedAt(accessToken: string | undefined) {
   if (!accessToken) return 0;
@@ -402,6 +403,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspace(previewWorkspaceRef.current?.workspace ?? (newWs as Workspace));
     }
 
+    // Record legal acceptance if user hasn't accepted current versions (fire-and-forget)
+    if (!localProfile.terms_version_accepted || !localProfile.privacy_version_accepted) {
+      recordLegalAcceptance(userId, "signup").catch((error) => {
+        console.warn("[useAuth] Failed to record legal acceptance:", error);
+        // Don't block auth flow if this fails
+      });
+    }
+
     setProfile(localProfile);
 
     const workspaceId = localProfile.workspace_id;
@@ -540,7 +549,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!sessionRef.current?.user?.id) return null;
     const { data, error } = await supabase.rpc("create_workspace_for_user", { workspace_name: name });
     if (error) {
-      const message = error.message === "WORKSPACE_LIMIT_REACHED" ? "Unable to create workspace. Please try again or contact support." : "Unable to create workspace.";
+      const message = error.message.includes("WORKSPACE_LIMIT_REACHED")
+        ? "Your plan's workspace limit has been reached. Upgrade to create another workspace."
+        : "Unable to create workspace.";
       toast.error(message);
       console.error("[useAuth] createWorkspace failed:", error);
       return null;

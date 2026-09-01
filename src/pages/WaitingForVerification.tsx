@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Clock3, Headphones, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
@@ -39,6 +39,10 @@ const previewReceipt: PaymentReceiptData = {
 export default function WaitingForVerification() {
   const { session, loading, operationalAccess } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Sellers renewing an active subscription keep operational access; they still
+  // need to see this receipt page after submitting their renewal proof.
+  const renewalIntent = searchParams.get("intent") === "renew";
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "receipt";
   const [receipt, setReceipt] = useState<PaymentReceiptData | null>(previewMode ? previewReceipt : null);
   const [error, setError] = useState("");
@@ -87,7 +91,7 @@ export default function WaitingForVerification() {
 
   if (loading && !previewMode) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
-  if (operationalAccess && !previewMode) return <Navigate to="/dashboard" replace />;
+  if (operationalAccess && !previewMode && !renewalIntent) return <Navigate to="/dashboard" replace />;
   if (!receipt && !error) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
 
   return (

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/Toast";
 import { useNotifications } from "../contexts/NotificationContext";
 import { useAuth } from "../hooks/useAuth";
@@ -25,6 +26,7 @@ import {
 import { safeNotificationActionUrl } from "../notifications/privacy";
 import { useI18n } from "../i18n";
 import { localizeNotification } from "../notifications/localize";
+import { reportError } from "../lib/errorHandling";
 
 const categoryLabels = Object.fromEntries(NOTIFICATION_CATEGORIES.map((category) => [category, category.replace(/_/g, " ")]));
 
@@ -41,9 +43,11 @@ export default function Notifications() {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [filters, setFilters] = useState<NotificationFilters>({ limit: 30 });
   const previousUpdatedAt = useRef<string | null>(null);
+  const isFiltering = Boolean(filters.search || filters.read !== undefined || filters.category || filters.priority || filters.dateFrom || filters.dateTo);
 
   const load = useCallback(async (append = false) => {
     if (isDemoMode || !workspace?.id) {
+      console.log("[Notifications] Demo mode or no workspace, skipping load");
       setRows([]);
       setCursor(null);
       setLoading(false);
@@ -52,11 +56,20 @@ export default function Notifications() {
     append ? setLoadingMore(true) : setLoading(true);
     setError(null);
     try {
+      console.log("[Notifications] Loading notifications for workspace:", workspace.id, "with filters:", filters);
       const page = await listNotifications(workspace.id, { ...filters, cursor: append ? cursor ?? undefined : undefined });
+      console.log("[Notifications] Loaded page:", page);
       setRows((current) => append ? [...current, ...page.rows] : page.rows);
       setCursor(page.nextCursor);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The notification inbox could not be loaded.");
+      console.error("[Notifications] Failed to load notifications - FULL ERROR:", {
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+        workspaceId: workspace.id,
+        filters,
+      });
+      const safe = await reportError(cause, "notifications.load", { workspace_id: workspace.id, action: "list_notifications" });
+      setError(safe.userMessage);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -93,7 +106,8 @@ export default function Notifications() {
       toast.success(success);
       await Promise.all([load(false), notificationContext.reload()]);
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "The notification could not be updated.");
+      const safe = await reportError(cause, "notifications.action", { workspace_id: workspace?.id, action: "notification_action" });
+      toast.error(safe.userMessage);
     }
   };
 
@@ -150,7 +164,20 @@ export default function Notifications() {
         ) : error ? (
           <div className="flex min-h-56 flex-col items-center justify-center gap-3 px-5 text-center"><CircleAlert className="text-danger" /><p className="text-sm text-ink">{error}</p><button onClick={() => void load(false)} className="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white">Try again</button></div>
         ) : rows.length === 0 ? (
-          <div className="flex min-h-56 flex-col items-center justify-center gap-2 px-5 text-center"><Bell className="text-ink-faint" /><p className="font-medium text-ink">No notifications match these filters</p><p className="text-sm text-ink-muted">New workspace activity will appear here.</p></div>
+          <div className="py-16 md:py-24">
+            {isFiltering ? (
+              <EmptyState 
+                title="No notifications match these filters" 
+                description="Try clearing your search or filters to see more activity." 
+                primaryAction={<button onClick={() => setFilters({ limit: 30 })} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>}
+              />
+            ) : (
+              <EmptyState 
+                title="You're all caught up" 
+                description="New workspace activity and alerts will appear here." 
+              />
+            )}
+          </div>
         ) : (
           rows.map((notification) => {
             const localized = localizeNotification(notification, language);

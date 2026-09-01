@@ -69,9 +69,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     if (isDemoMode || !workspace?.id || !session?.user.id) {
+      console.log("[NotificationContext] Demo mode or no workspace/user, skipping reload");
       reset();
       return;
     }
+    console.log("[NotificationContext] Starting reload for workspace:", workspace.id, "user:", session.user.id);
     setLoading(true);
     setError(null);
     try {
@@ -81,9 +83,19 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         loadNotificationSettings(workspace.id, session.user.id),
       ]);
 
-      if (pageResult.status === "rejected") throw pageResult.reason;
+      console.log("[NotificationContext] Promise.allSettled results:", {
+        pageResult: pageResult.status,
+        countResult: countResult.status,
+        settingsResult: settingsResult.status,
+      });
+
+      if (pageResult.status === "rejected") {
+        console.error("[NotificationContext] Page load failed:", pageResult.reason);
+        throw pageResult.reason;
+      }
 
       const page = pageResult.value;
+      console.log("[NotificationContext] Loaded notifications:", page.rows.length, "rows");
       setNotifications(page.rows);
       setUnreadCount(
         countResult.status === "fulfilled"
@@ -99,7 +111,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
       seenRealtimeIdsRef.current = new Set(page.rows.map((row) => row.id));
     } catch (cause) {
-      console.error("[notifications] Failed to load notification feed", cause);
+      console.error("[NotificationContext] Failed to load notification feed - FULL ERROR:", {
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+        workspaceId: workspace.id,
+        userId: session.user.id,
+      });
       setError(cause instanceof Error ? cause.message : "Notifications could not be loaded.");
     } finally {
       setLoading(false);

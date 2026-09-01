@@ -24,10 +24,14 @@ function sessionResponse(session) {
     last_error: session.lastError || null,
     last_connected_at: session.lastConnectedAt || null,
     last_disconnected_at: session.lastDisconnectedAt || null,
+    session_id: session.connectionAttemptId || null,
+    state_revision: session.stateRevision || 0,
+    qr_generated_at: session.qrGeneratedAt || null,
+    qr_revision: session.qrRevision || 0,
   };
 }
 
-export function createRoutes({ sessionManager, repository, logger }) {
+export function createRoutes({ sessionManager, repository, aiProcessor, logger }) {
   const router = Router();
 
   const run = (handler) => async (req, res, next) => {
@@ -42,7 +46,7 @@ export function createRoutes({ sessionManager, repository, logger }) {
 
   const connect = run(async (req, res) => {
     const workspaceId = extractWorkspaceId(req);
-    await ensureEnabled(workspaceId);
+    ensureEnabled(workspaceId).catch((error) => logger.warn({ err: error, workspaceId }, "WhatsApp settings sync deferred during connect"));
     const session = await sessionManager.connect(workspaceId);
     res.status(202).json(sessionResponse(session));
   });
@@ -60,7 +64,7 @@ export function createRoutes({ sessionManager, repository, logger }) {
 
   const reconnect = run(async (req, res) => {
     const workspaceId = extractWorkspaceId(req);
-    await ensureEnabled(workspaceId);
+    ensureEnabled(workspaceId).catch((error) => logger.warn({ err: error, workspaceId }, "WhatsApp settings sync deferred during reconnect"));
     const session = await sessionManager.reconnect(workspaceId);
     res.status(202).json(sessionResponse(session));
   });
@@ -102,6 +106,15 @@ export function createRoutes({ sessionManager, repository, logger }) {
     res.status(200).json({ ok: true, workspace_id: workspaceId, message_id: sent.id, messageId: sent.id });
   });
 
+  const testAi = run(async (req, res) => {
+    const workspaceId = extractWorkspaceId(req);
+    const message = String(req.body?.message || "").trim().slice(0, 4000);
+    if (!message) throw new WorkerError(ErrorCode.INVALID_REQUEST, "Test message is required", { httpStatus: 400 });
+    if (!repository.configured) throw new WorkerError(ErrorCode.DATABASE_ERROR, "WhatsApp AI requires Supabase", { httpStatus: 503 });
+    const decision = await aiProcessor.test(workspaceId, message);
+    res.status(200).json({ ok: true, workspace_id: workspaceId, test_only: true, decision });
+  });
+
   router.post("/sessions/:workspaceId/connect", connect);
   router.get("/sessions/:workspaceId/status", status);
   router.post("/sessions/:workspaceId/disconnect", disconnect);
@@ -109,6 +122,7 @@ export function createRoutes({ sessionManager, repository, logger }) {
   router.post("/sessions/:workspaceId/logout", logout);
   router.post("/sessions/:workspaceId/send", send);
   router.post("/sessions/:workspaceId/test", send);
+  router.post("/sessions/:workspaceId/ai/test", testAi);
 
   router.post("/connect", connect);
   router.get("/status/:workspaceId", status);

@@ -96,6 +96,7 @@ test("connect on an already-ready provider resynchronizes canonical database sta
   updates.length = 0;
 
   const snapshot = await manager.connect(workspaceId);
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(snapshot.connection_status, "ready");
   assert.equal(updates.length, 1);
@@ -126,7 +127,7 @@ test("health, CORS, non-blocking connect, duplicate connect, status, send and di
   const connectResponse = await fetch(`${context.base}/sessions/${workspaceId}/connect`, { method: "POST" });
   const connect = await connectResponse.json();
   assert.equal(connectResponse.status, 202);
-  assert.equal(connect.connection_status, "initializing");
+  assert.equal(connect.connection_status, "starting");
   assert.ok(performance.now() - startedAt < 500);
 
   const duplicateResponse = await fetch(`${context.base}/connect`, {
@@ -139,8 +140,17 @@ test("health, CORS, non-blocking connect, duplicate connect, status, send and di
 
   await new Promise((resolve) => setImmediate(resolve));
   const qrStatus = await fetch(`${context.base}/status/${workspaceId}`).then((response) => response.json());
-  assert.equal(qrStatus.connection_status, "qr_required");
+  assert.equal(qrStatus.connection_status, "qr_ready");
   assert.match(qrStatus.qr, /^fake-qr-/);
+  assert.equal(qrStatus.qr_revision, 1);
+  assert.ok(qrStatus.qr_generated_at);
+
+  context.providers[0].emitQr("fake-qr-refreshed");
+  await new Promise((resolve) => setImmediate(resolve));
+  const refreshedQr = await fetch(`${context.base}/sessions/${workspaceId}/status`).then((response) => response.json());
+  assert.equal(refreshedQr.qr, "fake-qr-refreshed");
+  assert.equal(refreshedQr.qr_revision, 2);
+  assert.ok(refreshedQr.state_revision > qrStatus.state_revision);
 
   context.providers[0].emitReady();
   const readyStatus = await fetch(`${context.base}/sessions/${workspaceId}/status`).then((response) => response.json());

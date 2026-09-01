@@ -19,6 +19,7 @@ import {
   Settings,
   Loader2,
   Inbox,
+  Plus,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -434,7 +435,7 @@ interface EnhancedHeaderProps {
 
 export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: EnhancedHeaderProps) {
   const navigate = useNavigate();
-  const { session, profile, workspace, availableWorkspaces, switchWorkspace, signOut, teamPermissions } =
+  const { session, profile, workspace, availableWorkspaces, switchWorkspace, createWorkspace, signOut, teamPermissions } =
     useAuth();
   const { isDark } = useTheme();
   const { notifications, unreadCount, loading: notificationsLoading, openNotification, markAllAsRead } =
@@ -445,6 +446,10 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
   // Dropdown states
   const [searchOpen, setSearchOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceAllowance, setWorkspaceAllowance] = useState<{ used: number; limit: number | null; allowed: boolean } | null>(null);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [showWorkspaceCreator, setShowWorkspaceCreator] = useState(false);
   const [operationsOpen, setOperationsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -527,6 +532,31 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
 
   const displayName = profile?.full_name || profile?.email || "User";
 
+  useEffect(() => {
+    if (!workspaceOpen) return;
+    let cancelled = false;
+    void supabase.rpc("get_workspace_allowance_v1").then(({ data }) => {
+      if (!cancelled && data) setWorkspaceAllowance({
+        used: Number(data.used ?? availableWorkspaces.length),
+        limit: data.limit == null ? null : Number(data.limit),
+        allowed: Boolean(data.allowed),
+      });
+    });
+    return () => { cancelled = true; };
+  }, [availableWorkspaces.length, workspaceOpen]);
+
+  const handleCreateWorkspace = async () => {
+    const name = newWorkspaceName.trim();
+    if (!name || creatingWorkspace) return;
+    setCreatingWorkspace(true);
+    const created = await createWorkspace(name);
+    setCreatingWorkspace(false);
+    if (!created) return;
+    setNewWorkspaceName("");
+    setShowWorkspaceCreator(false);
+    setWorkspaceAllowance((current) => current ? { ...current, used: current.used + 1 } : current);
+  };
+
   return (
     <>
       <style>{HEADER_STYLES}</style>
@@ -561,7 +591,7 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
         {/* Right: actions — Workspace → Notifications → Quick Actions → Theme → Changelog → Profile */}
         <div className="flex shrink-0 items-center gap-1">
           {/* Workspace Switcher */}
-          {availableWorkspaces.length > 1 && (
+          {workspace && (
             <div className="relative">
               <button
                 onClick={(e) => {
@@ -588,7 +618,12 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
                   className="chdr-panel absolute right-0 top-[calc(100%+8px)] z-50 w-64 overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-xl"
                 >
                   <div className="px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-ink-muted">
-                    Workspaces
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Workspaces</span>
+                      <span className="normal-case tracking-normal">
+                        {workspaceAllowance ? `${workspaceAllowance.used} / ${workspaceAllowance.limit ?? "∞"} used` : `${availableWorkspaces.length} used`}
+                      </span>
+                    </div>
                   </div>
                   <div className="max-h-72 overflow-y-auto">
                     {availableWorkspaces.map((ws) => (
@@ -617,12 +652,40 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
                       </button>
                     ))}
                   </div>
+                  <div className="border-t border-base-border p-2" onClick={(event) => event.stopPropagation()}>
+                    {showWorkspaceCreator ? (
+                      <div className="space-y-2 p-1">
+                        <input
+                          autoFocus
+                          value={newWorkspaceName}
+                          onChange={(event) => setNewWorkspaceName(event.target.value)}
+                          onKeyDown={(event) => { if (event.key === "Enter") void handleCreateWorkspace(); }}
+                          placeholder="Workspace name"
+                          className="w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-sm text-ink outline-none focus:border-pink-500"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => setShowWorkspaceCreator(false)} className="flex-1 rounded-lg px-3 py-2 text-xs font-semibold text-ink-muted hover:bg-base-raised">Cancel</button>
+                          <button onClick={() => void handleCreateWorkspace()} disabled={!newWorkspaceName.trim() || creatingWorkspace} className="flex-1 rounded-lg bg-pink-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                            {creatingWorkspace ? "Creating…" : "Create"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : workspaceAllowance?.allowed === false ? (
+                      <button onClick={() => { setWorkspaceOpen(false); navigate("/payment"); }} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-pink-600 hover:bg-pink-500/10">
+                        Workspace limit reached <span className="text-xs">Upgrade</span>
+                      </button>
+                    ) : (
+                      <button onClick={() => setShowWorkspaceCreator(true)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-ink hover:bg-base-raised">
+                        <Plus size={15} /> Create Workspace
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {availableWorkspaces.length > 1 && <div className="mx-1 hidden h-6 w-px bg-base-border sm:block" />}
+          {workspace && <div className="mx-1 hidden h-6 w-px bg-base-border sm:block" />}
 
           {/* 1. Notifications */}
           <div className="relative">

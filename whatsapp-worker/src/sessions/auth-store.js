@@ -1,4 +1,4 @@
-import { access, mkdir, rm, rename } from "node:fs/promises";
+import { access, mkdir, readdir, rm, rename } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { useMultiFileAuthState } from "@whiskeysockets/baileys";
@@ -31,6 +31,22 @@ export class WorkspaceAuthStore {
     } catch {
       return false;
     }
+  }
+
+  async listWorkspaceIds() {
+    await mkdir(this.rootPath, { recursive: true });
+    const entries = await readdir(this.rootPath, { withFileTypes: true });
+    const ids = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const id = requireWorkspaceId(entry.name);
+        if (await this.hasCredentials(id)) ids.push(id);
+      } catch {
+        // Backups and legacy folders are deliberately ignored.
+      }
+    }
+    return ids;
   }
 
   async clear(workspaceId) {

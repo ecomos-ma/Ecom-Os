@@ -22,6 +22,7 @@ export interface Workspace {
   name: string;
   meta_access_token: string | null;
   meta_ad_account_id: string | null;
+  meta_system_user_token?: string | null;
   is_active?: boolean | null;
   status?: "active" | "suspended" | "deleted";
   plan?: string | null;
@@ -46,6 +47,7 @@ export interface Workspace {
   google_sheet_url?: string | null;
   google_sheet_autosync?: boolean | null;
   carrier?: ShippingCarrier | null;
+  ozon_enabled?: boolean | null;
   coliaty_enabled?: boolean | null;
   coliaty_api_key?: string | null; // Deprecated: replaced by public and secret keys
   coliaty_public_key?: string | null;
@@ -108,6 +110,8 @@ export interface Profile {
   last_login_at?: string | null;
   session_not_before?: string | null;
   deleted_at?: string | null;
+  terms_version_accepted?: string | null;
+  privacy_version_accepted?: string | null;
   created_at: string;
 }
 
@@ -184,6 +188,9 @@ export interface Order {
   ozon_city_id?: string | null;
   productVariant?: string | null;
   whatsapp_status?: string | null;
+  whatsapp_last_change_at?: string | null;
+  whatsapp_last_change_source?: "whatsapp" | "whatsapp_ai" | null;
+  whatsapp_last_change_summary?: string | null;
   source?: "youcan" | "sheets" | "manual";
   source_platform?: string | null;
   utm_source?: string | null;

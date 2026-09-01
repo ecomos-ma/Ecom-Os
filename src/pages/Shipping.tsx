@@ -21,6 +21,7 @@ import { useI18n } from "../i18n";
 import { isShippingModuleEnabled } from "../lib/shippingModule";
 import { ShippingModuleDisabled } from "../components/ShippingModuleDisabled";
 import { useAuth } from "../hooks/useAuth";
+import { reportError } from "../lib/errorHandling";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,8 @@ export default function Shipping() {
       }
 
     } catch (err: any) {
-      toast.error(`Error : ${err.message ?? "Unable to save."}`);
+      const safe = await reportError(err, "shipping.status_update", { action: "update_shipping_status" });
+      toast.error(safe.userMessage);
     } finally {
       setSavingOrders((prev) => ({ ...prev, [orderNumber]: false }));
     }
@@ -263,12 +265,18 @@ export default function Shipping() {
               />
             ))}
           </div>
+        ) : shippingPipelineOrders.length === 0 ? (
+          <div className="py-12 md:py-24">
+            <EmptyState 
+              title="No orders ready for shipping" 
+              description="Orders will appear here once they are confirmed in the Orders CRM." 
+            />
+          </div>
         ) : filteredOrders.length === 0 ? (
-          <div className="bg-base-surface border border-base-border rounded-xl">
-            <EmptyState
-              icon={<Inbox size={20} />}
-              title={`No orders — "${activeTab}"`}
-              subtitle="Statuses will update here as they are processed."
+          <div className="py-12 md:py-24">
+            <EmptyState 
+              title={`No orders match "${activeTab}"`}
+              description="Select a different status tab to view your shipping pipeline." 
             />
           </div>
         ) : (

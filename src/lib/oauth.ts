@@ -27,7 +27,15 @@ export async function youcanAuthorizeUrl(workspaceId: string): Promise<string> {
     response_type: "code",
     state: state,
   });
-  const scopes = ["read-orders", "read-customers", "read-products", "edit-rest-hooks"];
+  const scopes = [
+    "read-orders",
+    "read-customers",
+    "read-products",
+    "view-store-info",
+    "read-rest-hooks",
+    "edit-rest-hooks",
+    "delete-rest-hooks",
+  ];
   params.append("scope", scopes.join(" "));
   return `https://seller-area.youcan.shop/admin/oauth/authorize?${params.toString()}`;
 }

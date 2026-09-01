@@ -6,6 +6,7 @@ import {
   Plus, Filter, BarChart2, Hash
 } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
 import { supabase } from "../lib/supabase";
 import { toast } from "../components/Toast";
 import { useAuth } from "../hooks/useAuth";
@@ -128,6 +129,7 @@ const PAGE_SIZE = 20;
 
 export default function AdsManager() {
   const { workspace } = useAuth();
+  const isMetaConnected = Boolean(workspace?.meta_system_user_token || workspace?.meta_access_token);
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -435,20 +437,29 @@ export default function AdsManager() {
 
       {/* Empty / No data state */}
       {!loading && campaigns.length === 0 && !error && (
-        <div className="rounded-xl border border-dashed border-[#1877F2]/40 bg-[#1877F2]/5 px-6 py-10 text-center">
-          <Activity size={32} className="mx-auto mb-3 text-[#1877F2]/60" />
-          <p className="text-[14px] font-medium text-ink">No Meta campaigns found</p>
-          <p className="mt-1 text-[13px] text-ink-muted">
-            Click <strong className="text-[#1877F2]">Sync Meta</strong> to pull live campaign data from your Meta Ads account.
-          </p>
-          <button
-            onClick={() => handleSync()}
-            disabled={syncing}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2 text-[13px] font-medium text-white hover:bg-[#1877F2]/90 disabled:opacity-60"
-          >
-            <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : "Sync now"}
-          </button>
+        <div className="py-12 md:py-24">
+          {!isMetaConnected ? (
+            <EmptyState 
+              title="No ad account connected" 
+              description="Connect your Meta Ads account to view live campaigns, spend, CPR and ROAS." 
+              primaryAction={
+                <button onClick={() => window.location.href = '/settings'} className="flex items-center gap-1.5 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-medium text-white hover:bg-brand/90">
+                  Connect Meta
+                </button>
+              }
+            />
+          ) : (
+            <EmptyState 
+              title="No campaigns found for this period" 
+              description="Sync your Meta account or adjust your date range to view campaigns." 
+              primaryAction={
+                <button onClick={() => handleSync()} disabled={syncing} className="flex items-center gap-1.5 rounded-lg bg-[#1877F2] px-5 py-2.5 text-[13px] font-medium text-white hover:bg-[#1877F2]/90 disabled:opacity-60">
+                  <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+                  {syncing ? "Syncing..." : "Sync now"}
+                </button>
+              }
+            />
+          )}
         </div>
       )}
 
@@ -540,8 +551,8 @@ export default function AdsManager() {
                   Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="px-4 py-12 text-center text-[13px] text-ink-muted">
-                      No campaigns match your search/filter.
+                    <td colSpan={13}>
+                      <EmptyState title="No campaigns found" description="Try adjusting your filters or search." />
                     </td>
                   </tr>
                 ) : (
@@ -611,7 +622,7 @@ export default function AdsManager() {
                 </div>
               ))
             ) : paged.length === 0 ? (
-              <div className="py-10 text-center text-ink-muted text-[13px]">No campaigns match your search/filter.</div>
+              <EmptyState title="No campaigns found" description="Try adjusting your filters or search." />
             ) : (
               paged.map(c => (
                 <div key={c.id} className="rounded-2xl bg-base-surface/60 border-none shadow-xl backdrop-blur-xl p-4">

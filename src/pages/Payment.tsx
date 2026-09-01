@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import QRCode from "react-qr-code";
 import { ArrowRight, BadgeCheck, Building2, Check, ChevronDown, Copy, CreditCard, FileUp, Headphones, Landmark, Loader2, LockKeyhole, QrCode, ShieldCheck, Sparkles } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -63,6 +63,14 @@ export default function Payment() {
   const { session, loading, operationalAccess, subscriptionStatus } = useAuth();
   const navigate = useNavigate();
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "checkout";
+  const [searchParams] = useSearchParams();
+  // Renew/upgrade intent from the Billing Center. Maps to the request_type the
+  // backend stores on the payment request.
+  const intentParam = searchParams.get("intent");
+  const intentPlan = searchParams.get("plan");
+  const intentCycle = searchParams.get("cycle") === "annual" ? "annual" : "monthly";
+  const requestType = intentParam === "renew" ? "renewal" : intentParam === "upgrade" ? "upgrade" : "initial_activation";
+  const isRenewalIntent = requestType !== "initial_activation";
   const [request, setRequest] = useState<PaymentRequest | null>(null);
   const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
   const [checkout, setCheckout] = useState<CheckoutSettings>(checkoutDefaults);
@@ -102,20 +110,33 @@ export default function Payment() {
       setCheckout(loadedSettings);
       const loadedRequest = requestResult.data as PaymentRequest | null;
       setRequest(loadedRequest);
-      const preferredPlan = loadedRequest?.requested_plan_id && plans.some((plan) => plan.id === loadedRequest.requested_plan_id || plan.code === loadedRequest.requested_plan_id) ? (plans.find((plan) => plan.id === loadedRequest.requested_plan_id || plan.code === loadedRequest.requested_plan_id)?.code ?? loadedSettings.default_plan) : loadedSettings.default_plan;
+      // Plan/cycle priority: an existing draft request (server already locked
+      // its plan) > explicit renew/upgrade intent from Billing > admin default.
+      const draftRequest = loadedRequest && String(loadedRequest.status || "").toLowerCase() === "unpaid" ? loadedRequest : null;
+      const intentPlanCode = intentPlan && plans.some((plan) => plan.code === intentPlan) ? intentPlan : null;
+      const requestPlanCode = draftRequest && plans.some((plan) => plan.id === draftRequest.requested_plan_id || plan.code === draftRequest.requested_plan_id)
+        ? plans.find((plan) => plan.id === draftRequest.requested_plan_id || plan.code === draftRequest.requested_plan_id)?.code
+        : null;
+      const preferredPlan = requestPlanCode ?? intentPlanCode ?? loadedSettings.default_plan;
       setSelectedPlan(preferredPlan as PlanTier);
-      setBilling(loadedRequest?.billing_cycle ? (["annual", "yearly"].includes(loadedRequest.billing_cycle.toLowerCase()) ? "yearly" : "monthly") : loadedSettings.default_billing);
+      const preferredCycle = draftRequest?.billing_cycle
+        ? (["annual", "yearly"].includes(draftRequest.billing_cycle.toLowerCase()) ? "yearly" : "monthly")
+        : intentPlanCode
+          ? (intentCycle === "annual" ? "yearly" : "monthly")
+          : loadedSettings.default_billing;
+      setBilling(preferredCycle);
       const availableMethods = (methodsResult.data as PaymentMethod[]) || [];
       setMethods(availableMethods);
       setSelectedMethod(loadedRequest?.payment_method || availableMethods[0]?.slug || "");
     }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
-  }, [plans, previewMode, session?.user.id]);
+  }, [plans, previewMode, session?.user.id, intentPlan, intentCycle]);
 
   if (loading) return <Screen><Loader2 className="h-7 w-7 animate-spin text-[#e73773]" /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
   if (busy) return <Screen><Loader2 className="h-7 w-7 animate-spin text-[#e73773]" /></Screen>;
-  if (operationalAccess) return <Navigate to="/dashboard" replace />;
+  // Active subscribers land here only through an explicit renew/upgrade intent.
+  if (operationalAccess && !isRenewalIntent) return <Navigate to="/dashboard" replace />;
 
   const requestStatus = String(request?.status || "").toLowerCase();
   if (request && ["submitted", "reviewing", "under_review", "pending_payment", "awaiting_review", "awaiting_verification"].includes(requestStatus)) return <Navigate to="/waiting-verification" replace />;
@@ -134,7 +155,7 @@ export default function Payment() {
   const createRequest = async () => {
     if (!session) { setNotice("Checkout preview only. Sign in to create a real payment request."); return; }
     setSaving(true); setError(""); setNotice("");
-    const { error: requestError } = await supabase.rpc("create_subscription_payment_request_v1", { p_plan_code: selectedPlan, p_billing_cycle: billing === "yearly" ? "annual" : "monthly", p_request_type: "initial_activation", p_payment_method: selectedMethodData?.slug || "bank_transfer", p_transaction_reference: null, p_user_note: "Created from unified payment checkout" });
+    const { error: requestError } = await supabase.rpc("create_subscription_payment_request_v1", { p_plan_code: selectedPlan, p_billing_cycle: billing === "yearly" ? "annual" : "monthly", p_request_type: requestType, p_payment_method: selectedMethodData?.slug || "bank_transfer", p_transaction_reference: null, p_user_note: requestType === "renewal" ? "Subscription renewal from Billing Center" : requestType === "upgrade" ? "Plan upgrade from Billing Center" : "Created from unified payment checkout" });
     if (requestError && !requestError.message.includes("PAYMENT_REQUEST_ALREADY_UNDER_REVIEW")) { setError(requestError.message); setSaving(false); return; }
     const { data: latestRequest, error: fetchError } = await supabase.from("subscription_payment_requests").select("id,reference,requested_plan_id,billing_cycle,expected_amount_mad,currency,payment_method,transaction_reference,proof_path,proof_mime_type,status,admin_note,submitted_at,created_at").eq("owner_user_id", session.user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (fetchError) setError(fetchError.message); else { setRequest((latestRequest as PaymentRequest | null) ?? null); setNotice("Plan reserved. Add your transfer reference and receipt, then submit for verification."); }
@@ -175,7 +196,7 @@ export default function Payment() {
     } catch (receiptError) {
       console.warn("[Payment] Automatic receipt download failed", receiptError);
     }
-    navigate("/waiting-verification", { replace: true });
+    navigate(isRenewalIntent ? "/waiting-verification?intent=renew" : "/waiting-verification", { replace: true });
   };
 
   const submitCheckout = async (event: FormEvent<HTMLFormElement>) => {

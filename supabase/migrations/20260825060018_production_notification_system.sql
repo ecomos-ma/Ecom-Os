@@ -598,7 +598,7 @@ begin
   safe_title := private.notification_safe_text(coalesce(p_payload->>'title', event_row.default_title), 180);
   safe_message := private.notification_safe_text(coalesce(p_payload->>'message', event_row.default_title), 600);
   safe_action := case when coalesce(p_payload->>'action_url','') ~ '^/[A-Za-z0-9/_?=&.%:-]*$' and p_payload->>'action_url' not like '//%' then p_payload->>'action_url' else null end;
-  effective_dedupe := coalesce(nullif(p_dedupe_key,''), p_event_key || ':' || p_workspace_id::text || ':' || coalesce(p_related_entity_id::text, encode(gen_random_bytes(12), 'hex')));
+  effective_dedupe := coalesce(nullif(p_dedupe_key,''), p_event_key || ':' || p_workspace_id::text || ':' || coalesce(p_related_entity_id::text, encode(extensions.gen_random_bytes(12), 'hex')));
   if event_row.dedupe_strategy = 'source_event' and nullif(p_source_event_id, '') is not null then
     effective_dedupe := effective_dedupe || ':source:' || p_source_event_id;
   elsif event_row.dedupe_strategy in ('entity_window','failure_window') and event_row.cooldown_seconds > 0 then

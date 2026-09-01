@@ -6,7 +6,7 @@ import { disconnectForceLog, getForceLogStatus, saveForceLogKey, testForceLogCon
 
 const EMPTY_STATUS: ForceLogStatus = { connected: false, key_last4: null, last_tested_at: null, last_test_status: null };
 
-export default function ForceLogShippingIntegrationCard() {
+export default function ForceLogShippingIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace } = useAuth();
   const [status, setStatus] = useState<ForceLogStatus>(EMPTY_STATUS);
   const [open, setOpen] = useState(false);
@@ -22,6 +22,11 @@ export default function ForceLogShippingIntegrationCard() {
   };
 
   useEffect(() => { void loadStatus(); }, [workspace?.id]);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(status.connected);
+  }, [status.connected, onConnectionChange]);
 
   const save = async () => {
     if (!workspace?.id || !apiKey.trim()) return;

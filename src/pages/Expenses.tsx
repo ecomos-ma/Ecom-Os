@@ -19,10 +19,13 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
 import { Modal } from "../components/Modal";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { useBusinessConfig } from "../hooks/useBusinessConfig";
+import { reportError } from "../lib/errorHandling";
+import { toast } from "../components/Toast";
 import { useCostRules } from "../hooks/useCostRules";
 import { useAffiliateCosts } from "../hooks/useAffiliateCosts";
 import { calculateWorkspaceProfit } from "../lib/metrics";
@@ -230,7 +233,8 @@ export default function Expenses() {
         oneOffExpenses: oneOffTotal,
       });
     } catch (err) {
-      console.error("P&L compute error:", err);
+      const safe = await reportError(err, "finance.expenses", { workspace_id: workspace?.id, action: "compute_pnl" });
+      toast.error(safe.userMessage);
     } finally {
       setPnlLoading(false);
     }
@@ -364,8 +368,8 @@ export default function Expenses() {
               </button>
             </div>
             {skuCostsList.length === 0 ? (
-              <div className="text-[12px] text-ink-muted py-6 text-center">
-                No SKU product costs configured.
+              <div className="py-8">
+                <EmptyState title="No SKU costs configured" description="Add specific product costs to accurately calculate profit margins." compact />
               </div>
             ) : (
               <div className="rounded-lg border border-base-border overflow-hidden mt-4">
@@ -442,7 +446,7 @@ export default function Expenses() {
               </div>
             </article>
           ))}
-          {!rules.length && <p className="py-6 text-center text-sm text-ink-muted">No fees configured.</p>}
+          {!rules.length && <div className="py-8"><EmptyState title="No fees configured" description="Add your operational fees to calculate net profit." compact /></div>}
         </div>
 
         <table className="hidden w-full text-[12.5px] md:table">
@@ -510,8 +514,10 @@ export default function Expenses() {
             ))}
             {rules.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-[12.5px] text-ink-muted">
-                  No fees configured. Click "Add Fee" to get started.
+                <td colSpan={5}>
+                  <div className="py-12">
+                    <EmptyState title="No fees configured" description={'Click "Add Fee" to define an operational deduction.'} />
+                  </div>
                 </td>
               </tr>
             )}
@@ -546,7 +552,7 @@ export default function Expenses() {
                   <button type="button" onClick={async () => { await supabase.from("expenses").delete().eq("id", expense.id); loadExpenses(); computePnl(); }} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-danger/15 text-xs font-bold text-danger"><Trash2 size={14} /> Delete expense</button>
                 </article>
               ))}
-              {!expenses.length && <p className="py-6 text-center text-sm text-ink-muted">No one-off expenses in this period.</p>}
+              {!expenses.length && <div className="py-8"><EmptyState title="No expenses recorded" description="One-off expenses for this period will appear here." compact /></div>}
             </div>
             <table className="hidden w-full min-w-[500px] text-[12.5px] md:table">
               <thead>
@@ -585,8 +591,10 @@ export default function Expenses() {
                 ))}
                 {expenses.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-[12.5px] text-ink-muted">
-                      No one-off expenses recorded in this period.
+                    <td colSpan={5}>
+                      <div className="py-12">
+                        <EmptyState title="No one-off expenses" description="No one-off expenses recorded in this period." />
+                      </div>
                     </td>
                   </tr>
                 )}

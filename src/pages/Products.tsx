@@ -78,7 +78,27 @@ export default function Products() {
         }
       />
 
-      <div className="hidden md:block overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-card">
+      {!loading && products.length === 0 ? (
+        <div className="py-12 md:py-24">
+          <EmptyState
+            title="No products yet"
+            description="Add your products to manage inventory, costs and order fulfillment."
+            primaryAction={
+              <button
+                onClick={() => {
+                  setEditingProduct(null);
+                  setShowModal(true);
+                }}
+                className="flex items-center gap-1.5 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-medium text-white hover:bg-brand/90"
+              >
+                <Plus size={14} /> Add Product
+              </button>
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div className="hidden md:block overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-card">
         <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-base-border text-left text-[12px] text-ink-muted">
@@ -96,15 +116,6 @@ export default function Products() {
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-ink-muted">
                   Loading…
-                </td>
-              </tr>
-            ) : products.length === 0 ? (
-              <tr>
-                <td colSpan={7}>
-                  <EmptyState
-                    title="No products"
-                    subtitle="Add your products to track stock and margins."
-                  />
                 </td>
               </tr>
             ) : (
@@ -169,8 +180,6 @@ export default function Products() {
               </div>
             </div>
           ))
-        ) : products.length === 0 ? (
-          <EmptyState title="No products" subtitle="Add your products to track stock and margins." />
         ) : (
           products.map((p) => (
             <div
@@ -221,6 +230,9 @@ export default function Products() {
           ))
         )}
       </div>
+
+        </>
+      )}
 
       {showModal && (
         <ProductModal

@@ -1,156 +1,237 @@
-// deno-lint-ignore-file no-explicit-any
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.111.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const allowedOrigins = new Set([
+  "https://ecomscale.vercel.app",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+]);
 
-// This function handles both flows:
-// 1. GET - YouCan redirects the browser here with ?code=...&state=...
-// 2. POST - Frontend OAuthCallback calls this with { code, state } in JSON body
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+function headers(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin") ?? "";
+  return {
+    ...(allowedOrigins.has(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Content-Type": "application/json",
+    "Vary": "Origin",
+  };
+}
+
+function required(name: string): string {
+  const value = Deno.env.get(name)?.trim();
+  if (!value) throw new Error("service_not_configured");
+  return value;
+}
+
+async function hmac(payload: string, secret: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload)));
+}
+
+function hexBytes(value: string): Uint8Array | null {
+  if (!/^[0-9a-f]{64}$/i.test(value)) return null;
+  return new Uint8Array(value.match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)));
+}
+
+function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
+  return difference === 0;
+}
+
+async function verifyState(state: string): Promise<{ workspaceId: string; userId: string }> {
+  const parts = state.split(":");
+  if (parts.length !== 4) throw new Error("invalid_oauth_state");
+  const [timestampValue, workspaceId, userId, signature] = parts;
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId) || !/^[0-9a-f-]{36}$/i.test(userId)) {
+    throw new Error("invalid_oauth_state");
+  }
+  const timestamp = Number(timestampValue);
+  if (!Number.isFinite(timestamp) || Math.abs(Date.now() - timestamp) > 10 * 60 * 1000) {
+    throw new Error("expired_oauth_state");
+  }
+  const received = hexBytes(signature);
+  const expected = await hmac(`${timestampValue}:${workspaceId}:${userId}`, required("STATE_SIGNING_SECRET"));
+  if (!received || !constantTimeEqual(received, expected)) throw new Error("invalid_oauth_state");
+  return { workspaceId, userId };
+}
+
+function randomSecret(): string {
+  const value = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(value).map((part) => part.toString(16).padStart(2, "0")).join("");
+}
+
+async function providerDeleteWebhook(accessToken: string | null, webhookId: string | null): Promise<void> {
+  if (!accessToken || !webhookId) return;
+  try {
+    await fetch(`https://api.youcan.shop/resthooks/${encodeURIComponent(webhookId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Local revocation remains authoritative even if provider cleanup is unavailable.
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: headers(req) });
+  const isBrowserRedirect = req.method === "GET";
+  if (!isBrowserRedirect && req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: headers(req) });
+  }
 
   try {
-    let code: string | null = null;
-    let state: string | null = null;
-
-    if (req.method === "GET") {
+    let code: string | null;
+    let state: string | null;
+    if (isBrowserRedirect) {
       const url = new URL(req.url);
       code = url.searchParams.get("code");
       state = url.searchParams.get("state");
-    } else if (req.method === "POST") {
-      const body = await req.json().catch(() => ({}));
-      code = body.code ?? null;
-      state = body.state ?? null;
     } else {
-      return new Response(JSON.stringify({ error: "Method not allowed" }), {
-        status: 405,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const body = await req.json().catch(() => ({}));
+      code = typeof body.code === "string" ? body.code : null;
+      state = typeof body.state === "string" ? body.state : null;
+    }
+    if (!code || !state) throw new Error("missing_oauth_parameters");
+    const { workspaceId, userId } = await verifyState(state);
+
+    const supabaseUrl = required("SUPABASE_URL");
+    const client = createClient(supabaseUrl, required("SUPABASE_SERVICE_ROLE_KEY"), {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const [{ data: membership }, { data: access }, { data: owner }, { data: previous }] = await Promise.all([
+      client.from("profile_workspaces").select("status").eq("profile_id", userId).eq("workspace_id", workspaceId).maybeSingle(),
+      client.rpc("resolve_workspace_access_v1", { p_user_id: userId, p_workspace_id: workspaceId }),
+      client.from("workspace_subscription_owners").select("owner_user_id").eq("workspace_id", workspaceId).maybeSingle(),
+      client.from("integrations").select("id, access_token, webhook_id").eq("workspace_id", workspaceId).eq("provider", "youcan").maybeSingle(),
+    ]);
+    if (membership?.status !== "active" || !access?.allowed || !owner?.owner_user_id) {
+      throw new Error("workspace_access_denied");
     }
 
-    if (!code || !state) {
-      throw new Error(`Missing code or state. code=${code}, state=${state}`);
-    }
-
-    // State format: "${timestamp}:${workspaceId}:${hmacSignature}"
-    // Generated by youcan-generate-state edge function
-    const stateParts = state.split(":");
-    if (stateParts.length < 2) {
-      throw new Error(`Invalid state format: ${state}`);
-    }
-    const workspaceId = stateParts[1]; // index 0 = timestamp, index 1 = workspaceId, index 2 = signature
-    console.log(`[YouCan OAuth] Parsed workspaceId: ${workspaceId} from state: ${state.substring(0, 40)}...`);
-
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-    // Verify workspace exists
-    const { data: workspace, error: workspaceError } = await supabase
-      .from("workspaces")
-      .select("id")
-      .eq("id", workspaceId)
-      .single();
-
-    if (workspaceError || !workspace) {
-      throw new Error(`Workspace not found: ${workspaceId}`);
-    }
-
-    const YOUCAN_CLIENT_ID = Deno.env.get("YOUCAN_CLIENT_ID");
-    const YOUCAN_CLIENT_SECRET = Deno.env.get("YOUCAN_CLIENT_SECRET");
-    const YOUCAN_REDIRECT_URI = Deno.env.get("YOUCAN_REDIRECT_URI");
-
-    console.log(
-      `[YouCan OAuth] method=${req.method} ` +
-      `client_id set: ${!!YOUCAN_CLIENT_ID} (len=${YOUCAN_CLIENT_ID?.length}), ` +
-      `secret set: ${!!YOUCAN_CLIENT_SECRET} (len=${YOUCAN_CLIENT_SECRET?.length}), ` +
-      `redirect_uri: ${YOUCAN_REDIRECT_URI}`
-    );
-
-    if (!YOUCAN_CLIENT_ID || !YOUCAN_CLIENT_SECRET) {
-      throw new Error("YOUCAN_CLIENT_ID / YOUCAN_CLIENT_SECRET not configured in Supabase secrets");
-    }
-    if (!YOUCAN_REDIRECT_URI) {
-      throw new Error("YOUCAN_REDIRECT_URI not configured in Supabase secrets");
-    }
-
-    // Exchange code for token
-    const tokenRes = await fetch("https://api.youcan.shop/oauth/token", {
+    const tokenResponse = await fetch("https://api.youcan.shop/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        client_id: YOUCAN_CLIENT_ID,
-        client_secret: YOUCAN_CLIENT_SECRET,
-        redirect_uri: YOUCAN_REDIRECT_URI,
+        client_id: required("YOUCAN_CLIENT_ID"),
+        client_secret: required("YOUCAN_CLIENT_SECRET"),
+        redirect_uri: required("YOUCAN_REDIRECT_URI"),
         code,
       }),
+      signal: AbortSignal.timeout(20_000),
     });
+    if (!tokenResponse.ok) throw new Error("provider_token_exchange_failed");
+    const token = await tokenResponse.json();
+    if (!token?.access_token) throw new Error("provider_token_response_invalid");
 
-    const responseText = await tokenRes.text();
-    console.log(
-      `[YouCan OAuth] Token exchange status: ${tokenRes.status}, body: ${responseText.substring(0, 500)}`
-    );
+    const storeResponse = await fetch("https://api.youcan.shop/me", {
+      headers: { Authorization: `Bearer ${token.access_token}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!storeResponse.ok) throw new Error("provider_store_identity_failed");
+    const store = await storeResponse.json();
+    const externalStoreId = String(store?.store_id ?? store?.id ?? "").trim();
+    if (!externalStoreId) throw new Error("provider_store_identity_invalid");
 
-    if (!tokenRes.ok) {
-      throw new Error(`YouCan API error (${tokenRes.status}): ${responseText}`);
-    }
+    await providerDeleteWebhook(previous?.access_token ?? null, previous?.webhook_id ?? null);
+    const expiresAt = token.expires_in
+      ? new Date(Date.now() + Number(token.expires_in) * 1000).toISOString()
+      : null;
+    const webhookSecret = randomSecret();
 
-    let token: any;
-    try {
-      token = JSON.parse(responseText);
-    } catch {
-      throw new Error(`Invalid JSON from YouCan (${tokenRes.status}): ${responseText.substring(0, 500)}`);
-    }
+    const { data: integration, error: integrationError } = await client.from("integrations").upsert({
+      user_id: owner.owner_user_id,
+      workspace_id: workspaceId,
+      provider: "youcan",
+      access_token: token.access_token,
+      refresh_token: token.refresh_token ?? null,
+      expires_at: expiresAt,
+      status: "active",
+      external_store_id: externalStoreId,
+      store_name: String(store?.name ?? store?.slug ?? "YouCan Store"),
+      webhook_id: null,
+      webhook_secret: webhookSecret,
+      connected_at: new Date().toISOString(),
+      disconnected_at: null,
+      meta: { store_slug: store?.slug ?? null, store_domain: store?.domain ?? null },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "workspace_id,provider" }).select("id").single();
+    if (integrationError || !integration?.id) throw new Error("integration_persistence_failed");
 
-    // Calculate expiration time
-    const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
-
-    // Store tokens
-    const { error: updateError } = await supabase
-      .from("workspaces")
-      .update({
+    await Promise.all([
+      client.from("workspaces").update({
         youcan_access_token: token.access_token,
-        youcan_refresh_token: token.refresh_token,
+        youcan_refresh_token: token.refresh_token ?? null,
         youcan_token_expires_at: expiresAt,
-      })
-      .eq("id", workspaceId);
+        youcan_webhook_id: null,
+      }).eq("id", workspaceId),
+      client.from("youcan_tokens").upsert({
+        workspace_id: workspaceId,
+        access_token: token.access_token,
+        refresh_token: token.refresh_token ?? null,
+        expires_at: expiresAt,
+        is_connected: true,
+        connected_at: new Date().toISOString(),
+        disconnected_at: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "workspace_id" }),
+      client.from("integration_sync_state").upsert({
+        workspace_id: workspaceId,
+        provider: "youcan",
+        enabled: true,
+        consecutive_failures: 0,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "workspace_id,provider" }),
+    ]);
 
-    if (updateError) {
-      throw new Error(`Failed to store tokens: ${updateError.message}`);
-    }
-
-    // For GET (browser redirect from YouCan), redirect to the app settings page
-    if (req.method === "GET") {
-      const FRONTEND_URL = Deno.env.get("FRONTEND_URL") || "https://ecomscale.vercel.app";
-      return Response.redirect(`${FRONTEND_URL}/settings?tab=integrations&youcan=success`, 302);
-    }
-
-    // For POST (called from frontend OAuthCallback), return JSON
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const targetUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/youcan-webhook?integration_id=${encodeURIComponent(integration.id)}&token=${encodeURIComponent(webhookSecret)}`;
+    const hookResponse = await fetch("https://api.youcan.shop/resthooks/subscribe", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token.access_token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ target_url: targetUrl, event: "order.created" }),
+      signal: AbortSignal.timeout(15_000),
     });
-
-  } catch (err: any) {
-    console.error("[YouCan OAuth] Error:", err.message);
-
-    // For GET requests (browser), redirect to settings with error info
-    if (req.method === "GET") {
-      const FRONTEND_URL = Deno.env.get("FRONTEND_URL") || "https://ecomscale.vercel.app";
-      const encodedError = encodeURIComponent(err.message.substring(0, 200));
-      return Response.redirect(
-        `${FRONTEND_URL}/settings?tab=integrations&youcan=error&details=${encodedError}`,
-        302
-      );
+    let webhookId: string | null = null;
+    if (hookResponse.ok) {
+      const hook = await hookResponse.json().catch(() => ({}));
+      webhookId = String(hook?.id ?? hook?.hook_id ?? hook?.webhook_id ?? hook?.data?.id ?? "").trim() || null;
+      if (webhookId) {
+        await Promise.all([
+          client.from("integrations").update({ webhook_id: webhookId }).eq("id", integration.id),
+          client.from("workspaces").update({ youcan_webhook_id: webhookId }).eq("id", workspaceId),
+        ]);
+      }
+    } else {
+      console.error("[YouCan OAuth] webhook_registration_failed", hookResponse.status);
     }
 
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    if (isBrowserRedirect) {
+      const frontend = Deno.env.get("FRONTEND_URL")?.trim() || "https://ecomscale.vercel.app";
+      return Response.redirect(`${frontend}/settings?tab=integrations&youcan=success`, 302);
+    }
+    return new Response(JSON.stringify({ success: true, webhook_registered: Boolean(webhookId) }), { headers: headers(req) });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "connection_failed";
+    console.error("[YouCan OAuth]", reason);
+    if (isBrowserRedirect) {
+      const frontend = Deno.env.get("FRONTEND_URL")?.trim() || "https://ecomscale.vercel.app";
+      return Response.redirect(`${frontend}/settings?tab=integrations&youcan=error&details=connection_failed`, 302);
+    }
+    return new Response(JSON.stringify({ error: "YouCan connection failed" }), { status: 400, headers: headers(req) });
   }
 });

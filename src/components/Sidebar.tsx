@@ -18,6 +18,7 @@ import {
   Wallet,
   Settings as SettingsIcon,
   Shield,
+  AlertTriangle,
   Building2,
   CreditCard,
   ScrollText,
@@ -78,6 +79,7 @@ const adminGroups: NavGroup[] = [
     labelKey: "navigation.founder",
     links: [
       { to: "/admin", labelKey: "navigation.founderConsole", icon: Shield },
+      { to: "/admin/errors", labelKey: "navigation.founderConsole", icon: AlertTriangle },
     ],
   },
 ];

@@ -4,7 +4,7 @@ import { getIntegrationLogo } from "../../../lib/integrationLogos";
 import { useAuth } from "../../../hooks/useAuth";
 import { supabase } from "../../../lib/supabase";
 
-function ColiatyShippingIntegrationCard() {
+function ColiatyShippingIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [isColiatyModalOpen, setIsColiatyModalOpen] = useState(false);
   const [publicKey, setPublicKey] = useState("");
@@ -112,7 +112,12 @@ function ColiatyShippingIntegrationCard() {
     }
   };
 
-  const isConnected = workspace?.coliaty_enabled && workspace?.coliaty_public_key && workspace?.coliaty_secret_key;
+  const isConnected = Boolean(workspace?.coliaty_enabled && workspace?.coliaty_public_key && workspace?.coliaty_secret_key);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(isConnected);
+  }, [isConnected, onConnectionChange]);
 
   return (
     <>

@@ -322,6 +322,23 @@ serve(async (req) => {
       });
     }
 
+    const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+    const { data: authData, error: authError } = await supabase.auth.getUser(bearer);
+    if (authError || !authData.user) {
+      return new Response(JSON.stringify({ error: "Authentication required" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: access, error: accessError } = await supabase.rpc("resolve_workspace_access_v1", {
+      p_user_id: authData.user.id,
+      p_workspace_id: workspace_id,
+    });
+    if (accessError || !access?.allowed) {
+      return new Response(JSON.stringify({ error: "Workspace access denied" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     console.log("Getting web_app_url and mappings from credentials");
     // Get web_app_url and mappings from credentials
     const { data: credentials, error: credError } = await supabase

@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef, memo } from "react";
 import { CheckCircle2, MoreHorizontal } from "lucide-react";
 import { getIntegrationLogo } from "../../../lib/integrationLogos";
 import { supabase } from "../../../lib/supabase";
@@ -7,28 +7,41 @@ import WhatsAppSettingsModal from "./WhatsAppSettingsModal";
 import { toast } from "../../../components/Toast";
 import { disconnectWhatsApp } from "../../../services/whatsappWorkerService";
 
-export default function WhatsAppIntegrationCard() {
+function WhatsAppIntegrationCard() {
     const { workspace } = useAuth();
     const [loading, setLoading] = useState(true);
     const [settings, setSettings] = useState<any>(null);
+    const [refreshError, setRefreshError] = useState(false);
     const [isManageOpen, setIsManageOpen] = useState(false);
+    const requestRef = useRef<Promise<void> | null>(null);
 
     const loadSettings = useCallback(async () => {
-        if (!workspace) return;
-        try {
-            const { data, error } = await supabase
-                .from("whatsapp_settings")
-                .select("*")
-                .eq("workspace_id", workspace.id)
-                .maybeSingle();
-            if (error) throw error;
-            if (data) setSettings(data);
-        } catch (e) {
-            console.error("Error loading WhatsApp config:", e);
-        } finally {
-            setLoading(false);
-        }
-    }, [workspace]);
+        const workspaceId = workspace?.id;
+        if (!workspaceId) return;
+        if (requestRef.current) return requestRef.current;
+
+        const request = (async () => {
+            try {
+                const { data, error } = await supabase
+                    .from("whatsapp_settings")
+                    .select("*")
+                    .eq("workspace_id", workspaceId)
+                    .maybeSingle();
+                if (error) throw error;
+                if (data) setSettings(data);
+                setRefreshError(false);
+            } catch (e) {
+                console.error("Error loading WhatsApp config:", e);
+                setRefreshError(true);
+            } finally {
+                setLoading(false);
+                requestRef.current = null;
+            }
+        })();
+
+        requestRef.current = request;
+        return request;
+    }, [workspace?.id]);
 
     useEffect(() => {
         let sub: any;
@@ -48,7 +61,7 @@ export default function WhatsAppIntegrationCard() {
         return () => {
             if (sub) { supabase.removeChannel(sub); }
         };
-    }, [loadSettings, workspace]);
+    }, [loadSettings, workspace?.id]);
 
     const isConnected = ["ready", "authenticated", "connected"].includes(String(settings?.connection_status || ""));
 
@@ -66,7 +79,7 @@ export default function WhatsAppIntegrationCard() {
 
     return (
         <>
-            <div className="group relative flex flex-col h-full overflow-hidden rounded-[24px] border border-base-border bg-base-surface p-6 shadow-sm shadow-black/[0.02] hover:scale-[1.02] hover:shadow-md transition-all duration-150">
+            <div className="group relative flex min-h-[274px] flex-col h-full overflow-hidden rounded-[24px] border border-base-border bg-base-surface p-6 shadow-sm shadow-black/[0.02] hover:scale-[1.02] hover:shadow-md transition-all duration-150">
                 <div className="absolute right-4 top-4">
                     <button className="text-ink-faint hover:text-ink transition-colors"><MoreHorizontal size={18} /></button>
                 </div>
@@ -100,6 +113,13 @@ export default function WhatsAppIntegrationCard() {
                 </div>
 
                 <div className="mt-auto border-t border-base-border/60 pt-4">
+                    <div className="mb-2 h-[16px]">
+                        {refreshError && !loading && (
+                            <button onClick={() => void loadSettings()} className="text-left text-[11px] leading-4 text-ink-muted hover:text-brand transition-colors">
+                                Status refresh failed. Retry
+                            </button>
+                        )}
+                    </div>
                     {loading ? (
                         <div className="h-[38px] w-full animate-pulse rounded-xl bg-base-raised" />
                     ) : isConnected ? (
@@ -138,3 +158,5 @@ export default function WhatsAppIntegrationCard() {
         </>
     );
 }
+
+export default memo(WhatsAppIntegrationCard);

@@ -133,7 +133,7 @@ export class SupabaseWhatsAppRepository {
   }
 
   async processInbound(message) {
-    const res = await result(this.client.rpc("process_whatsapp_inbound", {
+    const parameters = {
       p_workspace_id: message.workspaceId,
       p_provider_event_id: message.providerEventId,
       p_remote_jid: message.remoteJid,
@@ -142,6 +142,11 @@ export class SupabaseWhatsAppRepository {
       p_quoted_message_id: message.quotedMessageId || null,
       p_received_at: message.receivedAt,
       p_raw_payload: message.rawPayload || {},
+    };
+    const extended = await result(this.client.rpc("process_whatsapp_extended_reply_action", parameters), "Process extended WhatsApp Reply Action");
+    if (extended.data?.handled) return extended.data;
+    const res = await result(this.client.rpc("process_whatsapp_inbound", {
+      ...parameters,
     }), "Process inbound WhatsApp message");
     // RPC returns jsonb; Supabase parses it automatically
     return res.data;
@@ -154,6 +159,111 @@ export class SupabaseWhatsAppRepository {
       result(this.client.from("workspaces").select("id,name").eq("id", workspaceId).maybeSingle(), "Load inbound reply workspace"),
     ]);
     return { order: order.data, workspace: workspace.data };
+  }
+
+  async loadAiContext(workspaceId, orderId, phone) {
+    let orderQuery = this.client.from("orders").select("*").eq("workspace_id", workspaceId);
+    orderQuery = orderId
+      ? orderQuery.eq("Order ID", orderId).maybeSingle()
+      : orderQuery.order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+    const [aiSettings, order, workspace, replyActions, statuses, messages] = await Promise.all([
+      result(this.client.from("whatsapp_ai_settings").select("*").eq("workspace_id", workspaceId).maybeSingle(), "Load WhatsApp AI settings"),
+      result(orderQuery, "Load WhatsApp AI order"),
+      result(this.client.from("workspaces").select("id,name,business_delivery_fee,carrier").eq("id", workspaceId).maybeSingle(), "Load WhatsApp AI workspace"),
+      result(this.client.from("whatsapp_reply_actions").select("id,name,action_type,target_status,keywords,response_template,priority").eq("workspace_id", workspaceId).eq("enabled", true).order("priority"), "Load WhatsApp AI reply actions"),
+      result(this.client.from("order_statuses").select("id,name,slug").eq("workspace_id", workspaceId).order("position"), "Load WhatsApp AI statuses"),
+      result(this.client.from("whatsapp_messages").select("direction,body,message_type,created_at").eq("workspace_id", workspaceId).eq("normalized_phone", normalizePhoneForQuery(phone)).order("created_at", { ascending: false }).limit(12), "Load WhatsApp AI conversation"),
+    ]);
+
+    const selectedOrder = order.data || null;
+    const items = selectedOrder
+      ? (await result(this.client.from("order_items").select("*").eq("workspace_id", workspaceId).eq("order_id", selectedOrder["Order ID"]), "Load WhatsApp AI order items")).data || []
+      : [];
+    const productIds = [...new Set(items.map((item) => item.product_id).filter(Boolean))];
+    const [products, variants] = productIds.length
+      ? await Promise.all([
+        result(this.client.from("products").select("id,name,sku,price,stock,status,description").eq("workspace_id", workspaceId).in("id", productIds), "Load WhatsApp AI products"),
+        result(this.client.from("product_variants").select("id,product_id,variant_name,variant_type,variant_value,sku,price,stock,is_active").eq("workspace_id", workspaceId).in("product_id", productIds).eq("is_active", true), "Load WhatsApp AI variants"),
+      ])
+      : [{ data: [] }, { data: [] }];
+
+    return {
+      aiSettings: aiSettings.data,
+      order: selectedOrder,
+      workspace: workspace.data,
+      replyActions: replyActions.data || [],
+      statuses: statuses.data || [],
+      messages: (messages.data || []).reverse(),
+      items,
+      products: products.data || [],
+      variants: variants.data || [],
+    };
+  }
+
+  async listAiProviders() {
+    const now = new Date().toISOString();
+    return (await result(this.client.from("tool_api_providers")
+      .select("id,name,endpoint,credential_ciphertext,credential_iv,priority,health_status,cooldown_until,last_used_at")
+      .eq("provider", "gemini")
+      .eq("enabled", true)
+      .or(`cooldown_until.is.null,cooldown_until.lt.${now}`)
+      .order("priority", { ascending: true })
+      .order("last_used_at", { ascending: true, nullsFirst: true }), "Load WhatsApp AI providers")).data || [];
+  }
+
+  async listAiProviderAvailability() {
+    return (await result(this.client.from("tool_api_providers")
+      .select("id,enabled,health_status,cooldown_until")
+      .eq("provider", "gemini"), "Load WhatsApp AI provider availability")).data || [];
+  }
+
+  async recordAiProviderResult(providerId, values) {
+    const now = new Date().toISOString();
+    const current = await result(this.client.from("tool_api_providers").select("failure_count").eq("id", providerId).maybeSingle(), "Load AI provider health");
+    const failureCount = values.success ? 0 : Number(current.data?.failure_count || 0) + 1;
+    const cooldownSeconds = values.cooldownSeconds == null ? 30 : Math.max(0, Number(values.cooldownSeconds));
+    const cooldownUntil = values.success ? null : new Date(Date.now() + cooldownSeconds * 1000).toISOString();
+    await Promise.all([
+      result(this.client.from("tool_api_providers").update({
+        failure_count: failureCount,
+        health_status: values.success ? "healthy" : values.terminal ? "unhealthy" : "cooldown",
+        last_error: values.success ? null : values.error || "Provider request failed",
+        cooldown_until: cooldownUntil,
+        last_used_at: now,
+        ...(values.success ? { last_success_at: now } : { last_failure_at: now }),
+      }).eq("id", providerId), "Update WhatsApp AI provider health"),
+      result(this.client.from("tool_api_usage_logs").insert({
+        provider_id: providerId,
+        workspace_id: values.workspaceId,
+        action: values.action || "whatsapp_ai_inbound",
+        success: Boolean(values.success),
+        duration_ms: values.durationMs || null,
+        error_message: values.success ? null : values.error || "Provider request failed",
+      }), "Log WhatsApp AI provider use"),
+    ]);
+  }
+
+  async executeAiAction(values) {
+    return (await result(this.client.rpc("execute_whatsapp_ai_action", {
+      p_workspace_id: values.workspaceId,
+      p_order_id: values.orderId,
+      p_provider_event_id: values.providerEventId,
+      p_inbound_message_id: values.inboundMessageId,
+      p_decision: values.decision,
+    }), "Execute validated WhatsApp AI action")).data;
+  }
+
+  async executeAiHandoff(values) {
+    return (await result(this.client.rpc("execute_whatsapp_ai_handoff", {
+      p_workspace_id: values.workspaceId,
+      p_order_id: values.orderId,
+      p_provider_event_id: values.providerEventId,
+      p_inbound_message_id: values.inboundMessageId || null,
+      p_reason: values.reason,
+      p_phone: values.phone || null,
+      p_inbound_body: values.inboundBody || null,
+    }), "Execute WhatsApp AI human handoff")).data;
   }
 
   async updateReceipt(workspaceId, providerMessageId, status, at = new Date().toISOString()) {
@@ -182,6 +292,17 @@ export class UnconfiguredWhatsAppRepository {
   async enableWorkspace() { }
   async updateConnectionStatus() { }
   async listEnabledWorkspaces() { return []; }
+  async listAiProviders() { return []; }
+  async listAiProviderAvailability() { return []; }
+  async executeAiHandoff() { return { applied: false, handoff_disabled: true }; }
+}
+
+function normalizePhoneForQuery(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "__none__";
+  if (/^0[67]\d{8}$/.test(digits)) return `212${digits.slice(1)}`;
+  if (/^[67]\d{8}$/.test(digits)) return `212${digits}`;
+  return digits.replace(/^00/, "");
 }
 
 export function createWhatsAppRepository(client) {

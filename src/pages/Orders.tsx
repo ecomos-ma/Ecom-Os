@@ -7,6 +7,7 @@ import { ShippingStatusBadge } from "../components/ShippingStatusBadge";
 import { Modal } from "../components/Modal";
 import { CitySelector, type CitySelectorValue } from "../components/CitySelector";
 import { supabase } from "../lib/supabase";
+import { reportError } from "../lib/errorHandling";
 import { toast } from "../components/Toast";
 import { createShipment as createShipmentViaEngine } from "../services/shippingService";
 import { normalizeShippingStatus } from "../lib/shippingStatus";
@@ -36,6 +37,12 @@ function ConfirmationMethodBadge({ method }: { method: string | null | undefined
   if (method === 'whatsapp') return <span className="inline-flex items-center gap-1 w-fit whitespace-nowrap rounded-md bg-[#25D366]/10 px-2 py-1 text-[11px] font-semibold text-[#25D366]" title="Confirmed via WhatsApp"><MessageCircle size={12} /></span>;
   if (method === 'call') return <span className="inline-flex items-center gap-1 w-fit whitespace-nowrap rounded-md bg-blue-500/10 px-2 py-1 text-[11px] font-semibold text-blue-500" title="Confirmed via phone call"><Phone size={12} /></span>;
   return null;
+}
+
+function WhatsAppChangeBadge({ order }: { order: Order }) {
+  if (!order.whatsapp_last_change_summary) return null;
+  const ai = order.whatsapp_last_change_source === "whatsapp_ai";
+  return <span className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-md bg-violet-500/10 px-2 py-1 text-[10.5px] font-semibold text-violet-600" title={order.whatsapp_last_change_summary}><MessageCircle size={11} />{ai ? "AI" : "WhatsApp"}: {order.whatsapp_last_change_summary}</span>;
 }
 
 // Check if string contains Arabic characters
@@ -261,6 +268,7 @@ export default function Orders() {
   const displayOrders = useMemo(() => orders.slice(0, visibleCount), [orders, visibleCount]);
 
   const showShippingColumn = workspace?.show_shipping_column ?? false;
+  const isStoreConnected = !!workspace?.google_sheet_url || !!workspace?.youcan_access_token || !!workspace?.shopify_enabled || !!workspace?.meta_access_token;
 
   // Auto Sync states
   const [autoSync, setAutoSync] = useState(false);
@@ -425,7 +433,16 @@ export default function Orders() {
             ) : orders.length === 0 ? (
               <tr>
                 <td colSpan={showShippingColumn ? 13 : 12}>
-                  <EmptyState title="No orders found" subtitle={`No orders matching the selected source filter.`} />
+                  <EmptyState 
+                    title={allOrders.length === 0 ? "No orders yet" : "No orders match your filters"}
+                    description={allOrders.length === 0 ? "Connect a store to import orders automatically, or add your first order manually." : "Clear filters or search terms to see all your orders."}
+                    primaryAction={
+                      allOrders.length === 0
+                        ? <button onClick={() => navigate("/settings")} className="rounded-lg bg-brand px-4 py-2 text-[13px] font-medium text-white hover:bg-brand/90">Connect Store</button>
+                        : <button onClick={() => { setStatus("all"); setSearch(""); setSourceFilter("all"); }} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>
+                    }
+                    secondaryAction={allOrders.length === 0 ? <button onClick={() => setShowNew(true)} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Add Order</button> : undefined}
+                  />
                 </td>
               </tr>
             ) : (
@@ -460,7 +477,9 @@ export default function Orders() {
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={o.status} />
                       <ConfirmationMethodBadge method={(o as any).confirmation_method} />
+                      {(o as any).whatsapp_handoff_active && <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-600">📞 WhatsApp AI</span>}
                     </div>
+                    <div className="mt-1"><WhatsAppChangeBadge order={o} /></div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap flex flex-col gap-1 items-start">
                     <ShippingStatusBadge status={o.shipping_status} />
@@ -494,7 +513,16 @@ export default function Orders() {
             </div>
           ))
         ) : orders.length === 0 ? (
-          <EmptyState title="No orders yet" subtitle="New orders will show up here." />
+          <EmptyState 
+            title={allOrders.length === 0 ? "No orders yet" : "No orders match your filters"}
+            description={allOrders.length === 0 ? "Connect a store to import orders automatically, or add your first order manually." : "Clear filters or search terms to see all your orders."}
+            primaryAction={
+              allOrders.length === 0
+                ? <button onClick={() => navigate("/settings")} className="rounded-lg bg-brand px-4 py-2 text-[13px] font-medium text-white hover:bg-brand/90">Connect Store</button>
+                : <button onClick={() => { setStatus("all"); setSearch(""); setSourceFilter("all"); }} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>
+            }
+            secondaryAction={allOrders.length === 0 ? <button onClick={() => setShowNew(true)} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Add Order</button> : undefined}
+          />
         ) : (
           displayOrders.map((o: Order & { delivery_status?: string | null }) => (
             <div
@@ -538,6 +566,7 @@ export default function Orders() {
                 <div className="flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-hide py-0.5">
                   <StatusBadge status={o.status} />
                   <ConfirmationMethodBadge method={(o as any).confirmation_method} />
+                  <WhatsAppChangeBadge order={o} />
                   <ShippingStatusBadge status={o.shipping_status} />
                   {o.whatsapp_status && <WhatsAppBadge status={o.whatsapp_status} />}
                 </div>
@@ -678,7 +707,8 @@ function NewOrderModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 
       onCreated();
     } catch (err: any) {
-      setError(err.message ?? "Something went wrong");
+      const safe = await reportError(err, "orders.create", { workspace_id: workspace.id, action: "create_order" });
+      setError(safe.userMessage);
     } finally {
       setBusy(false);
     }
@@ -932,8 +962,9 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
       onUpdated();
     } catch (err: any) {
       console.error("[EditOrderModal] Error saving order:", err);
-      setError(err.message ?? "Something went wrong");
-      toast.error(err.message ?? "Failed to update order");
+      const safe = await reportError(err, "orders.update", { workspace_id: workspace?.id, action: "update_order" });
+      setError(safe.userMessage);
+      toast.error(safe.userMessage);
       setBusy(false);
     }
   };

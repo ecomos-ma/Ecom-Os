@@ -1,8 +1,9 @@
-import { FormEvent, useState, useEffect } from "react";
+import { FormEvent, useState, useEffect, useCallback } from "react";
 import React from "react";
 import { CheckCircle2, ExternalLink, User, Building2, Lock, Save, X, Loader2, Store, Truck, Star } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
 import { useIntegrations } from "../hooks/useIntegrations";
 import { useTheme } from "../hooks/useTheme";
 import { youcanAuthorizeUrl } from "../lib/oauth";
@@ -23,10 +24,12 @@ import ShopifyIntegrationCard from "./settings/components/ShopifyIntegrationCard
 import WhatsAppIntegrationCard from "./settings/components/WhatsAppIntegrationCard";
 import NotificationSettingsTab from "./settings/components/NotificationSettingsTab";
 import WorkspaceDangerZone from "./settings/components/WorkspaceDangerZone";
+import AccountPrivacyTab from "./settings/components/AccountPrivacyTab";
+import BillingCenter from "./settings/billing/BillingCenter";
 import { getIntegrationLogo } from "../lib/integrationLogos";
 import type { ShippingCarrier } from "../lib/types";
 
-const TABS = ["Profile", "Workspace", "Integrations", "Notifications"] as const;
+const TABS = ["Profile", "Workspace", "Integrations", "Notifications", "Billing", "Account"] as const;
 const ACCENT_PRESETS = ["#DB6A8F", "#00B57F", "#3B82F6", "#F59E0B", "#8B5CF6"];
 const WORKSPACE_ACCENT_PREFIX = "ecom-scale-accent:";
 
@@ -39,7 +42,8 @@ type Tab = (typeof TABS)[number];
 export default function Settings() {
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
-  const resolvedTab = TABS.find((value) => value.toLowerCase() === requestedTab?.toLowerCase()) ?? "Profile";
+  const resolvedTab = TABS.find((value) => value.toLowerCase() === requestedTab?.toLowerCase())
+    ?? (window.location.pathname.toLowerCase().endsWith("/billing") ? "Billing" : "Profile");
   const [tab, setTab] = useState<Tab>(resolvedTab);
 
   useEffect(() => {
@@ -69,6 +73,8 @@ export default function Settings() {
       {tab === "Workspace" && <WorkspaceTab />}
       {tab === "Integrations" && <IntegrationsTab autoOpenAmeex={searchParams.get("carrier") === "ameex"} initialAmeexCity={searchParams.get("city") ?? ""} autoOpenTikTok={searchParams.get("tiktok") === "select_accounts"} />}
       {tab === "Notifications" && <NotificationSettingsTab />}
+      {tab === "Billing" && <BillingCenter />}
+      {tab === "Account" && <AccountPrivacyTab />}
     </div>
   );
 }
@@ -629,90 +635,114 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
   const { workspace } = useAuth();
   const google = statuses["google"];
 
-  // Service-based integrations use their own internal status fetching
-  // For sorting purposes, we'll use false initially - the cards themselves
-  // will show the correct status. Users can refresh to see updated sorting.
-  const forceLogConnected = false;
-  const ameexConnected = false;
-  const senditConnected = false;
+  // Track real connection states for all integrations
+  const [connectionStates, setConnectionStates] = useState<Record<string, boolean>>({
+    youcan: !!workspace?.youcan_access_token,
+    google_sheets: false,
+    meta: !!workspace?.meta_access_token,
+    tiktok: false,
+    shopify: !!workspace?.shopify_access_token,
+    ozon: !!workspace?.ozon_api_key,
+    coliaty: !!workspace?.coliaty_public_key,
+    forcelog: false,
+    ameex: false,
+    sendit: false,
+    whatsapp: false,
+  });
 
-  // Define integration cards with their connection status
+  // Callback for integration cards to report their connection state
+  const reportConnectionState = useCallback((key: string, connected: boolean) => {
+    setConnectionStates(prev => {
+      if (prev[key] === connected) return prev;
+      return { ...prev, [key]: connected };
+    });
+  }, []);
+
+  // Update workspace-based connection states when workspace changes
+  useEffect(() => {
+    setConnectionStates(prev => ({
+      ...prev,
+      youcan: !!workspace?.youcan_access_token,
+      meta: !!workspace?.meta_access_token,
+      shopify: !!workspace?.shopify_access_token,
+      ozon: !!workspace?.ozon_api_key,
+      coliaty: !!workspace?.coliaty_public_key,
+    }));
+  }, [workspace?.youcan_access_token, workspace?.meta_access_token, workspace?.shopify_access_token, workspace?.ozon_api_key, workspace?.coliaty_public_key]);
+
+  // Define integration cards with their order and connection state tracking
   const integrationCards = [
     {
       key: 'youcan',
-      connected: !!workspace?.youcan_access_token,
-      component: <YouCanIntegrationCard />,
+      connected: connectionStates.youcan,
+      component: <YouCanIntegrationCard onConnectionChange={(connected) => reportConnectionState('youcan', connected)} />,
       order: 1
     },
     {
       key: 'google_sheets',
-      connected: false, // Will be checked dynamically in component
-      component: <GoogleSheetsIntegrationCard />,
+      connected: connectionStates.google_sheets,
+      component: <GoogleSheetsIntegrationCard onConnectionChange={(connected) => reportConnectionState('google_sheets', connected)} />,
       order: 2
     },
     {
       key: 'meta',
-      connected: !!workspace?.meta_access_token,
-      component: <MetaIntegrationCard />,
+      connected: connectionStates.meta,
+      component: <MetaIntegrationCard onConnectionChange={(connected) => reportConnectionState('meta', connected)} />,
       order: 3
     },
     {
       key: 'tiktok',
-      connected: false,
-      component: <TikTokIntegrationCard autoOpenAccountSelection={autoOpenTikTok} />,
+      connected: connectionStates.tiktok,
+      component: <TikTokIntegrationCard autoOpenAccountSelection={autoOpenTikTok} onConnectionChange={(connected) => reportConnectionState('tiktok', connected)} />,
       order: 4
     },
     {
       key: 'shopify',
-      connected: !!workspace?.shopify_access_token,
-      component: <ShopifyIntegrationCard />,
+      connected: connectionStates.shopify,
+      component: <ShopifyIntegrationCard onConnectionChange={(connected) => reportConnectionState('shopify', connected)} />,
       order: 5
     },
     {
       key: 'ozon',
-      connected: !!workspace?.ozon_api_key,
-      component: <OzonShippingIntegrationCard />,
+      connected: connectionStates.ozon,
+      component: <OzonShippingIntegrationCard onConnectionChange={(connected) => reportConnectionState('ozon', connected)} />,
       order: 6
     },
     {
       key: 'coliaty',
-      connected: !!workspace?.coliaty_public_key,
-      component: <ColiatyShippingIntegrationCard />,
+      connected: connectionStates.coliaty,
+      component: <ColiatyShippingIntegrationCard onConnectionChange={(connected) => reportConnectionState('coliaty', connected)} />,
       order: 7
     },
     {
       key: 'forcelog',
-      connected: forceLogConnected,
-      component: <ForceLogShippingIntegrationCard />,
+      connected: connectionStates.forcelog,
+      component: <ForceLogShippingIntegrationCard onConnectionChange={(connected) => reportConnectionState('forcelog', connected)} />,
       order: 8
     },
     {
       key: 'ameex',
-      connected: ameexConnected,
-      component: <AmeexShippingIntegrationCard autoOpen={autoOpenAmeex} initialCity={initialAmeexCity} />,
+      connected: connectionStates.ameex,
+      component: <AmeexShippingIntegrationCard autoOpen={autoOpenAmeex} initialCity={initialAmeexCity} onConnectionChange={(connected) => reportConnectionState('ameex', connected)} />,
       order: 9
     },
     {
       key: 'sendit',
-      connected: senditConnected,
-      component: <SenditShippingIntegrationCard />,
+      connected: connectionStates.sendit,
+      component: <SenditShippingIntegrationCard onConnectionChange={(connected) => reportConnectionState('sendit', connected)} />,
       order: 10
     },
     {
       key: 'whatsapp',
-      connected: false, // WhatsApp uses separate table, card shows correct status
+      connected: connectionStates.whatsapp,
       component: <WhatsAppIntegrationCard />,
       order: 11
     },
   ];
 
-  // Sort integrations: connected first, then disconnected, preserving original order within each group
-  const sortedIntegrations = [...integrationCards].sort((a, b) => {
-    if (a.connected === b.connected) {
-      return a.order - b.order;
-    }
-    return Number(b.connected) - Number(a.connected);
-  });
+  // Split integrations: connected vs available
+  const connectedIntegrations = integrationCards.filter(i => i.connected).sort((a, b) => a.order - b.order);
+  const availableIntegrations = integrationCards.filter(i => !i.connected).sort((a, b) => a.order - b.order);
 
   return (
     <div className="flex flex-col w-full h-full pb-10">
@@ -730,11 +760,29 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
       </div>
 
       <div className="space-y-10">
+        {/* ── CONNECTED INTEGRATIONS ── */}
+        <div>
+          <h3 className="mb-4 text-[16px] font-semibold text-ink">Connected Integrations</h3>
+          {connectedIntegrations.length === 0 ? (
+            <div className="py-8">
+              <EmptyState title="No integrations connected" description="Connect your first service below to automate your business." compact />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {connectedIntegrations.map((integration) => (
+                <React.Fragment key={integration.key}>
+                  {integration.component}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* ── AVAILABLE INTEGRATIONS ── */}
         <div>
           <h3 className="mb-4 text-[16px] font-semibold text-ink">Available Integrations</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {sortedIntegrations.map((integration) => (
+            {availableIntegrations.map((integration) => (
               <React.Fragment key={integration.key}>
                 {integration.component}
               </React.Fragment>

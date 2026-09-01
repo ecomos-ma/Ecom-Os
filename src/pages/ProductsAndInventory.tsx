@@ -16,6 +16,7 @@ import { ProductModal } from "../components/products/ProductModal";
 import { StockAdjustmentModal } from "../components/products/StockAdjustmentModal";
 import { normalizeStatus } from "../utils/status";
 import { toast } from "../components/Toast";
+import { reportError } from "../lib/errorHandling";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -186,7 +187,8 @@ export default function ProductsAndInventory() {
             final.sort((a, b) => b.total_orders - a.total_orders);
             setProducts(final);
         } catch (err: any) {
-            console.error(err);
+            const safe = await reportError(err, "inventory.load", { workspace_id: workspace?.id, action: "load_products" });
+            if (!silent) showToast(safe.userMessage, "error");
         } finally {
             if (!silent) setLoading(false);
         }
@@ -312,7 +314,8 @@ export default function ProductsAndInventory() {
             showToast("Enregistré ✓");
             setInlineEdits(prev => { const n = { ...prev }; if (n[id]) delete n[id][field]; return n; });
         } catch (e: any) {
-            showToast("Erreur d'enregistrement: " + e.message, "error");
+            const safe = await reportError(e, "products.update", { workspace_id: workspace?.id, action: "update_product" });
+            showToast(safe.userMessage, "error");
         } finally {
             setSavingFields(prev => ({ ...prev, [key]: false }));
         }
@@ -345,7 +348,8 @@ export default function ProductsAndInventory() {
             showToast("Image téléchargée ✓");
             load(true);
         } catch (e: any) {
-            showToast("Échec: " + e.message, "error");
+            const safe = await reportError(e, "products.image_upload", { workspace_id: workspace?.id, action: "upload_product_image" });
+            showToast(safe.userMessage, "error");
         } finally {
             setUploadingId(null);
             if (fileInputRef.current) fileInputRef.current.value = "";

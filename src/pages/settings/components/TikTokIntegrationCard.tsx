@@ -13,7 +13,7 @@ function readableError(error: unknown): string {
   return error instanceof Error ? error.message : "TikTok Ads request failed";
 }
 
-export default function TikTokIntegrationCard({ autoOpenAccountSelection = false }: { autoOpenAccountSelection?: boolean }) {
+export default function TikTokIntegrationCard({ autoOpenAccountSelection = false, onConnectionChange }: { autoOpenAccountSelection?: boolean; onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, profile, refreshProfile } = useAuth();
   const [status, setStatus] = useState<TikTokIntegrationStatus>(EMPTY_STATUS);
   const [loading, setLoading] = useState(true);
@@ -60,6 +60,12 @@ export default function TikTokIntegrationCard({ autoOpenAccountSelection = false
   }, []);
 
   const connected = status.connection !== null && !["not_connected", "disconnected", "reauth_required"].includes(status.state);
+
+  // Report connection state to parent
+  useEffect(() => {
+    onConnectionChange?.(connected);
+  }, [connected, onConnectionChange]);
+
   const badge = useMemo(() => {
     if (loading) return "Checking";
     if (status.state === "syncing") return "Syncing";

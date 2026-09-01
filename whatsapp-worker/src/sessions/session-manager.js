@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ErrorCode, WorkerError, errorMessage } from "../utils/errors.js";
 import { requireWorkspaceId } from "../utils/phone.js";
 
-const ACTIVE_STATES = new Set(["initializing", "qr_required", "authenticated", "ready", "reconnecting"]);
+const ACTIVE_STATES = new Set(["starting", "qr_ready", "connecting", "authenticated", "ready", "reconnecting"]);
 
 export class SessionManager {
   constructor({ providerFactory, repository, authStore, inboundProcessor, receiptProcessor, logger }) {
@@ -33,6 +33,9 @@ export class SessionManager {
         lastConnectedAt: null,
         lastDisconnectedAt: null,
         freshAuthAttempted: false,
+        stateRevision: 0,
+        qrGeneratedAt: null,
+        qrRevision: 0,
       });
     }
     return this.sessions.get(id);
@@ -54,6 +57,9 @@ export class SessionManager {
       lastError: session.lastError,
       lastConnectedAt: session.lastConnectedAt,
       lastDisconnectedAt: session.lastDisconnectedAt,
+      stateRevision: session.stateRevision,
+      qrGeneratedAt: session.qrGeneratedAt,
+      qrRevision: session.qrRevision,
     };
   }
 
@@ -73,15 +79,34 @@ export class SessionManager {
   }
 
   #transition(session, state, values = {}) {
+    const previousState = session.state;
     session.state = state;
     Object.assign(session, values);
-    if (state !== "qr_required") session.qr = values.qr ?? null;
+    session.stateRevision += 1;
+    if (state !== "qr_ready") session.qr = values.qr ?? null;
+    if (state !== "qr_ready") session.qrGeneratedAt = values.qrGeneratedAt ?? null;
+    this.logger.info({
+      workspaceId: session.workspaceId,
+      sessionId: session.connectionAttemptId,
+      previousState,
+      state,
+      stateRevision: session.stateRevision,
+      qrRevision: session.qrRevision,
+    }, "[WA STATE] transition");
     this.#persist(session).catch((error) => this.logger.error({ err: error, workspaceId: session.workspaceId }, "connection state persistence failed"));
   }
 
   #attach(session, provider) {
-    provider.on("initializing", () => this.#transition(session, "initializing", { lastError: null }));
-    provider.on("qr", ({ qr }) => this.#transition(session, "qr_required", { qr, lastError: null }));
+    provider.on("starting", () => this.#transition(session, "starting", { lastError: null }));
+    provider.on("qr", ({ qr, generatedAt }) => {
+      session.qrRevision += 1;
+      this.#transition(session, "qr_ready", {
+        qr,
+        qrGeneratedAt: generatedAt || new Date().toISOString(),
+        lastError: null,
+      });
+    });
+    provider.on("connecting", () => this.#transition(session, "connecting", { qr: null, lastError: null }));
     provider.on("authenticated", () => this.#transition(session, "authenticated", { qr: null, lastError: null }));
     provider.on("ready", ({ connectedPhone, displayName }) => {
       const now = new Date().toISOString();
@@ -132,7 +157,7 @@ export class SessionManager {
     const session = this.#session(workspaceId);
     if (session.connectPromise) return this.snapshot(session.workspaceId);
     if (session.provider && ACTIVE_STATES.has(session.state)) {
-      await this.#persist(session);
+      this.#persist(session).catch((error) => this.logger.warn({ err: error, workspaceId: session.workspaceId }, "ready session database resync deferred"));
       return this.snapshot(session.workspaceId);
     }
 
@@ -143,7 +168,7 @@ export class SessionManager {
     session.connectionAttemptId = randomUUID();
     session.connectionStartedAt = new Date().toISOString();
     session.freshAuthAttempted = false;
-    this.#transition(session, "initializing", { qr: null, lastError: null });
+    this.#transition(session, "starting", { qr: null, lastError: null });
 
     const task = Promise.resolve().then(() => session.provider.connect()).catch((error) => {
       this.#transition(session, "error", { lastError: errorMessage(error), connectionStartedAt: null });

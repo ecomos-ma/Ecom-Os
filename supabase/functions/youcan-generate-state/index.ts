@@ -1,74 +1,49 @@
-// deno-lint-ignore-file no-explicit-any
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
+import {
+  assertOnlyKeys,
+  authenticate,
+  authorizeOperationalWorkspace,
+  corsHeaders,
+  errorResponse,
+  HttpError,
+  json,
+  requireUuid,
+  serviceClient,
+} from "../_shared/security.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-// Compute HMAC SHA-256 signature
-async function computeHMACSHA256(payload: string, secret: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const messageData = encoder.encode(payload);
-  
+async function sign(payload: string, secret: string): Promise<string> {
+  const bytes = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
-    keyData,
+    bytes.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
-  
-  const signature = await crypto.subtle.sign("HMAC", key, messageData);
-  const signatureArray = Array.from(new Uint8Array(signature));
-  const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return signatureHex;
+  const signature = await crypto.subtle.sign("HMAC", key, bytes.encode(payload));
+  return Array.from(new Uint8Array(signature)).map((part) => part.toString(16).padStart(2, "0")).join("");
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(req) });
+  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
   try {
-    const STATE_SIGNING_SECRET = Deno.env.get("STATE_SIGNING_SECRET");
-    if (!STATE_SIGNING_SECRET) {
-      throw new Error("STATE_SIGNING_SECRET not configured");
-    }
+    const client = serviceClient();
+    const user = await authenticate(req, client);
+    const body = await req.json() as Record<string, unknown>;
+    assertOnlyKeys(body, ["workspace_id"]);
+    const workspaceId = requireUuid(body.workspace_id, "workspace_id");
+    await authorizeOperationalWorkspace(client, user.id, workspaceId);
 
-    const { workspace_id } = await req.json();
-    if (!workspace_id) {
-      throw new Error("workspace_id is required");
-    }
+    const signingSecret = Deno.env.get("STATE_SIGNING_SECRET")?.trim();
+    const clientId = Deno.env.get("YOUCAN_CLIENT_ID")?.trim();
+    if (!signingSecret || !clientId) throw new HttpError("YouCan connection is not configured", 503);
 
-    const YOUCAN_CLIENT_ID = Deno.env.get("YOUCAN_CLIENT_ID");
-    if (!YOUCAN_CLIENT_ID) {
-      throw new Error("YOUCAN_CLIENT_ID not configured in Supabase secrets");
-    }
-
-    // Generate signed state with timestamp
-    const timestamp = Date.now();
-    const payload = `${timestamp}:${workspace_id}`;
-    const signature = await computeHMACSHA256(payload, STATE_SIGNING_SECRET);
-    const state = `${payload}:${signature}`;
-
-    return new Response(JSON.stringify({ state, client_id: YOUCAN_CLIENT_ID }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-
-  } catch (err: any) {
-    console.error("YouCan generate state error:", err);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const payload = `${Date.now()}:${workspaceId}:${user.id}`;
+    const state = `${payload}:${await sign(payload, signingSecret)}`;
+    return json(req, { state, client_id: clientId });
+  } catch (error) {
+    console.error("[YouCan state] request rejected", error instanceof HttpError ? error.message : "internal_error");
+    return errorResponse(req, error);
   }
 });

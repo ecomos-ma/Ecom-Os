@@ -6,7 +6,7 @@ import { supabase } from "../../../lib/supabase";
 import { toast } from "../../../components/Toast";
 import GoogleSheetsMappingModal from "./GoogleSheetsMappingModal";
 
-function GoogleSheetsIntegrationCard() {
+function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -200,6 +200,12 @@ function GoogleSheetsIntegrationCard() {
 
   const mappingStatus = getMappingStatus();
 
+  // Report connection state to parent
+  const isConnected = !!credentials;
+  useEffect(() => {
+    onConnectionChange?.(isConnected);
+  }, [isConnected, onConnectionChange]);
+
   return (
     <>
       {/* ── Card ── */}
@@ -215,7 +221,7 @@ function GoogleSheetsIntegrationCard() {
           <div className="flex flex-col gap-1.5">
             <h3 className="text-[16px] font-semibold tracking-tight text-ink leading-none">Google Sheets</h3>
             <div className="flex items-center">
-              {credentials ? (
+              {isConnected ? (
                 <span className="flex h-[22px] items-center gap-1.5 rounded-full bg-[#10B981]/15 px-2.5 text-[10.5px] font-bold uppercase tracking-wider text-[#10B981]">
                   <CheckCircle2 size={11} strokeWidth={2.5} /> Connected
                 </span>
@@ -232,7 +238,7 @@ function GoogleSheetsIntegrationCard() {
         </div>
 
         <div className="mt-auto border-t border-base-border/60 pt-4">
-          {credentials ? (
+          {isConnected ? (
             <button
               onClick={() => setManageOpen(true)}
               className="h-[38px] w-full flex items-center justify-center gap-1.5 rounded-xl border border-brand/20 bg-brand/5 px-3 text-[13px] font-semibold text-brand hover:bg-brand hover:text-white transition-colors"

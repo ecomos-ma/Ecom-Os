@@ -38,12 +38,20 @@ try {
 
 if (server.listening) {
   logger.info({ host: config.host, port: config.port, mode: config.mode, provider: config.provider }, "WhatsApp worker listening");
+  let persistedWorkspaces = [];
+  try {
+    persistedWorkspaces = await runtime.authStore.listWorkspaceIds();
+    await runtime.sessionManager.restore(persistedWorkspaces);
+  } catch (error) {
+    logger.error({ err: error }, "WhatsApp persisted session restoration failed");
+  }
   if (runtime.repository.configured) {
     let enabledWorkspaces = 0;
     try {
       const workspaces = await runtime.repository.listEnabledWorkspaces();
       enabledWorkspaces = workspaces.length;
-      await runtime.sessionManager.restore(workspaces.map((item) => item.workspace_id));
+      const persisted = new Set(persistedWorkspaces);
+      await runtime.sessionManager.restore(workspaces.map((item) => item.workspace_id).filter((id) => !persisted.has(id)));
     } catch (error) {
       logger.error({ err: error }, "WhatsApp worker startup restoration failed");
     }
