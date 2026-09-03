@@ -60,7 +60,7 @@ serve(async (req) => {
     }
 
     // Get the app URL from environment or use default
-    const appUrl = Deno.env.get("APP_URL") || "http://localhost:8081";
+    const appUrl = (Deno.env.get("APP_URL") || "https://www.ecomos.ma").trim().replace(/\/+$/, "");
     const inviteLink = `${appUrl}/invite?token=${token}`;
     console.log("Generated invite link:", inviteLink);
 

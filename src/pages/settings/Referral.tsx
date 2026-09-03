@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Gift, Link2, Loader2, Users } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import { getAppUrlForPath } from "../../lib/appUrl";
 
 type Referral = { id: string; status: string; reward_status: string; referred_email?: string; created_at: string };
 
@@ -26,7 +27,7 @@ export default function Referral() {
   };
   useEffect(() => { void load(); }, []);
 
-  const link = code ? `${window.location.origin}/login?mode=signup&ref=${encodeURIComponent(code)}` : "";
+  const link = code ? getAppUrlForPath(`/login?mode=signup&ref=${encodeURIComponent(code)}`) : "";
   const copy = async () => { if (!link) return; await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 1600); };
 
   return <div className="space-y-5">

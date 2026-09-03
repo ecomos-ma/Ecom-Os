@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { getAppUrlForPath, getSafeReturnPath } from "../lib/appUrl";
 import { useAuth } from "../hooks/useAuth";
 import type { BillingPeriod, PlanTier } from "../config/pricing";
 import { fetchOfficialPlans, getPlanPrice, type PublicPlanRecord } from "../lib/planEngine";
@@ -123,8 +124,9 @@ export default function Login() {
       if (searchParams.get("plan")) paymentParams.set("plan", searchParams.get("plan")!);
       if (searchParams.get("billing")) paymentParams.set("cycle", searchParams.get("billing") === "yearly" ? "annual" : "monthly");
       route = `/payment${paymentParams.toString() ? `?${paymentParams.toString()}` : ""}`;
-    } else if (returnTo?.startsWith("/") && returnTo !== "/login" && profile?.role !== "supervisor") {
-      route = returnTo;
+    } else {
+      const safeReturnTo = getSafeReturnPath(returnTo, "");
+      if (safeReturnTo && safeReturnTo !== "/login" && profile?.role !== "supervisor") route = safeReturnTo;
     }
 
     return <Navigate to={route} replace />;
@@ -155,7 +157,7 @@ export default function Login() {
 
   const startGoogleOAuth = async () => {
     setGoogleBusy(true);
-    const { error: authError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/login` } });
+    const { error: authError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: getAppUrlForPath("/login") } });
     if (authError) {
       setGoogleBusy(false);
       setError(friendlyAuthError(authError.message));
@@ -171,7 +173,7 @@ export default function Login() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/login`,
+          emailRedirectTo: getAppUrlForPath("/login"),
           data: {
             full_name: fullName.trim(),
             workspace_name: workspaceName.trim(),

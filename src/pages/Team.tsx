@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { getAppUrlForPath } from "../lib/appUrl";
 import { useAuth } from "../hooks/useAuth";
 import { useTeamData, type TeamMember } from "../hooks/useTeamData";
 import { ALL_ALLOWED_SECTIONS, normalizeAllowedSections, ROLE_LABELS, ROLE_OPTIONS } from "../lib/rbac";
@@ -279,7 +280,7 @@ export default function Team() {
       if (error) throw error;
 
       // Generate invite link
-      const inviteLink = `${window.location.origin}/invite?token=${token}`;
+      const inviteLink = getAppUrlForPath(`/invite?token=${encodeURIComponent(token)}`);
 
       // Skip Edge Function call for now - provide manual link
       toast.success(`Invitation created! Share this link: ${inviteLink}`);

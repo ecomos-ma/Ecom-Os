@@ -6,6 +6,7 @@ import { ShippingStatusBadge } from "../../../components/ShippingStatusBadge";
 import { StatusBadge as OrderStatusBadge } from "../../../components/StatusBadge";
 import { founderAdmin, type FounderMembership, type FounderOrderV2, type FounderUser360, type FounderUserV2 } from "../../../lib/founderAdmin";
 import { supabase } from "../../../lib/supabase";
+import { getAppUrlForPath } from "../../../lib/appUrl";
 import { useSupportMode } from "../../../contexts/SupportModeContext";
 import { usePlatformAdmin } from "../../../components/PlatformAdminRoute";
 import { currency, dateTime, EmptyState, PageHeading, RefreshButton, StatusBadge, errorMessage } from "./shared";
@@ -100,7 +101,7 @@ function UserDrawer({ profileId, onClose, onChanged }: { profileId: string; onCl
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: data.user.email,
-        options: { emailRedirectTo: `${window.location.origin}/choose-plan` },
+        options: { emailRedirectTo: getAppUrlForPath("/choose-plan") },
       });
       if (error) throw error;
       setFeedback("Magic link sent to the user’s email.");

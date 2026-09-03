@@ -5,7 +5,7 @@
 
 import { supabase } from "./supabase";
 
-const YOUCAN_REDIRECT_URI = import.meta.env.VITE_YOUCAN_REDIRECT_URI as string;
+const YOUCAN_REDIRECT_URI = import.meta.env.VITE_YOUCAN_REDIRECT_URI?.trim() as string;
 
 export async function youcanAuthorizeUrl(workspaceId: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke('youcan-generate-state', {

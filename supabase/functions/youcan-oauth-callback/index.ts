@@ -1,10 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.111.0";
+import { frontendAppUrl, frontendOrigins } from "../_shared/app-url.ts";
 
-const allowedOrigins = new Set([
-  "https://ecomscale.vercel.app",
-  "http://localhost:8080",
-  "http://127.0.0.1:8080",
-]);
+const allowedOrigins = frontendOrigins();
 
 function headers(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
@@ -221,7 +218,7 @@ Deno.serve(async (req) => {
     }
 
     if (isBrowserRedirect) {
-      const frontend = Deno.env.get("FRONTEND_URL")?.trim() || "https://ecomscale.vercel.app";
+      const frontend = frontendAppUrl();
       return Response.redirect(`${frontend}/settings?tab=integrations&youcan=success`, 302);
     }
     return new Response(JSON.stringify({ success: true, webhook_registered: Boolean(webhookId) }), { headers: headers(req) });
@@ -229,7 +226,7 @@ Deno.serve(async (req) => {
     const reason = error instanceof Error ? error.message : "connection_failed";
     console.error("[YouCan OAuth]", reason);
     if (isBrowserRedirect) {
-      const frontend = Deno.env.get("FRONTEND_URL")?.trim() || "https://ecomscale.vercel.app";
+      const frontend = frontendAppUrl();
       return Response.redirect(`${frontend}/settings?tab=integrations&youcan=error&details=connection_failed`, 302);
     }
     return new Response(JSON.stringify({ error: "YouCan connection failed" }), { status: 400, headers: headers(req) });

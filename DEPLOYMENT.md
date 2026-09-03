@@ -6,10 +6,11 @@ Configure for Preview and Production:
 
 | Variable | Required | Secret | Purpose |
 | --- | --- | --- | --- |
+| `VITE_APP_URL` | Yes | No | Canonical frontend URL: `https://www.ecomos.ma` |
 | `VITE_SUPABASE_URL` | Yes | No | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Yes | No | Publishable key or legacy anon key protected by RLS |
 | `VITE_WHATSAPP_WORKER_URL` | Yes for WhatsApp | No | Public HTTPS URL of the VPS `whatsapp-web.js` worker |
-| `VITE_YOUCAN_REDIRECT_URI` | Only for YouCan OAuth | No | Browser callback URL, for example `https://ecomscale.vercel.app/api/youcan/callback` |
+| `VITE_YOUCAN_REDIRECT_URI` | Only for YouCan OAuth | No | Browser callback URL: `https://www.ecomos.ma/api/youcan/callback` |
 
 Never configure a service-role key, `sb_secret_...`, OAuth client secret, worker API secret, or private VAPID key with a `VITE_` prefix.
 

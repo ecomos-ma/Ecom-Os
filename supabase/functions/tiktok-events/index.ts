@@ -165,7 +165,7 @@ async function testConnection(config: EventsConfig): Promise<void> {
         event_time: Math.floor(Date.now() / 1000),
         event_id: `ecomos_test_${crypto.randomUUID()}`,
         user: { external_id: [await sha256(`ecomos:tiktok:test:${config.workspace_id}`)] },
-        page: { url: Deno.env.get("FRONTEND_URL") ?? "https://example.com" },
+        page: { url: Deno.env.get("FRONTEND_URL")?.trim() || Deno.env.get("APP_URL")?.trim() || "https://www.ecomos.ma" },
       }],
     },
     retries: 0,

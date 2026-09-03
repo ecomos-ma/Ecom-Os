@@ -6,6 +6,7 @@ import { getTikTokStatus, invokeTikTok, type TikTokIntegrationStatus } from "../
 import { toast } from "../../../components/Toast";
 import { supabase } from "../../../lib/supabase";
 import { isOwnerLikeRole } from "../../../lib/rbac";
+import { getAppUrlForPath } from "../../../lib/appUrl";
 
 const EMPTY_STATUS: TikTokIntegrationStatus = { state: "not_connected", connection: null, ad_accounts: [], events_api: null };
 
@@ -89,7 +90,7 @@ export default function TikTokIntegrationCard({ autoOpenAccountSelection = false
     try {
       const response = await invokeTikTok<{ authorize_url: string }>("tiktok-auth-start", {
         workspace_id: workspace.id,
-        return_url: `${window.location.origin}/settings?tab=integrations&tiktok=select_accounts`,
+        return_url: getAppUrlForPath("/settings?tab=integrations&tiktok=select_accounts"),
       });
       window.location.assign(response.authorize_url);
     } catch (error) {

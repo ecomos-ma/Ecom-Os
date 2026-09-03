@@ -4,6 +4,7 @@ import { PageHeader } from "../../components/PageHeader";
 import { Modal } from "../../components/Modal";
 import { useAuth } from "../../hooks/useAuth";
 import { supabase } from "../../lib/supabase";
+import { getAppUrlForPath } from "../../lib/appUrl";
 import { toast } from "../../components/Toast";
 import type { Profile, Workspace, UserRole } from "../../lib/types";
 import {
@@ -289,7 +290,9 @@ export default function AdminUsers() {
           onConfirm={async () => {
             if (!selectedUser.email) { toast.error("No email on file."); return; }
             setBusy(true);
-            const { error } = await supabase.auth.resetPasswordForEmail(selectedUser.email);
+            const { error } = await supabase.auth.resetPasswordForEmail(selectedUser.email, {
+              redirectTo: getAppUrlForPath("/settings?tab=account"),
+            });
             if (error) toast.error("Failed to send reset email.");
             else { await auditLog("send_password_reset", selectedUser.id, adminProfile?.id); toast.success("Password reset email sent."); }
             closeModal();

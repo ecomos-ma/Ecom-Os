@@ -9,6 +9,7 @@ import {
   sha256,
   tiktokRequest,
 } from "../_shared/tiktok.ts";
+import { frontendAppUrl, isTrustedFrontendUrl } from "../_shared/app-url.ts";
 
 interface TokenData {
   access_token?: string;
@@ -22,7 +23,7 @@ interface TokenData {
 }
 
 function redirectWithResult(returnUrl: string, result: string, message?: string): Response {
-  const target = new URL(returnUrl);
+  const target = new URL(isTrustedFrontendUrl(returnUrl) ? returnUrl : frontendAppUrl());
   target.searchParams.set("tab", "integrations");
   target.searchParams.set("tiktok", result);
   if (message) target.searchParams.set("tiktok_message", message.slice(0, 160));
@@ -30,7 +31,7 @@ function redirectWithResult(returnUrl: string, result: string, message?: string)
 }
 
 Deno.serve(async (req) => {
-  let fallback = `${Deno.env.get("FRONTEND_URL") ?? "http://localhost:8080"}/settings?tab=integrations`;
+  let fallback = `${frontendAppUrl()}/settings?tab=integrations`;
   try {
     if (req.method !== "GET") return new Response("Method not allowed", { status: 405 });
     const url = new URL(req.url);

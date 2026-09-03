@@ -1,11 +1,14 @@
 // Retired: YouCan now uses the signed OAuth flow and the canonical
 // public.integrations lifecycle. Keeping this endpoint as an authenticated 410
 // prevents old clients from recreating legacy credential rows.
+import { frontendOrigins } from "../_shared/app-url.ts";
+
 Deno.serve((req) => {
   if (req.method === "OPTIONS") {
+    const origin = req.headers.get("origin") ?? "";
     return new Response("ok", {
       headers: {
-        "Access-Control-Allow-Origin": "https://ecomscale.vercel.app",
+        ...(frontendOrigins().has(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
         "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
       },
     });
