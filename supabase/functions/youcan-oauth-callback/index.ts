@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
 
     if (isBrowserRedirect) {
       const frontend = frontendAppUrl();
-      return Response.redirect(`${frontend}/settings?tab=integrations&youcan=success`, 302);
+      return Response.redirect(`${frontend}/settings?youcan=success`, 302);
     }
     return new Response(JSON.stringify({ success: true, webhook_registered: Boolean(webhookId) }), { headers: headers(req) });
   } catch (error) {
@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
     console.error("[YouCan OAuth]", reason);
     if (isBrowserRedirect) {
       const frontend = frontendAppUrl();
-      return Response.redirect(`${frontend}/settings?tab=integrations&youcan=error&details=connection_failed`, 302);
+      return Response.redirect(`${frontend}/settings?youcan=error&details=connection_failed`, 302);
     }
     return new Response(JSON.stringify({ error: "YouCan connection failed" }), { status: 400, headers: headers(req) });
   }
