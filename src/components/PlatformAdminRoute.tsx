@@ -15,6 +15,7 @@ type PlatformAdminContextValue = {
 };
 
 const PlatformAdminContext = createContext<PlatformAdminContextValue | null>(null);
+let cachedAuthorization: { profileId: string; authorization: PlatformAuthorization } | null = null;
 
 function rootFallback(profileId: string, email: string | null | undefined): PlatformAuthorization {
   return {
@@ -57,7 +58,14 @@ export function PlatformAdminRoute({ children }: { children: ReactNode }) {
 
     if (loading) return () => { active = false; };
     if (!session || !profile) {
+      cachedAuthorization = null;
       setAuthorization(null);
+      setChecking(false);
+      return () => { active = false; };
+    }
+
+    if (cachedAuthorization?.profileId === profile.id) {
+      setAuthorization(cachedAuthorization.authorization);
       setChecking(false);
       return () => { active = false; };
     }
@@ -65,15 +73,19 @@ export function PlatformAdminRoute({ children }: { children: ReactNode }) {
     setChecking(true);
     void founderAdmin.authorization()
       .then((result) => {
-        if (active) setAuthorization(result?.is_platform_admin ? result : null);
+        if (active) {
+          const nextAuthorization = result?.is_platform_admin ? result : null;
+          if (nextAuthorization) cachedAuthorization = { profileId: profile.id, authorization: nextAuthorization };
+          setAuthorization(nextAuthorization);
+        }
       })
       .catch(() => {
         if (!active) return;
-        setAuthorization(
-          isFounder(profile.role, session.user.email)
-            ? rootFallback(profile.id, session.user.email)
-            : null,
-        );
+        const fallback = isFounder(profile.role, session.user.email)
+          ? rootFallback(profile.id, session.user.email)
+          : null;
+        if (fallback) cachedAuthorization = { profileId: profile.id, authorization: fallback };
+        setAuthorization(fallback);
       })
       .finally(() => { if (active) setChecking(false); });
 
