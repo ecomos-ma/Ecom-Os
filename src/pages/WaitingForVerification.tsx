@@ -40,9 +40,10 @@ export default function WaitingForVerification() {
   const { session, loading, operationalAccess } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // Sellers renewing an active subscription keep operational access; they still
-  // need to see this receipt page after submitting their renewal proof.
-  const renewalIntent = searchParams.get("intent") === "renew";
+  // Active sellers only see this flow after an explicit renewal or upgrade.
+  // A direct visit without an intent always returns to the dashboard.
+  const paymentIntent = searchParams.get("intent");
+  const hasPaymentIntent = paymentIntent === "renew" || paymentIntent === "upgrade";
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "receipt";
   const [receipt, setReceipt] = useState<PaymentReceiptData | null>(previewMode ? previewReceipt : null);
   const [error, setError] = useState("");
@@ -56,16 +57,17 @@ export default function WaitingForVerification() {
         .from("subscription_payment_requests")
         .select("id,reference,requested_plan_id,billing_cycle,expected_amount_mad,currency,payment_method,transaction_reference,status,submitted_at,created_at")
         .eq("owner_user_id", session.user.id)
+        .in("status", ["unpaid", "rejected", "submitted", "reviewing"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (!active) return;
       if (requestError) { setError(requestError.message); return; }
-      if (!data) { navigate("/payment", { replace: true }); return; }
+      if (!data) { navigate(paymentIntent ? `/payment?intent=${encodeURIComponent(paymentIntent)}` : "/payment", { replace: true }); return; }
 
       const request = data as PaymentRequest;
       const normalizedStatus = String(request.status || "").toLowerCase();
-      if (["rejected", "cancelled"].includes(normalizedStatus)) { navigate("/payment", { replace: true }); return; }
+      if (["rejected", "cancelled"].includes(normalizedStatus)) { navigate(paymentIntent ? `/payment?intent=${encodeURIComponent(paymentIntent)}` : "/payment", { replace: true }); return; }
 
       const { data: plan } = await supabase.from("subscription_plans").select("code,name").eq("id", request.requested_plan_id).maybeSingle();
       if (!active) return;
@@ -87,11 +89,11 @@ export default function WaitingForVerification() {
 
     void load();
     return () => { active = false; };
-  }, [navigate, previewMode, session]);
+  }, [navigate, paymentIntent, previewMode, session]);
 
   if (loading && !previewMode) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
-  if (operationalAccess && !previewMode && !renewalIntent) return <Navigate to="/dashboard" replace />;
+  if (operationalAccess && !previewMode && !hasPaymentIntent) return <Navigate to="/dashboard" replace />;
   if (!receipt && !error) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
 
   return (

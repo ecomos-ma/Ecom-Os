@@ -18,6 +18,9 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 type Provider = {
   id: string;
+  provider: string;
+  model: string;
+  tool_scope: string;
   endpoint: string | null;
   credential_ciphertext: string | null;
   credential_iv: string | null;
@@ -78,12 +81,15 @@ async function getAuthenticatedUser(request: Request) {
   return user;
 }
 
-async function getProviders(adminClient: ReturnType<typeof createClient>, provider: string) {
+async function getProviders(adminClient: ReturnType<typeof createClient>, provider: string, toolScope: string) {
   const { data, error } = await adminClient
     .from("tool_api_providers")
-    .select("id, endpoint, credential_ciphertext, credential_iv")
+    .select("id, provider, model, tool_scope, endpoint, credential_ciphertext, credential_iv, health_status, cooldown_until")
     .eq("provider", provider)
+    .eq("tool_scope", toolScope)
     .eq("enabled", true)
+    .or("health_status.is.null,health_status.eq.unknown,health_status.eq.healthy")
+    .or(`cooldown_until.is.null,cooldown_until.lte.${new Date().toISOString()}`)
     .order("priority", { ascending: true })
     .order("last_used_at", { ascending: true, nullsFirst: true });
   if (error) throw error;
@@ -95,8 +101,12 @@ async function logResult(
   adminClient: ReturnType<typeof createClient>, providerId: string, userId: string, action: string,
   startedAt: number, success: boolean, errorMessage?: string,
 ) {
-  const timestampField = success ? { last_success_at: new Date().toISOString(), failure_count: 0 } : {
+  const timestampField = success ? { last_success_at: new Date().toISOString(), failure_count: 0, health_status: "healthy", last_error: null, cooldown_until: null } : {
     last_failure_at: new Date().toISOString(),
+    failure_count: 1,
+    health_status: /429|quota|rate limit/i.test(errorMessage || "") ? "cooldown" : /401|403|invalid|revoked/i.test(errorMessage || "") ? "unhealthy" : "cooldown",
+    cooldown_until: new Date(Date.now() + (/429|quota|rate limit/i.test(errorMessage || "") ? 15 : 2) * 60_000).toISOString(),
+    last_error: (errorMessage || "Provider request failed").slice(0, 500),
   };
   await Promise.all([
     adminClient.from("tool_api_providers").update({ last_used_at: new Date().toISOString(), ...timestampField }).eq("id", providerId),
@@ -165,7 +175,7 @@ async function gemini(request: Request, userId: string, action = "gemini-generat
   if (!body.payload || typeof body.payload !== "object") return json({ error: "Missing Gemini payload" }, 400);
 
   const { adminClient } = clients(request);
-  const providers = await getProviders(adminClient, "gemini");
+  const providers = await getProviders(adminClient, "gemini", action === "landing-page-generate" ? "landing_page_ai" : "whatsapp_ai");
   const payload = action === "landing-page-generate"
     ? await addLandingPageReferences(adminClient, body.payload as Record<string, unknown>)
     : body.payload;
@@ -177,7 +187,7 @@ async function gemini(request: Request, userId: string, action = "gemini-generat
       const key = await decryptCredential(provider);
       if (!key) throw new Error("Provider is missing its API credential");
       const baseUrl = (provider.endpoint || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
-      const response = await fetch(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
+      const response = await fetch(`${baseUrl}/models/${encodeURIComponent(provider.model === "default" ? model : provider.model)}:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify(payload),
@@ -192,7 +202,8 @@ async function gemini(request: Request, userId: string, action = "gemini-generat
       await logResult(adminClient, provider.id, userId, action, startedAt, false, message);
     }
   }
-  return json({ error: "All Gemini providers failed", details: errors }, 503);
+  console.error("[tools-api] all eligible Gemini providers failed", { action, userId, failures: errors.length });
+  return json({ error: "AI service temporarily unavailable" }, 503);
 }
 
 async function removeBackground(request: Request, userId: string) {
@@ -201,7 +212,7 @@ async function removeBackground(request: Request, userId: string) {
   if (!(image instanceof File)) return json({ error: "image_file is required" }, 400);
 
   const { adminClient } = clients(request);
-  const providers = await getProviders(adminClient, "removebg");
+  const providers = await getProviders(adminClient, "removebg", "background_removal");
   const errors: string[] = [];
 
   for (const provider of providers) {
@@ -226,14 +237,15 @@ async function removeBackground(request: Request, userId: string) {
       await logResult(adminClient, provider.id, userId, "remove-background", startedAt, false, message);
     }
   }
-  return json({ error: "All background-removal providers failed", details: errors }, 503);
+  console.error("[tools-api] all eligible background-removal providers failed", { userId, failures: errors.length });
+  return json({ error: "Background removal temporarily unavailable" }, 503);
 }
 
 async function resolveTikTok(request: Request, userId: string) {
   const requestedUrl = new URL(request.url).searchParams.get("url");
   if (!requestedUrl || !/^https?:\/\//i.test(requestedUrl)) return json({ error: "A valid TikTok URL is required" }, 400);
   const { adminClient } = clients(request);
-  const providers = await getProviders(adminClient, "tiktok");
+  const providers = await getProviders(adminClient, "tiktok", "tiktok_resolver");
   const errors: string[] = [];
 
   for (const provider of providers) {
@@ -256,7 +268,8 @@ async function resolveTikTok(request: Request, userId: string) {
       await logResult(adminClient, provider.id, userId, "tiktok-resolve", startedAt, false, message);
     }
   }
-  return json({ error: "All TikTok providers failed", details: errors }, 503);
+  console.error("[tools-api] all eligible TikTok providers failed", { userId, failures: errors.length });
+  return json({ error: "Video resolver temporarily unavailable" }, 503);
 }
 
 serve(async (request) => {

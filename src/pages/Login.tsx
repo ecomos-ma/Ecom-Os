@@ -118,7 +118,11 @@ export default function Login() {
     } else if (waitingStatuses.has(subscriptionStatus)) {
       route = "/waiting-verification";
     } else if (operationalAccess === false) {
-      route = "/payment";
+      const paymentParams = new URLSearchParams();
+      if (searchParams.get("from") === "landing") paymentParams.set("from", "landing");
+      if (searchParams.get("plan")) paymentParams.set("plan", searchParams.get("plan")!);
+      if (searchParams.get("billing")) paymentParams.set("cycle", searchParams.get("billing") === "yearly" ? "annual" : "monthly");
+      route = `/payment${paymentParams.toString() ? `?${paymentParams.toString()}` : ""}`;
     } else if (returnTo?.startsWith("/") && returnTo !== "/login" && profile?.role !== "supervisor") {
       route = returnTo;
     }
@@ -145,6 +149,8 @@ export default function Login() {
 
   const rememberPlan = () => {
     window.localStorage.setItem("ecomos_pending_plan", JSON.stringify({ plan: selectedPlan, billing, selectedAt: new Date().toISOString() }));
+    const referral = searchParams.get("ref")?.trim();
+    if (referral) window.localStorage.setItem("ecomos_referral_code", referral.toUpperCase());
   };
 
   const startGoogleOAuth = async () => {
@@ -171,6 +177,7 @@ export default function Login() {
             workspace_name: workspaceName.trim(),
             selected_plan: selectedPlan,
             billing_period: billing,
+            referral_code: searchParams.get("ref")?.trim().toUpperCase() || null,
           },
         },
       });

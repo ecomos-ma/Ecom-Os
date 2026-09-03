@@ -17,13 +17,14 @@ import {
   buildPermissionsForOwner,
   DEFAULT_TEAM_PERMISSIONS,
   getFirstAllowedRoute,
+  isFounder,
   isOwnerLikeRole,
   normalizeAllowedSections,
 } from "../lib/rbac";
 import { toast } from "../components/Toast";
 import { prefetchRoute } from "./usePrefetch";
 import { getDemoSession, clearDemoSession, type DemoSession } from "../demo";
-import { recordLegalAcceptance, hasAcceptedCurrentVersions } from "../lib/legalService";
+import { recordLegalAcceptance } from "../lib/legalService";
 
 function sessionIssuedAt(accessToken: string | undefined) {
   if (!accessToken) return 0;
@@ -34,6 +35,26 @@ function sessionIssuedAt(accessToken: string | undefined) {
     return 0;
   }
 }
+
+// Auth boot is a dependency boundary: a stalled browser request must never
+// leave the whole application behind an endless loading screen.
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+const AUTH_BOOT_TIMEOUT_MS = 12_000;
 
 function resolveProfilePermissions(profile: Profile | null) {
   if (!profile) {
@@ -301,23 +322,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const loadWorkspaceMemberships = async (profileId: string) => {
       setWorkspacePlan("");
       setWorkspaceLimit(0);
-      const membershipRes = await supabase
-        .from("profile_workspaces")
-        .select("workspace_id, workspaces(id, name, created_at, meta_access_token, meta_ad_account_id, created_by)")
-        .eq("profile_id", profileId);
+      // Read the workspace list directly as the primary source. The nested
+      // profile_workspaces → workspaces relation can legitimately resolve to
+      // null in PostgREST even though the user has active memberships, which
+      // previously left the switcher empty while its allowance counter was 2.
+      const [workspacesRes, membershipRes] = await Promise.all([
+        supabase.from("workspaces").select("id, name, created_at, meta_access_token, meta_ad_account_id, created_by, plan").order("created_at", { ascending: true }),
+        supabase.from("profile_workspaces").select("workspace_id, workspaces(id, name, created_at, meta_access_token, meta_ad_account_id, created_by, plan)").eq("profile_id", profileId),
+      ]);
 
-      if (!membershipRes.error && membershipRes.data) {
-        setAvailableWorkspaces(
-          membershipRes.data
-            .filter((row: any) => row.workspaces)
-            .map((row: any) => row.workspaces as Workspace)
-        );
+      const directWorkspaces = !workspacesRes.error ? (workspacesRes.data ?? []) as Workspace[] : [];
+      const relationWorkspaces = !membershipRes.error
+        ? (membershipRes.data ?? []).flatMap((row: any) => {
+          const related = row.workspaces;
+          return Array.isArray(related) ? related : related ? [related] : [];
+        }) as Workspace[]
+        : [];
+      const uniqueWorkspaces = [...directWorkspaces, ...relationWorkspaces].filter((item, index, all) =>
+        Boolean(item?.id) && all.findIndex((candidate) => candidate.id === item.id) === index,
+      );
+
+      if (uniqueWorkspaces.length) {
+        setAvailableWorkspaces(uniqueWorkspaces);
       } else {
-        if (isSupabaseTableError(membershipRes.error)) {
-          console.warn("[useAuth] profile_workspaces lookup skipped due to Supabase access issue");
-        } else {
-          console.warn("[useAuth] profile_workspaces lookup failed:", membershipRes.error);
-        }
+        if (workspacesRes.error && !isSupabaseTableError(workspacesRes.error)) console.warn("[useAuth] workspace list lookup failed:", workspacesRes.error);
+        if (membershipRes.error && !isSupabaseTableError(membershipRes.error)) console.warn("[useAuth] profile_workspaces lookup failed:", membershipRes.error);
         setAvailableWorkspaces([]);
       }
     };
@@ -413,6 +442,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setProfile(localProfile);
 
+    // Claim a referral captured during signup exactly once. The database
+    // validates the code, blocks self-referrals, and makes the relationship
+    // immutable, so this client-side handoff cannot forge rewards.
+    const pendingReferralCode = window.localStorage.getItem("ecomos_referral_code");
+    if (pendingReferralCode) {
+      supabase.rpc("claim_referral_code_v1", { p_code: pendingReferralCode }).then(({ error }) => {
+        if (!error || error.code === "23505") window.localStorage.removeItem("ecomos_referral_code");
+        else console.warn("[useAuth] Referral code could not be claimed:", error.message);
+      });
+    }
+
     const workspaceId = localProfile.workspace_id;
 
     if (!workspaceId) {
@@ -448,11 +488,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const access = accessData && typeof accessData === "object" ? accessData as Record<string, any> : null;
     const effective = access?.subscription && typeof access.subscription === "object" ? access.subscription as Record<string, any> : null;
-    const isAccessAllowed = Boolean(access?.allowed);
+    // The exact root-founder identity remains available for recovery and
+    // platform administration even if a workspace plan is removed.
+    const founderBypass = isFounder(localProfile.role, userEmail);
+    const isAccessAllowed = founderBypass || Boolean(access?.allowed);
     const nextSubscription = {
       plan: String(effective?.plan?.code || ""),
       workspaceLimit: Number(effective?.limits?.workspaces || 0),
-      status: String(effective?.status || access?.reason || "subscription_missing"),
+      status: founderBypass ? "root_founder_access" : String(effective?.status || access?.reason || "subscription_missing"),
       allowed: isAccessAllowed,
     };
     baseSubscriptionRef.current = nextSubscription;
@@ -475,9 +518,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (isOwnerLikeRole(localProfile.role)) {
+    if (founderBypass || isOwnerLikeRole(localProfile.role)) {
       setTeamPermissions(buildPermissionsForOwner());
-      setDefaultRoute("/dashboard");
+      // A newly activated owner should land in the guided setup, not an empty
+      // dashboard. Completion is kept per workspace so switching businesses
+      // always exposes the right first-run experience.
+      const setupCompleteKey = `ecomos:workspace-setup-completed:${workspaceId}`;
+      const setupComplete = typeof window !== "undefined" && localStorage.getItem(setupCompleteKey) === "true";
+      setDefaultRoute(setupComplete ? "/dashboard" : "/setup");
       setPermissionsLoading(false);
       return;
     }
@@ -504,7 +552,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const active = profileLoadRef.current;
     if (active?.userId === userId) return active.promise;
 
-    const promise = loadProfileAndWorkspaceInternal(userId);
+    const promise = withTimeout(
+      loadProfileAndWorkspaceInternal(userId),
+      AUTH_BOOT_TIMEOUT_MS,
+      "Workspace startup timed out",
+    );
     profileLoadRef.current = { userId, promise };
     try {
       await promise;
@@ -576,7 +628,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let disposed = false;
 
-    void supabase.auth.getSession()
+    void withTimeout(supabase.auth.getSession(), AUTH_BOOT_TIMEOUT_MS, "Session restoration timed out")
       .then(({ data }) => {
         if (disposed) return;
         setSession(data.session);
@@ -585,7 +637,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch((error) => {
-        if (!disposed) console.error("[useAuth] Unable to restore session:", error);
+        if (disposed) return;
+        console.error("[useAuth] Unable to restore session:", error);
+        // End the gate deterministically. ProtectedRoute can now send the user
+        // to the appropriate sign-in/billing screen instead of rendering the
+        // startup animation forever when Supabase is slow or unreachable.
+        setOperationalAccess(false);
+        setSubscriptionStatus("billing_unavailable");
+        setPermissionsLoading(false);
       })
       .finally(() => {
         if (!disposed) setLoading(false);

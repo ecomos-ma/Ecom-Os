@@ -12,6 +12,7 @@ import { supabase } from "../lib/supabase";
 import { dateRangeForPreset, hasCurrencyMismatch, percent, safeDivide, type DatePreset, type DateRange } from "../lib/tiktokMetrics";
 import { getTikTokStatus, invokeTikTok, type TikTokInsight, type TikTokIntegrationStatus } from "../lib/tiktok";
 import { normalizeStatus } from "../utils/status";
+import { getIntegrationLogo } from "../lib/integrationLogos";
 
 type Tab = "campaigns" | "adgroups" | "ads" | "creatives";
 type EntityRow = Record<string, string | number | boolean | null | Record<string, unknown>>;
@@ -262,8 +263,8 @@ export default function TikTokAds() {
 
   if (loading && !status) return <div><PageHeader title="TikTok Ads" subtitle="Official TikTok Marketing API reporting and COD profitability." /><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Array.from({ length: 12 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-xl bg-base-raised" />)}</div></div>;
   if (error) return <State title="TikTok reporting unavailable" body={error} action={<button onClick={() => void reload()} className="rounded-xl bg-brand px-4 py-2 text-white">Retry</button>} />;
-  if (!status?.connection || ["not_connected", "disconnected"].includes(status.state)) return <State title="Connect TikTok Ads" body="Authorize an official TikTok for Business account before viewing live reporting. No sample data is shown." action={<button onClick={() => navigate("/settings?tab=integrations")} className="rounded-xl bg-brand px-4 py-2 text-white">Open integration settings</button>} />;
-  if (status.state === "reauth_required") return <State title="TikTok authorization expired" body="Reconnect TikTok Ads to resume syncing. Historical data remains available after reconnection." action={<button onClick={() => navigate("/settings?tab=integrations")} className="rounded-xl bg-brand px-4 py-2 text-white">Reconnect</button>} />;
+  if (!status?.connection || ["not_connected", "disconnected"].includes(status.state)) return <TikTokConnectionEmpty onOpenSettings={() => navigate("/settings?tab=Integrations")} />;
+  if (status.state === "reauth_required") return <TikTokConnectionEmpty expired onOpenSettings={() => navigate("/settings?tab=Integrations")} />;
   if (!account) return <State title="Select an advertiser account" body="Authorization succeeded, but no advertiser is enabled for reporting yet." action={<button onClick={() => navigate("/settings?tab=integrations&tiktok=select_accounts")} className="rounded-xl bg-brand px-4 py-2 text-white">Choose advertisers</button>} />;
 
   const metricCards: Array<{ label: string; value: string; note?: string; current?: number; previous?: number }> = [
@@ -330,3 +331,7 @@ export default function TikTokAds() {
 
 function Chart({ title, children }: { title: string; children: ReactNode }) { return <div className="rounded-xl border border-base-border bg-base-surface p-4"><h3 className="mb-3 text-[13px] font-semibold text-ink">{title}</h3>{children}</div>; }
 function State({ title, body, action }: { title: string; body: string; action: ReactNode }) { return <div><PageHeader title="TikTok Ads" subtitle="Official TikTok Marketing API reporting and COD profitability." /><div className="rounded-2xl border border-base-border bg-base-surface p-10 text-center"><h2 className="text-xl font-semibold text-ink">{title}</h2><p className="mx-auto mb-5 mt-2 max-w-xl text-[13px] text-ink-muted">{body}</p>{action}</div></div>; }
+
+function TikTokConnectionEmpty({ expired = false, onOpenSettings }: { expired?: boolean; onOpenSettings: () => void }) {
+  return <div><PageHeader title="TikTok Ads" subtitle="Official TikTok Marketing API reporting and COD profitability." /><div className="py-8 md:py-12"><section className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-slate-950/10 bg-base-surface bg-[linear-gradient(135deg,rgba(0,0,0,0.045),transparent_55%)] p-6 text-center shadow-card sm:p-9"><div className="mx-auto grid h-12 w-12 place-items-center overflow-hidden rounded-2xl border border-slate-950/10 bg-white p-2 shadow-lg shadow-slate-950/10"><img src={getIntegrationLogo("tiktok")} alt="TikTok Ads" className="h-full w-full object-contain" /></div><h2 className="mt-4 text-xl font-bold text-ink">{expired ? "Reconnect TikTok Ads to continue" : "Connect TikTok Ads to get started"}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-muted">{expired ? "Reconnect your TikTok for Business account to resume syncing. Your historical reports will remain available after reconnection." : "Link your TikTok for Business account to view campaigns, spend, conversions and COD profitability in this workspace."}</p><div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row"><button onClick={onOpenSettings} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-5 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-slate-800">{expired ? "Reconnect TikTok Ads" : "Connect TikTok Ads"}<RefreshCw size={14} /></button><button onClick={onOpenSettings} className="rounded-xl border border-base-border bg-base-surface px-5 py-2.5 text-[13px] font-semibold text-ink transition hover:bg-base-raised">See all integrations</button></div></section></div></div>;
+}

@@ -5,12 +5,13 @@ import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../hooks/useAuth";
 import WhatsAppSettingsModal from "./WhatsAppSettingsModal";
 import { toast } from "../../../components/Toast";
-import { disconnectWhatsApp } from "../../../services/whatsappWorkerService";
+import { callWhatsAppWorker, disconnectWhatsApp, normalizeWhatsAppStatus } from "../../../services/whatsappWorkerService";
 
-function WhatsAppIntegrationCard() {
+function WhatsAppIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
     const { workspace } = useAuth();
     const [loading, setLoading] = useState(true);
     const [settings, setSettings] = useState<any>(null);
+    const [workerStatus, setWorkerStatus] = useState<string | null>(null);
     const [refreshError, setRefreshError] = useState(false);
     const [isManageOpen, setIsManageOpen] = useState(false);
     const requestRef = useRef<Promise<void> | null>(null);
@@ -22,13 +23,15 @@ function WhatsAppIntegrationCard() {
 
         const request = (async () => {
             try {
-                const { data, error } = await supabase
-                    .from("whatsapp_settings")
-                    .select("*")
-                    .eq("workspace_id", workspaceId)
-                    .maybeSingle();
+                const [settingsResult, workerResult] = await Promise.all([
+                    supabase.from("whatsapp_settings").select("*").eq("workspace_id", workspaceId).maybeSingle(),
+                    callWhatsAppWorker({ action: "status", workspaceId }).catch(() => null),
+                ]);
+                const { data, error } = settingsResult;
                 if (error) throw error;
                 if (data) setSettings(data);
+                const liveStatus = normalizeWhatsAppStatus(workerResult?.connection_status ?? workerResult?.status ?? workerResult?.state ?? workerResult);
+                setWorkerStatus(liveStatus ?? null);
                 setRefreshError(false);
             } catch (e) {
                 console.error("Error loading WhatsApp config:", e);
@@ -63,12 +66,21 @@ function WhatsAppIntegrationCard() {
         };
     }, [loadSettings, workspace?.id]);
 
-    const isConnected = ["ready", "authenticated", "connected"].includes(String(settings?.connection_status || ""));
+    // The modal gets its status from the live worker. Use that same source for
+    // the marketplace card, falling back to the persisted value only when the
+    // worker is unavailable.
+    const status = normalizeWhatsAppStatus(workerStatus ?? settings?.connection_status, "disconnected") || "disconnected";
+    const isConnected = status === "ready";
+
+    useEffect(() => {
+        if (!loading) onConnectionChange?.(isConnected);
+    }, [isConnected, loading, onConnectionChange]);
 
     const handleDisconnect = async () => {
         if (!workspace?.id || !confirm("Disconnect WhatsApp? Session will be terminated.")) return;
         try {
             await disconnectWhatsApp(workspace.id);
+            setWorkerStatus("disconnected");
             toast.success("WhatsApp disconnected");
             await loadSettings();
         } catch (e) {

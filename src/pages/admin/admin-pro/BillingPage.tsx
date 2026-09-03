@@ -21,6 +21,7 @@ import {
 import { supabase } from "../../../lib/supabase";
 import { PaymentReceiptCard } from "../../../components/PaymentReceiptCard";
 import { downloadPaymentReceiptPdf, type PaymentReceiptData } from "../../../lib/paymentReceipt";
+import { FOUNDER_EMAIL } from "../../../lib/rbac";
 import {
   currency,
   dateTime,
@@ -32,12 +33,49 @@ import {
   PlanBadge as SharedPlanBadge,
 } from "./shared";
 const PAGE_SIZE = 25;
-const VALID_PLAN_CODES = ["starter", "growth", "pro", "scale", "business", "free"] as const;
-
+type ReferralAuditRow = { id: string; referrer_email: string; referred_email: string; status: string; reward_status: string; created_at: string; activated_at: string | null };
 function normalizePlanCode(value: string | null | undefined) {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  if (!normalized) return null;
-  return VALID_PLAN_CODES.includes(normalized as (typeof VALID_PLAN_CODES)[number]) ? normalized : null;
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return /^[a-z][a-z0-9-]{1,62}$/.test(normalized) ? normalized : null;
+}
+
+function isFounderSubscription(item: PlatformSubscription) {
+  return String(item.plan_code ?? "").trim().toLowerCase() === "founder"
+    || String(item.plan_name ?? "").trim().toLowerCase() === "founder"
+    || String(item.migration_state ?? "").trim().toLowerCase() === "founder_bypass"
+    || String(item.seller_email ?? "").trim().toLowerCase() === FOUNDER_EMAIL;
+}
+
+function isFounderPayment(item: PlatformPaymentRequest) {
+  return String(item.requested_plan ?? "").trim().toLowerCase() === "founder"
+    || String(item.current_plan ?? "").trim().toLowerCase() === "founder"
+    || String(item.seller_email ?? "").trim().toLowerCase() === FOUNDER_EMAIL;
+}
+
+function positiveLimit(value: number | null) {
+  return value == null || !Number.isFinite(value) || value <= 0 ? null : Math.floor(value);
+}
+
+function parseJsonField(value: string, label: string, fallback: unknown) {
+  if (!value.trim()) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must contain valid JSON.`);
+  }
+}
+
+function draftPlanCode(plan?: Partial<OfficialPlan> | null) {
+  const existing = normalizePlanCode(plan?.code);
+  if (existing) return existing;
+  if (plan?.id) {
+    return normalizePlanCode(`${plan.name || "plan"}-${plan.id.slice(0, 8)}`) ?? `plan-${plan.id.slice(0, 8)}`;
+  }
+  return `new-plan-${Date.now().toString().slice(-6)}`;
 }
 
 export function BillingPage() {
@@ -181,7 +219,7 @@ function PaymentsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1.5">
-                          <SharedPlanBadge plan={item.requested_plan} />
+                          <SharedPlanBadge plan={isFounderPayment(item) ? "founder" : item.requested_plan} />
                           <p className="text-xs text-ink-muted">
                             from {item.current_plan || "none"} · {item.billing_cycle}
                           </p>
@@ -211,13 +249,13 @@ function PaymentsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <StatusBadge value={item.status} />
+                        <StatusBadge value={isFounderPayment(item) ? "founder" : item.status} />
                       </td>
                       <td className="px-4 py-3 text-xs text-ink-muted">
-                        {item.reviewer_email || "—"}
+                        {isFounderPayment(item) ? "Platform access" : (item.reviewer_email || "—")}
                       </td>
                       <td className="px-4 py-3">
-                        {["submitted", "reviewing"].includes(item.status) ? (
+                        {!isFounderPayment(item) && ["submitted", "reviewing"].includes(item.status) ? (
                           <button
                             onClick={() => {
                               setAction({ payment: item, decision: "approve" });
@@ -507,11 +545,12 @@ function SubscriptionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<PlatformSubscription | null>(null);
+  const [referralRows, setReferralRows] = useState<ReferralAuditRow[]>([]);
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [result, officialPlans] = await Promise.all([
+      const [result, officialPlans, referrals] = await Promise.all([
         founderAdmin.subscriptions({
           page: page + 1,
           pageSize: PAGE_SIZE,
@@ -521,10 +560,12 @@ function SubscriptionsPage() {
           migrationState: migration,
         }),
         founderAdmin.officialPlans(),
+        supabase.rpc("platform_list_referrals_v1"),
       ]);
       setRows(result.rows || []);
       setTotal(result.total || 0);
       setPlans(officialPlans || []);
+      if (!referrals.error) setReferralRows((referrals.data || []) as ReferralAuditRow[]);
     } catch (loadError) {
       setError(errorMessage(loadError));
     } finally {
@@ -635,17 +676,17 @@ function SubscriptionsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-semibold capitalize">
-                          {item.plan_name || "No plan assigned"}
+                          {isFounderSubscription(item) ? "Founder" : (item.plan_name || "No plan assigned")}
                         </p>
                         <p className="text-xs text-ink-muted">
-                          {item.billing_cycle || "No billing cycle"}
+                          {isFounderSubscription(item) ? "Unlimited access" : (item.billing_cycle || "No billing cycle")}
                         </p>
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge value={item.status} />
                       </td>
                       <td className="px-4 py-3">
-                        <StatusBadge value={item.payment_status} />
+                        <StatusBadge value={isFounderSubscription(item) ? "founder" : item.payment_status} />
                       </td>
                       <td className="px-4 py-3 font-semibold">
                         {item.workspace_count}
@@ -692,6 +733,10 @@ function SubscriptionsPage() {
           />
         </section>
       )}
+      <section className="mt-5 overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-sm">
+        <div className="border-b border-base-border px-4 py-3"><p className="text-sm font-semibold">Referral audit</p><p className="mt-0.5 text-xs text-ink-muted">Immutable seller referral relationships and reward state.</p></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-base-raised text-[11px] uppercase text-ink-faint"><tr><th className="px-4 py-3">Referred by</th><th className="px-4 py-3">Referred seller</th><th className="px-4 py-3">Signup status</th><th className="px-4 py-3">Reward / discount</th><th className="px-4 py-3">Created</th></tr></thead><tbody>{referralRows.length ? referralRows.map((item) => <tr key={item.id} className="border-t border-base-border"><td className="px-4 py-3 font-semibold">{item.referrer_email}</td><td className="px-4 py-3">{item.referred_email}</td><td className="px-4 py-3"><StatusBadge value={item.status} /></td><td className="px-4 py-3"><StatusBadge value={item.reward_status} /></td><td className="px-4 py-3 text-xs text-ink-muted">{dateTime.format(new Date(item.created_at))}</td></tr>) : <tr><td colSpan={5}><p className="p-6 text-center text-sm text-ink-muted">No referrals yet.</p></td></tr>}</tbody></table></div>
+      </section>
       {selected && (
         <ManageSubscriptionDialog
           subscription={selected}
@@ -931,15 +976,15 @@ function PlansPage() {
 
     return {
       id: plan?.id ?? null,
-      code: normalizePlanCode(plan?.code) ?? "growth",
+      code: draftPlanCode(plan),
       name: plan?.name ?? "Growth",
       description: plan?.description ?? "",
       monthly_price_mad: Number(plan?.monthly_price_mad ?? 999),
       annual_price_mad: Number(plan?.annual_price_mad ?? 9990),
-      order_limit: Number(plan?.order_limit ?? 30000),
+      order_limit: plan?.order_limit == null ? null : Number(plan.order_limit),
       order_period: (plan?.order_period as "day" | "month") ?? "month",
       workspace_limit: plan?.workspace_limit ?? 10,
-      team_member_limit: Number(plan?.team_member_limit ?? 25),
+      team_member_limit: plan?.team_member_limit == null ? null : Number(plan.team_member_limit),
       integration_limit: plan?.integration_limit ?? null,
       is_popular: Boolean(plan?.is_popular ?? false),
       is_active: Boolean(plan?.is_active ?? true),
@@ -1020,7 +1065,11 @@ function PlansPage() {
     }
     const normalizedCode = normalizePlanCode(draft.code);
     if (!normalizedCode) {
-      setError("Plan code is invalid. Use one of: starter, growth, pro, scale, business, free.");
+      setError("Plan code must start with a letter and use 2–63 lowercase letters, numbers, or hyphens.");
+      return;
+    }
+    if (!draft.monthly_billing_enabled && !draft.annual_billing_enabled) {
+      setError("Enable at least one billing cycle before saving this plan.");
       return;
     }
     setSaving(true);
@@ -1033,11 +1082,11 @@ function PlansPage() {
         description: draft.description.trim(),
         monthly_price_mad: Number(draft.monthly_price_mad || 0),
         annual_price_mad: Number(draft.annual_price_mad || 0),
-        order_limit: Number(draft.order_limit || 0),
+        order_limit: positiveLimit(draft.order_limit),
         order_period: draft.order_period,
         workspace_limit: draft.workspace_limit == null || Number.isNaN(Number(draft.workspace_limit)) ? null : Number(draft.workspace_limit),
-        team_member_limit: Number(draft.team_member_limit || 0),
-        integration_limit: draft.integration_limit == null || Number.isNaN(Number(draft.integration_limit)) ? null : Number(draft.integration_limit),
+        team_member_limit: positiveLimit(draft.team_member_limit),
+        integration_limit: positiveLimit(draft.integration_limit),
         mobile_app: Boolean(draft.mobile_app),
         whatsapp_automation: Boolean(draft.whatsapp_automation),
         ai_whatsapp_confirmation_agent: Boolean(draft.ai_whatsapp_confirmation_agent),
@@ -1053,8 +1102,8 @@ function PlansPage() {
         cta_text: draft.cta_text?.trim() || null,
         monthly_billing_enabled: Boolean(draft.monthly_billing_enabled),
         annual_billing_enabled: Boolean(draft.annual_billing_enabled),
-        custom_limits: draft.custom_limits ? JSON.parse(draft.custom_limits) : {},
-        custom_benefits: draft.custom_benefits ? JSON.parse(draft.custom_benefits) : [],
+        custom_limits: parseJsonField(draft.custom_limits, "Custom limits", {}),
+        custom_benefits: parseJsonField(draft.custom_benefits, "Custom benefits", []),
       };
 
       if (draft.is_popular) {
@@ -1091,7 +1140,9 @@ function PlansPage() {
       if (sourceError) throw sourceError;
       const copyName = `${source.name} Copy`;
       const stamp = Date.now().toString().slice(-4);
-      const generatedCode = normalizePlanCode(`${String(source.code || "growth").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-copy-${stamp}`) ?? null;
+      const sourceCode = String(source.code || "plan").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 53);
+      const generatedCode = normalizePlanCode(`${sourceCode}-copy-${stamp}`);
+      if (!generatedCode) throw new Error("Could not create a valid code for this plan copy.");
       const { error: insertError } = await supabase.from("subscription_plans").insert({
         ...source,
         id: undefined,
@@ -1140,18 +1191,16 @@ function PlansPage() {
 
   const handleDelete = useCallback(async (plan: OfficialPlan) => {
     if (!plan.id) return;
-    const { count, error: countError } = await supabase.from("user_subscriptions").select("id", { head: true, count: "exact" }).eq("plan_id", plan.id);
-    if (countError) {
-      setError(errorMessage(countError));
-      return;
-    }
-    if ((count ?? 0) > 0) {
-      setError(`Cannot delete ${plan.name} because ${count} subscriber(s) still use this plan. Archive it or move subscribers first.`);
-      return;
-    }
+    const accepted = window.confirm(
+      `Delete ${plan.name}? Existing sellers and payment history will be kept, but this plan will be unassigned from them.`,
+    );
+    if (!accepted) return;
     const { error } = await supabase.from("subscription_plans").delete().eq("id", plan.id);
     if (error) {
-      setError(errorMessage(error));
+      const message = errorMessage(error);
+      setError(/foreign key|still referenced|violates/i.test(message)
+        ? `Cannot delete ${plan.name} because it is assigned to one or more sellers. Archive or disable it instead.`
+        : message);
       return;
     }
     setMenuPlanId(null);
@@ -1195,7 +1244,7 @@ function PlansPage() {
               <p className="mt-5 text-3xl font-bold">{currency.format(Number(plan.monthly_price_mad || 0))}<span className="text-sm font-medium text-ink-muted">/mo</span></p>
               <p className="mt-1 text-xs text-ink-muted">{currency.format(Number(plan.annual_price_mad || 0))} annually</p>
               <div className="mt-5 space-y-2 text-sm">
-                <PlanLine label="Orders" value={`${Number(plan.order_limit ?? 0).toLocaleString()} / ${plan.order_period ?? "month"}`} />
+                <PlanLine label="Orders" value={plan.order_limit == null ? "Unlimited" : `${Number(plan.order_limit).toLocaleString()} / ${plan.order_period ?? "month"}`} />
                 <PlanLine label="Workspaces" value={limitCopy(plan.workspace_limit)} />
                 <PlanLine label="Team members" value={limitCopy(plan.team_member_limit)} />
                 <PlanLine label="Integrations" value={limitCopy(plan.integration_limit)} />
@@ -1219,7 +1268,7 @@ function PlansPage() {
                   <div className="grid gap-2">
                     <button type="button" onClick={() => void handleToggle(plan, "is_public")} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">{plan.is_public ? "Hide from public" : "Show publicly"}</button>
                     <button type="button" onClick={() => void handleToggle(plan, "is_active")} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">{plan.is_active ? "Disable plan" : "Enable plan"}</button>
-                    <button type="button" onClick={() => void handleArchive(plan)} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">Archive plan</button>
+                    <button type="button" onClick={() => void handleArchive(plan)} className="rounded-lg bg-base-surface px-2 py-1.5 text-left text-xs font-medium hover:bg-base-surface/80">Close / archive plan</button>
                     <button type="button" onClick={() => void handleDelete(plan)} className="rounded-lg bg-red-50 px-2 py-1.5 text-left text-xs font-medium text-red-700 hover:bg-red-100">Delete plan</button>
                   </div>
                 </div>
@@ -1282,7 +1331,7 @@ function PlansPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Order limit</label>
-                    <input type="number" value={draft.order_limit} onChange={(event) => setDraft((current) => ({ ...current, order_limit: Number(event.target.value || 0) }))} className="field w-full" />
+                    <input type="number" min="1" value={draft.order_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, order_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Order period</label>
@@ -1295,15 +1344,15 @@ function PlansPage() {
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Workspaces</label>
-                    <input type="number" value={draft.workspace_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, workspace_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
+                    <input type="number" min="1" value={draft.workspace_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, workspace_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Team members</label>
-                    <input type="number" value={draft.team_member_limit} onChange={(event) => setDraft((current) => ({ ...current, team_member_limit: Number(event.target.value || 0) }))} className="field w-full" />
+                    <input type="number" min="1" value={draft.team_member_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, team_member_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-ink-faint">Integrations</label>
-                    <input type="number" value={draft.integration_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, integration_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
+                    <input type="number" min="1" value={draft.integration_limit ?? ""} onChange={(event) => setDraft((current) => ({ ...current, integration_limit: event.target.value === "" ? null : Number(event.target.value) }))} className="field w-full" placeholder="Unlimited" />
                   </div>
                 </div>
                 <div>
@@ -1356,10 +1405,10 @@ type PlanDraft = {
   description: string;
   monthly_price_mad: number;
   annual_price_mad: number;
-  order_limit: number;
+  order_limit: number | null;
   order_period: "day" | "month";
   workspace_limit: number | null;
-  team_member_limit: number;
+  team_member_limit: number | null;
   integration_limit: number | null;
   is_popular: boolean;
   is_active: boolean;

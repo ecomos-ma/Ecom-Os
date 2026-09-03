@@ -43,6 +43,7 @@ const Finance = lazy(() => import("./pages/Finance"));
 const CodScenarios = lazy(() => import("./pages/CodScenarios"));
 const Team = lazy(() => import("./pages/Team"));
 const Settings = lazy(() => import("./pages/Settings"));
+const SetupWorkspace = lazy(() => import("./pages/SetupWorkspace"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const NotificationPreferences = lazy(() => import("./pages/NotificationPreferences"));
 const Amine = lazy(() => import("./pages/AmineTools"));
@@ -144,9 +145,10 @@ export default function App() {
                 }
               >
                 <Route path="/dashboard" element={<LoadablePage><PermissionGuard permission="dashboard"><Dashboard /></PermissionGuard></LoadablePage>} />
+                <Route path="/setup" element={<LoadablePage><SetupWorkspace /></LoadablePage>} />
                 <Route path="/orders" element={<LoadablePage><PermissionGuard permission="orders"><Orders /></PermissionGuard></LoadablePage>} />
                 <Route path="/confirmation" element={<LoadablePage><PermissionGuard permission="confirmation"><Confirmation /></PermissionGuard></LoadablePage>} />
-                <Route path="/delivering" element={<LoadablePage><PermissionGuard permission="shipping"><Delivering /></PermissionGuard></LoadablePage>} />
+                <Route path="/delivering" element={<LoadablePage><PermissionGuard permission="orders"><Delivering /></PermissionGuard></LoadablePage>} />
                 <Route path="/shipping" element={<LoadablePage><PermissionGuard permission="shipping"><Shipping /></PermissionGuard></LoadablePage>} />
                 <Route path="/customers" element={<LoadablePage><PermissionGuard permission="customers"><Customers /></PermissionGuard></LoadablePage>} />
                 <Route path="/products-inventory" element={<LoadablePage><PermissionGuard permission="products"><ProductsAndInventory /></PermissionGuard></LoadablePage>} />
@@ -159,6 +161,7 @@ export default function App() {
                 <Route path="/cod-scenarios" element={<Navigate to="/scenario" replace />} />
                 <Route path="/team" element={<LoadablePage><PermissionGuard permission="team"><Team /></PermissionGuard></LoadablePage>} />
                 <Route path="/settings" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
+                <Route path="/settings/integrations" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
                 <Route path="/settings/billing" element={<LoadablePage><PermissionGuard permission="settings"><Settings /></PermissionGuard></LoadablePage>} />
                 <Route path="/notifications" element={<LoadablePage><Notifications /></LoadablePage>} />
                 <Route path="/settings/notifications" element={<LoadablePage><NotificationPreferences /></LoadablePage>} />

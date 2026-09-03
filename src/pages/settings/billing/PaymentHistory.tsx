@@ -10,7 +10,7 @@ import { reportError } from "../../../lib/errorHandling";
 
 const PAGE_SIZE = 10;
 
-export function PaymentHistory({ refreshKey, onSelect }: { refreshKey: number; onSelect: (payment: PaymentDrawerData) => void }) {
+export function PaymentHistory({ refreshKey, onSelect, founderAccess = false }: { refreshKey: number; onSelect: (payment: PaymentDrawerData) => void; founderAccess?: boolean }) {
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<PaymentRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -18,6 +18,13 @@ export function PaymentHistory({ refreshKey, onSelect }: { refreshKey: number; o
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (founderAccess) {
+      setRows([]);
+      setTotal(0);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let active = true;
     setLoading(true);
     setError(null);
@@ -41,7 +48,7 @@ export function PaymentHistory({ refreshKey, onSelect }: { refreshKey: number; o
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [page, refreshKey]);
+  }, [page, refreshKey, founderAccess]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -74,6 +81,12 @@ export function PaymentHistory({ refreshKey, onSelect }: { refreshKey: number; o
           >
             <RefreshCw size={13} /> Retry
           </button>
+        </div>
+      ) : founderAccess ? (
+        <div className="flex flex-col items-center justify-center py-14 text-center">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600"><Receipt size={19} /></div>
+          <div className="text-[14px] font-medium text-ink">Founder access</div>
+          <p className="mt-1 text-[12.5px] text-ink-muted">No payment is required for the founder account.</p>
         </div>
       ) : rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-14 text-center">

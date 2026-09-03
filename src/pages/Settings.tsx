@@ -26,10 +26,11 @@ import NotificationSettingsTab from "./settings/components/NotificationSettingsT
 import WorkspaceDangerZone from "./settings/components/WorkspaceDangerZone";
 import AccountPrivacyTab from "./settings/components/AccountPrivacyTab";
 import BillingCenter from "./settings/billing/BillingCenter";
+import Referral from "./settings/Referral";
 import { getIntegrationLogo } from "../lib/integrationLogos";
 import type { ShippingCarrier } from "../lib/types";
 
-const TABS = ["Profile", "Workspace", "Integrations", "Notifications", "Billing", "Account"] as const;
+const TABS = ["Profile", "Workspace", "Integrations", "Notifications", "Billing", "Referral", "Account"] as const;
 const ACCENT_PRESETS = ["#DB6A8F", "#00B57F", "#3B82F6", "#F59E0B", "#8B5CF6"];
 const WORKSPACE_ACCENT_PREFIX = "ecom-scale-accent:";
 
@@ -41,10 +42,17 @@ type Tab = (typeof TABS)[number];
 
 export default function Settings() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const requestedTab = searchParams.get("tab");
   const resolvedTab = TABS.find((value) => value.toLowerCase() === requestedTab?.toLowerCase())
-    ?? (window.location.pathname.toLowerCase().endsWith("/billing") ? "Billing" : "Profile");
+    ?? (window.location.pathname.toLowerCase().endsWith("/billing") ? "Billing" : window.location.pathname.toLowerCase().endsWith("/integrations") ? "Integrations" : "Profile");
   const [tab, setTab] = useState<Tab>(resolvedTab);
+
+  useEffect(() => {
+    if (window.location.pathname === "/settings" && requestedTab?.toLowerCase() === "integrations") {
+      navigate("/settings/integrations", { replace: true });
+    }
+  }, [navigate, requestedTab]);
 
   useEffect(() => {
     setTab(resolvedTab);
@@ -74,6 +82,7 @@ export default function Settings() {
       {tab === "Integrations" && <IntegrationsTab autoOpenAmeex={searchParams.get("carrier") === "ameex"} initialAmeexCity={searchParams.get("city") ?? ""} autoOpenTikTok={searchParams.get("tiktok") === "select_accounts"} />}
       {tab === "Notifications" && <NotificationSettingsTab />}
       {tab === "Billing" && <BillingCenter />}
+      {tab === "Referral" && <Referral />}
       {tab === "Account" && <AccountPrivacyTab />}
     </div>
   );
@@ -735,14 +744,18 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
     {
       key: 'whatsapp',
       connected: connectionStates.whatsapp,
-      component: <WhatsAppIntegrationCard />,
+      component: <WhatsAppIntegrationCard onConnectionChange={(connected) => reportConnectionState('whatsapp', connected)} />,
       order: 11
     },
   ];
 
-  // Split integrations: connected vs available
-  const connectedIntegrations = integrationCards.filter(i => i.connected).sort((a, b) => a.order - b.order);
-  const availableIntegrations = integrationCards.filter(i => !i.connected).sort((a, b) => a.order - b.order);
+  // Keep one clear marketplace: connected services first, then the services
+  // that still need setup. This makes an active integration immediately
+  // visible without duplicating the grid into two sections.
+  const sortedIntegrations = [...integrationCards].sort((a, b) => {
+    if (a.connected !== b.connected) return a.connected ? -1 : 1;
+    return a.order - b.order;
+  });
 
   return (
     <div className="flex flex-col w-full h-full pb-10">
@@ -760,32 +773,20 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
       </div>
 
       <div className="space-y-10">
-        {/* ── CONNECTED INTEGRATIONS ── */}
         <div>
-          <h3 className="mb-4 text-[16px] font-semibold text-ink">Connected Integrations</h3>
-          {connectedIntegrations.length === 0 ? (
-            <div className="py-8">
-              <EmptyState title="No integrations connected" description="Connect your first service below to automate your business." compact />
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-[16px] font-semibold text-ink">All integrations</h3>
+              <p className="mt-1 text-[12px] text-ink-muted">Connected services are pinned first. Everything else stays ready to configure.</p>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {connectedIntegrations.map((integration) => (
-                <React.Fragment key={integration.key}>
-                  {integration.component}
-                </React.Fragment>
-              ))}
+            <div className="flex items-center gap-2 text-[11px] font-semibold">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Active first</span>
+              <span className="rounded-full bg-base-raised px-2.5 py-1 text-ink-muted">{sortedIntegrations.filter((item) => item.connected).length} connected</span>
             </div>
-          )}
-        </div>
-
-        {/* ── AVAILABLE INTEGRATIONS ── */}
-        <div>
-          <h3 className="mb-4 text-[16px] font-semibold text-ink">Available Integrations</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {availableIntegrations.map((integration) => (
-              <React.Fragment key={integration.key}>
-                {integration.component}
-              </React.Fragment>
+          </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {sortedIntegrations.map((integration) => (
+              <React.Fragment key={integration.key}>{integration.component}</React.Fragment>
             ))}
           </div>
         </div>

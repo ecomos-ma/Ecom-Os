@@ -14,10 +14,10 @@ import {
   billingCycleLabel, daysUntil, deriveDisplayStatus, formatMad, TONE_BADGE_CLASSES,
   TONE_DOT_CLASSES, type DisplayStatus,
 } from "./billingShared";
-import { UpgradePlans } from "./UpgradePlans";
 import { PaymentDetailsDrawer, toDrawerData, type PaymentDrawerData } from "./PaymentDetailsDrawer";
 import { PaymentHistory } from "./PaymentHistory";
 import { reportError } from "../../../lib/errorHandling";
+import { isFounder } from "../../../lib/rbac";
 
 type Banner =
   | { kind: "expired" }
@@ -85,11 +85,49 @@ export default function BillingCenter() {
     };
   }, [session?.user.id, isBillingOwner]);
 
-  const subscription = overview?.subscription ?? null;
-  const plan = overview?.plan ?? null;
+  const isFounderAccount = isFounder(profile?.role, session?.user.email);
+  // The founder is a platform-level account, not a seller subscription. Keep
+  // a first-class display plan so Billing never shows “No plan selected” or a
+  // pending payment state for the account that owns the platform.
+  const founderPlan = isFounderAccount ? {
+    id: "founder-plan",
+    code: "founder",
+    name: "Founder",
+    description: "Unlimited EcomOS platform access and administration.",
+    monthlyPriceMad: 0,
+    annualPriceMad: 0,
+    orderLimit: null,
+    orderPeriod: "month" as const,
+    workspaceLimit: null,
+    teamMemberLimit: null,
+    integrationLimit: null,
+    monthlyBillingEnabled: false,
+    annualBillingEnabled: false,
+  } : null;
+  const founderSubscription = isFounderAccount ? {
+    owner_user_id: session?.user.id || "founder",
+    subscription_id: "founder-access",
+    plan: { id: "founder-plan", code: "founder", name: "Founder" },
+    billing_cycle: null,
+    status: "active",
+    payment_status: "waived",
+    migration_state: "founder_bypass",
+    current_period_start: null,
+    current_period_end: null,
+    grace_until: null,
+    operational_access: true,
+    access_reason: "founder_access",
+    limits: { orders: null, orderPeriod: "month" as const, workspaces: null, teamMembers: null, integrations: null },
+    usage: { periodStart: null, periodEnd: null, orders: 0, ordersRemaining: null, ordersPercent: null, workspaces: 0, teamMembers: 0, integrations: 0 },
+  } : null;
+  const subscription = founderSubscription ?? overview?.subscription ?? null;
+  const plan = founderPlan ?? overview?.plan ?? null;
   const status: DisplayStatus = useMemo(() => deriveDisplayStatus(subscription), [subscription]);
-  const openRequest = overview?.open_payment_request ?? null;
-  const latestRequest = overview?.latest_payment_request ?? null;
+  // Founder access is platform-owned and permanently waived. Ignore any
+  // legacy payment request that may still exist for the account so it can
+  // never send the founder back to checkout or show a stale draft banner.
+  const openRequest = isFounderAccount ? null : overview?.open_payment_request ?? null;
+  const latestRequest = isFounderAccount ? null : overview?.latest_payment_request ?? null;
 
   const isAnnual = subscription?.billing_cycle === "annual";
   const currentPrice = isAnnual ? plan?.annualPriceMad : plan?.monthlyPriceMad;
@@ -202,9 +240,7 @@ export default function BillingCenter() {
 
           <PlanUsageCard subscription={subscription} plan={plan} />
 
-          <UpgradePlans currentPlanCode={plan?.code ?? null} currentMonthlyPrice={plan?.monthlyPriceMad ?? null} refreshKey={nonce} />
-
-          <PaymentHistory refreshKey={nonce} onSelect={setDrawerPayment} />
+          <PaymentHistory refreshKey={nonce} onSelect={setDrawerPayment} founderAccess={isFounderAccount} />
         </>
       )}
 
@@ -316,7 +352,9 @@ function CurrentPlanCard({
           </div>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
             {plan ? (
-              isFreePlan ? (
+                plan.code === "founder" ? (
+                  <span className="text-[26px] font-black tracking-tight text-ink">Unlimited</span>
+                ) : isFreePlan ? (
                 <span className="text-[26px] font-black tracking-tight text-ink">Free</span>
               ) : (
                 <>

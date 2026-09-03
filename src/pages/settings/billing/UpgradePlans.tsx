@@ -83,6 +83,7 @@ function PlanCard({ plan, isCurrentPrice }: { plan: PublicPlanRecord; isCurrentP
       : "Unlimited orders";
   const workspaceCopy = plan.limits.workspaces === "unlimited" ? "Unlimited workspaces" : `${Number(plan.limits.workspaces).toLocaleString()} workspace${Number(plan.limits.workspaces) === 1 ? "" : "s"}`;
   const integrationsCopy = plan.limits.integrations === "unlimited" ? "All integrations" : `${Number(plan.limits.integrations).toLocaleString()} integrations`;
+  const teamCopy = plan.limits.teamMembers === "unlimited" ? "Unlimited team members" : `${plan.limits.teamMembers.toLocaleString()} team members`;
 
   return (
     <div className="relative flex flex-col rounded-xl border border-base-border bg-base-raised/40 p-4">
@@ -101,7 +102,7 @@ function PlanCard({ plan, isCurrentPrice }: { plan: PublicPlanRecord; isCurrentP
       <ul className="mt-3.5 flex-1 space-y-2">
         {[
           ordersCopy,
-          `${plan.limits.teamMembers.toLocaleString()} team members`,
+          teamCopy,
           workspaceCopy,
           integrationsCopy,
         ].map((item) => (
@@ -112,7 +113,7 @@ function PlanCard({ plan, isCurrentPrice }: { plan: PublicPlanRecord; isCurrentP
         ))}
       </ul>
       <Link
-        to={`/payment?intent=upgrade&plan=${encodeURIComponent(plan.code)}&cycle=monthly`}
+        to={`/payment?intent=upgrade&from=upgrade&plan=${encodeURIComponent(plan.code)}&cycle=monthly`}
         className={`mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-[12.5px] font-semibold transition-colors ${
           isCurrentPrice
             ? "border border-base-border bg-base-surface text-ink hover:border-brand-accent/40"

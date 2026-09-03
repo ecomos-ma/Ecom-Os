@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Check, Crown, Minus, ShieldCheck, Sparkles } from "lucide-react";
 import { LandingLanguage, i18n } from "../../i18n";
 import { fetchOfficialPlans, getPlanPrice, LANDING_PREMIUM_FEATURES, sortPlansByDisplay, type PublicPlanRecord } from "../../../../lib/planEngine";
+import { supabase } from "../../../../lib/supabase";
 import type { BillingPeriod } from "../../../../config/pricing";
 
 const copy = {
@@ -82,7 +83,19 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
     const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
 
     useEffect(() => {
-        void fetchOfficialPlans().then((data) => setPlans(sortPlansByDisplay(data))).catch(() => setPlans([]));
+        let mounted = true;
+        const loadPlans = () => fetchOfficialPlans()
+            .then((data) => { if (mounted) setPlans(sortPlansByDisplay(data)); })
+            .catch(() => { if (mounted) setPlans([]); });
+        void loadPlans();
+        const channel = supabase
+            .channel("landing-official-plans")
+            .on("postgres_changes", { event: "*", schema: "public", table: "subscription_plans" }, () => void loadPlans())
+            .subscribe();
+        return () => {
+            mounted = false;
+            void supabase.removeChannel(channel);
+        };
     }, []);
 
     return (
@@ -118,7 +131,7 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
                                 ? `${plan.limits.ordersDaily} orders / day`
                                 : `${(plan.limits.ordersMonthly ?? 0).toLocaleString("en-US")} orders / month`,
                             `${formatLimit(plan.limits.workspaces)} ${plan.limits.workspaces === 1 ? "workspace" : "workspaces"}`,
-                            `${plan.limits.teamMembers} team members`,
+                            `${formatLimit(plan.limits.teamMembers)} team members`,
                             `${formatLimit(plan.limits.integrations)} integrations`,
                         ];
 
@@ -144,7 +157,7 @@ export function PlanFinder({ lang }: { lang: LandingLanguage }) {
                                     {billing === "yearly" && <p className="mt-2 text-[11px] font-semibold text-emerald-600">{c.billed} · {c.save}</p>}
                                 </div>
 
-                                <Link to={`/login?mode=signup&plan=${plan.code}&billing=${billing}`} className={`mt-5 flex h-11 items-center justify-center rounded-xl text-sm font-bold transition ${popular ? "bg-[#DB3F73] text-white shadow-lg shadow-[#DB3F73]/20 hover:bg-[#c93265]" : "border border-slate-300 bg-white text-slate-900 hover:border-[#DB3F73] hover:bg-[#fff6f9] hover:text-[#b12958]"}`}>
+                                <Link to={`/login?mode=signup&from=landing&plan=${plan.code}&billing=${billing}`} className={`mt-5 flex h-11 items-center justify-center rounded-xl text-sm font-bold transition ${popular ? "bg-[#DB3F73] text-white shadow-lg shadow-[#DB3F73]/20 hover:bg-[#c93265]" : "border border-slate-300 bg-white text-slate-900 hover:border-[#DB3F73] hover:bg-[#fff6f9] hover:text-[#b12958]"}`}>
                                     {c.cta} {plan.name}
                                 </Link>
 

@@ -25,6 +25,13 @@ import {
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TIMEZONES = ["Africa/Casablanca", "Africa/Algiers", "Africa/Tunis", "Europe/Paris", "Europe/London", "UTC"];
 
+function withTimeout<T>(operation: Promise<T>, label: string, milliseconds = 8000): Promise<T> {
+  return Promise.race([
+    operation,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error(`${label} took too long. Please retry.`)), milliseconds)),
+  ]);
+}
+
 function Toggle({ checked, onChange, disabled = false, label }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; label: string }) {
   return <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} className={`relative h-6 w-11 shrink-0 rounded-full transition ${checked ? "bg-brand" : "bg-base-border"} disabled:cursor-not-allowed disabled:opacity-50`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} /></button>;
 }
@@ -49,6 +56,7 @@ export default function NotificationSettingsTab() {
   const [devices, setDevices] = useState<NotificationDevice[]>([]);
   const [permission, setPermission] = useState<NotificationPermissionState>("not_requested");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [openCategories, setOpenCategories] = useState(new Set<string>(["orders"]));
@@ -60,13 +68,15 @@ export default function NotificationSettingsTab() {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
-      const active = await currentPushSubscriptionActive();
-      const [nextSettings, nextPreferences, nextDevices] = await Promise.all([
-        loadNotificationSettings(workspace.id, session.user.id),
-        loadNotificationPreferences(workspace.id, session.user.id),
-        listNotificationDevices(workspace.id),
-      ]);
+      const activeRequest = withTimeout(currentPushSubscriptionActive(), "Browser notification check", 4500).catch(() => false);
+      const settingsRequest = withTimeout(loadNotificationSettings(workspace.id, session.user.id), "Notification settings");
+      // Device management is optional: a temporarily unavailable Edge Function
+      // should not block the rest of this settings page.
+      const preferencesRequest = withTimeout(loadNotificationPreferences(workspace.id, session.user.id), "Notification preferences").catch(() => []);
+      const devicesRequest = withTimeout(listNotificationDevices(workspace.id), "Notification devices").catch(() => []);
+      const [active, nextSettings, nextPreferences, nextDevices] = await Promise.all([activeRequest, settingsRequest, preferencesRequest, devicesRequest]);
       setSettings(nextSettings);
       setPreferences(nextPreferences);
       setDevices(nextDevices);
@@ -78,7 +88,8 @@ export default function NotificationSettingsTab() {
         setPermission(browserNotificationPermissionState(active && Boolean(localDevice?.is_active)));
       }
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Notification settings could not be loaded.");
+      const message = cause instanceof Error ? cause.message : "Notification settings could not be loaded.";
+      setLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -218,6 +229,7 @@ export default function NotificationSettingsTab() {
   const currentDeviceId = workspace?.id ? currentNotificationDeviceId(workspace.id) : null;
 
   if (loading) return <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-ink-muted"><Loader2 className="animate-spin" size={18} /> Loading notification settings…</div>;
+  if (loadError) return <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-5 text-center"><p className="text-sm font-semibold text-ink">Notification settings could not load</p><p className="mt-1 text-xs text-ink-muted">{loadError}</p><button onClick={() => void reload()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white"><RefreshCw size={13} />Retry</button></div>;
   if (!settings) return <div className="rounded-xl border border-base-border bg-base-surface p-5 text-sm text-ink-muted">Notification settings are unavailable in demo mode.</div>;
 
   return (

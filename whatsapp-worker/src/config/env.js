@@ -83,6 +83,9 @@ export function createWorkerConfig(env = process.env, root = workerRoot) {
     toolsEncryptionKey: value(env, "TOOLS_API_ENCRYPTION_KEY") || null,
     aiModel: value(env, "WHATSAPP_AI_MODEL") || "gemini-3.6-flash",
     aiTimeoutMs: integer(env, "WHATSAPP_AI_TIMEOUT_MS", 20000, 1000),
+    // Gemini 3.6 can use reasoning tokens before emitting the required JSON.
+    // 300 leaves it able to return a syntactically incomplete decision.
+    aiMaxOutputTokens: integer(env, "WHATSAPP_AI_MAX_OUTPUT_TOKENS", 768, 128),
   });
 }
 

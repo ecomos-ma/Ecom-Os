@@ -29,7 +29,7 @@ export function PermissionGuard({ children, permission }: PermissionGuardProps) 
 
   // If shipping module is disabled for this workspace, deny access to both Shipping and Delivering pages
   if (permission === "shipping" && !isShippingModuleEnabled(workspace)) {
-    if (location.pathname.startsWith("/shipping") || location.pathname.startsWith("/delivering")) {
+    if (location.pathname.startsWith("/shipping")) {
       return <ShippingModuleDisabled />;
     }
   }

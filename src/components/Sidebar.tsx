@@ -18,13 +18,14 @@ import {
   Wallet,
   Settings as SettingsIcon,
   Shield,
-  AlertTriangle,
   Building2,
   CreditCard,
   ScrollText,
   Search,
   ChevronsLeft,
   ChevronsRight,
+  ArrowUpRight,
+  Gauge,
   Sparkles,
   Wand2,
   LogOut,
@@ -35,6 +36,7 @@ import {
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 import ecomosIconMark from "../assets/AppStore_iOS_1024x1024.webp";
 import { useI18n, type TranslationKey } from "../i18n";
+import { fetchBillingOverview, type BillingOverview } from "../services/billingService";
 
 // ─── Nav Data ─────────────────────────────────────────────────────────────────
 
@@ -48,7 +50,7 @@ const mainGroups: NavGroup[] = [
       { to: "/dashboard", labelKey: "navigation.dashboard", icon: LayoutDashboard, permission: "dashboard" },
       { to: "/orders", labelKey: "navigation.orders", icon: Package, permission: "orders" },
       { to: "/confirmation", labelKey: "navigation.confirmation", icon: ClipboardCheck, permission: "confirmation" },
-      { to: "/delivering", labelKey: "navigation.delivering", icon: Truck, permission: "shipping" },
+      { to: "/delivering", labelKey: "navigation.delivering", icon: Truck, permission: "orders" },
       { to: "/shipping", labelKey: "navigation.shipping", icon: Truck, permission: "shipping" },
     ],
   },
@@ -79,7 +81,6 @@ const adminGroups: NavGroup[] = [
     labelKey: "navigation.founder",
     links: [
       { to: "/admin", labelKey: "navigation.founderConsole", icon: Shield },
-      { to: "/admin/errors", labelKey: "navigation.founderConsole", icon: AlertTriangle },
     ],
   },
 ];
@@ -214,27 +215,96 @@ function NavGroupSection({
 
 // ─── Profile Footer ───────────────────────────────────────────────────────────
 
+const sidebarCapacityRequests = new Map<string, Promise<BillingOverview>>();
+
+function loadSidebarCapacity(userId: string) {
+  const cached = sidebarCapacityRequests.get(userId);
+  if (cached) return cached;
+  const request = fetchBillingOverview().catch((error) => {
+    sidebarCapacityRequests.delete(userId);
+    throw error;
+  });
+  sidebarCapacityRequests.set(userId, request);
+  return request;
+}
+
+function CapacityUpgradeCard({ userId, workspaceId, onNavigate }: { userId: string | undefined; workspaceId: string | undefined; onNavigate?: () => void }) {
+  const [overview, setOverview] = useState<BillingOverview | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const dismissKey = workspaceId ? `ecomos:sidebar-capacity-dismissed:${workspaceId}` : "";
+
+  useEffect(() => {
+    if (!userId || !workspaceId) return;
+    setDismissed(localStorage.getItem(`ecomos:sidebar-capacity-dismissed:${workspaceId}`) === "true");
+    let active = true;
+    void loadSidebarCapacity(userId).then((value) => {
+      if (active) setOverview(value);
+    }).catch(() => {
+      // A billing card must never affect navigation if the optional summary is unavailable.
+      if (active) setOverview(null);
+    });
+    return () => { active = false; };
+  }, [userId, workspaceId]);
+
+  const subscription = overview?.subscription;
+  const limit = subscription?.limits.orders ?? null;
+  if (dismissed || !subscription || limit === null || limit <= 0) return null;
+
+  const used = Math.max(0, subscription.usage.orders ?? 0);
+  const percent = Math.min(100, Math.max(0, Math.round(subscription.usage.ordersPercent ?? (used / limit) * 100)));
+  const circle = 2 * Math.PI * 25;
+  const planName = overview?.plan?.name || subscription.plan?.name || "your plan";
+  const periodLabel = subscription.limits.orderPeriod === "day" ? "today" : "this month";
+
+  const dismiss = () => {
+    if (dismissKey) localStorage.setItem(dismissKey, "true");
+    setDismissed(true);
+  };
+
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-[#e73773]/20 bg-[linear-gradient(145deg,#fff3f7_0%,#fffaff_58%,#fff1f6_100%)] p-3.5 shadow-[0_10px_22px_rgba(231,55,115,0.11)]">
+      <div className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-[#e73773]/10 blur-2xl" />
+      <button type="button" onClick={dismiss} aria-label="Dismiss capacity reminder" className="absolute right-2 top-2 rounded-md p-1 text-[#bd7190] transition hover:bg-white/80 hover:text-[#a91f51]"><X size={13} /></button>
+      <div className="relative flex items-center gap-3">
+        <div className="relative grid h-12 w-12 shrink-0 place-items-center">
+          <svg viewBox="0 0 60 60" className="h-12 w-12 -rotate-90" aria-hidden="true">
+            <circle cx="30" cy="30" r="25" fill="none" stroke="currentColor" strokeWidth="4" className="text-[#f9d7e4]" />
+            <circle cx="30" cy="30" r="25" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="text-[#e73773]" strokeDasharray={circle} strokeDashoffset={circle * (1 - percent / 100)} />
+          </svg>
+          <span className="absolute text-[10px] font-black tracking-tight text-[#c52560]">{percent}%</span>
+        </div>
+        <div className="min-w-0 pr-4">
+          <p className="flex items-center gap-1 text-[11px] font-black text-[#431526]"><Gauge size={13} className="text-[#e73773]" />Used capacity</p>
+          <p className="mt-1 text-[10px] leading-4 text-[#8c6573]">{used.toLocaleString()} of {limit.toLocaleString()} orders used {periodLabel} on {planName}.</p>
+        </div>
+      </div>
+      <NavLink to="/payment?intent=upgrade" onClick={onNavigate} className="relative mt-3 flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[linear-gradient(100deg,#ed3b78,#c92561)] px-3 text-[10px] font-black text-white shadow-[0_8px_14px_rgba(231,55,115,0.26)] transition hover:-translate-y-px hover:brightness-105">Upgrade plan <ArrowUpRight size={13} /></NavLink>
+    </section>
+  );
+}
+
 function ProfileFooter({
   collapsed,
   profile,
   session,
   signOut,
   subscriptionStatus,
+  workspaceId,
+  showCapacity,
+  onNavigate,
 }: {
   collapsed: boolean;
   profile: any;
   session: any;
   signOut: () => void;
   subscriptionStatus: string;
+  workspaceId?: string;
+  showCapacity: boolean;
+  onNavigate?: () => void;
 }) {
   const { t } = useI18n();
   const initials = getUserInitials(profile?.full_name);
   const avatarUrl = profile?.avatar_url;
-
-  const handleUpgradeClick = () => {
-    const message = encodeURIComponent("Bonjour, je veux débloquer le plan sur ECOM SCALE");
-    window.open(`https://wa.me/212770877821?text=${message}`, '_blank');
-  };
 
   if (collapsed) {
     return (
@@ -266,7 +336,8 @@ function ProfileFooter({
   }
 
   return (
-    <div className="border-t border-base-border/60 p-3 space-y-2">
+    <div className="shrink-0 border-t border-base-border/60 p-3 space-y-2">
+      {showCapacity && <CapacityUpgradeCard userId={session?.user?.id} workspaceId={workspaceId} onNavigate={onNavigate} />}
       {/* User row */}
       <div className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 hover:bg-base-raised/60 transition-colors">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -324,7 +395,7 @@ function SidebarContent({
     ...group,
     links: group.links.filter(link => {
       if (link.permission && !ownerLike && !teamPermissions[link.permission]) return false;
-      if ((link.to === "/delivering" || link.to === "/shipping") && !isShippingModuleEnabled(workspace)) return false;
+      if (link.to === "/shipping" && !isShippingModuleEnabled(workspace)) return false;
       // Hide "Shipping" link if shipping module is disabled OR show_shipping_column is false
       if (link.to === "/shipping") {
         return isShippingModuleEnabled(workspace) && workspace?.show_shipping_column === true;
@@ -338,12 +409,12 @@ function SidebarContent({
   })).filter(group => group.links.length > 0);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Scrollable nav */}
       <nav
         aria-label="Main navigation"
         className={[
-          "flex-1 overflow-y-auto py-4 space-y-4 [scrollbar-width:thin] [scrollbar-color:var(--color-base-border)_transparent]",
+          "min-h-0 flex-1 overflow-y-auto py-4 space-y-4 [scrollbar-width:thin] [scrollbar-color:var(--color-base-border)_transparent]",
           collapsed ? "px-1.5" : "px-3",
         ].join(" ")}
       >
@@ -379,6 +450,9 @@ function SidebarContent({
         session={session}
         signOut={signOut}
         subscriptionStatus={subscriptionStatus}
+        workspaceId={workspace?.id}
+        showCapacity={ownerLike && !isAdmin}
+        onNavigate={onNavigate}
       />
     </div>
   );

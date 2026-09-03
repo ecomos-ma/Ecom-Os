@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import QRCode from "react-qr-code";
-import { ArrowRight, BadgeCheck, Building2, Check, ChevronDown, Copy, CreditCard, FileUp, Headphones, Landmark, Loader2, LockKeyhole, QrCode, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, BadgeCheck, Building2, Check, ChevronDown, Copy, CreditCard, FileUp, Headphones, Landmark, Loader2, LockKeyhole, QrCode, ShieldCheck, Sparkles } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import type { BillingPeriod, PlanTier } from "../config/pricing";
@@ -53,7 +53,7 @@ const previewMethod: PaymentMethod = {
   rib: "230 780 1234567890123456 00",
   iban: "MA64 2307 8012 3456 7890 1234 560",
   qr_code_path: null,
-  instructions: "Transfer the total to this account, then add your reference and receipt. Our team verifies it quickly.",
+  instructions: "Transfer the total to this account, then upload your receipt. The transfer reference is optional.",
   is_active: true,
 };
 
@@ -67,10 +67,13 @@ export default function Payment() {
   // Renew/upgrade intent from the Billing Center. Maps to the request_type the
   // backend stores on the payment request.
   const intentParam = searchParams.get("intent");
+  const sourceParam = searchParams.get("from");
   const intentPlan = searchParams.get("plan");
   const intentCycle = searchParams.get("cycle") === "annual" ? "annual" : "monthly";
   const requestType = intentParam === "renew" ? "renewal" : intentParam === "upgrade" ? "upgrade" : "initial_activation";
   const isRenewalIntent = requestType !== "initial_activation";
+  const showBackButton = sourceParam === "landing" || sourceParam === "upgrade" || isRenewalIntent;
+  const backPath = sourceParam === "landing" ? "/" : "/settings/billing";
   const [request, setRequest] = useState<PaymentRequest | null>(null);
   const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
   const [checkout, setCheckout] = useState<CheckoutSettings>(checkoutDefaults);
@@ -86,6 +89,7 @@ export default function Payment() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [referralDiscountPct, setReferralDiscountPct] = useState(0);
 
   const normalizedBlockReason = subscriptionStatus === "pending_payment" ? "subscription_pending_payment" : subscriptionStatus === "expired" ? "subscription_expired" : subscriptionStatus === "grace" ? "grace_period" : subscriptionStatus;
   const blockMessage = normalizedBlockReason === "order_limit_reached" ? "Your current plan reached its monthly order limit. Complete a new payment to regain access." : normalizedBlockReason === "subscription_expired" ? "Your subscription expired. Complete a new payment to reactivate access." : normalizedBlockReason === "grace_period" ? "Your subscription is in its grace period until payment is resolved." : normalizedBlockReason === "subscription_suspended" ? "Your subscription is suspended. Complete a payment to restore access." : "Your workspace will activate after the payment is verified.";
@@ -99,15 +103,21 @@ export default function Payment() {
     if (!session?.user.id) return;
     let active = true;
     void Promise.all([
-      supabase.from("subscription_payment_requests").select("id,reference,requested_plan_id,billing_cycle,expected_amount_mad,currency,payment_method,transaction_reference,proof_path,proof_mime_type,status,admin_note,submitted_at,created_at").eq("owner_user_id", session.user.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      // Only an unfinished request can resume checkout. A historical paid
+      // request must never block an active seller from starting a new upgrade.
+      supabase.from("subscription_payment_requests").select("id,reference,requested_plan_id,billing_cycle,expected_amount_mad,currency,payment_method,transaction_reference,proof_path,proof_mime_type,status,admin_note,submitted_at,created_at").eq("owner_user_id", session.user.id).in("status", ["unpaid", "rejected", "submitted", "reviewing"]).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("payment_methods").select("id, slug, display_name, bank_name, account_name, rib, iban, qr_code_path, instructions, is_active").eq("is_active", true).order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
       supabase.rpc("get_payment_checkout_settings_v1"),
-    ]).then(([requestResult, methodsResult, settingsResult]) => {
+      supabase.rpc("get_my_referral_checkout_v1", { p_request_type: requestType }),
+    ]).then(([requestResult, methodsResult, settingsResult, referralResult]) => {
       if (!active) return;
       if (requestResult.error) setError(requestResult.error.message);
       if (methodsResult.error) setError(methodsResult.error.message);
       const loadedSettings = settingsResult.data && typeof settingsResult.data === "object" ? { ...checkoutDefaults, ...(settingsResult.data as Partial<CheckoutSettings>) } : checkoutDefaults;
       setCheckout(loadedSettings);
+      if (!referralResult.error && referralResult.data && typeof referralResult.data === "object") {
+        setReferralDiscountPct(Number((referralResult.data as { discount_pct?: number }).discount_pct || 0));
+      }
       const loadedRequest = requestResult.data as PaymentRequest | null;
       setRequest(loadedRequest);
       // Plan/cycle priority: an existing draft request (server already locked
@@ -130,7 +140,7 @@ export default function Payment() {
       setSelectedMethod(loadedRequest?.payment_method || availableMethods[0]?.slug || "");
     }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
-  }, [plans, previewMode, session?.user.id, intentPlan, intentCycle]);
+  }, [plans, previewMode, session?.user.id, intentPlan, intentCycle, requestType]);
 
   if (loading) return <Screen><Loader2 className="h-7 w-7 animate-spin text-[#e73773]" /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
@@ -144,6 +154,8 @@ export default function Payment() {
   const selectedPlanData = plans.find((plan) => plan.code === selectedPlan) ?? plans[0] ?? { code: selectedPlan, name: selectedPlan, description: "", monthlyPrice: 0, yearlyPrice: 0, currency: "MAD", billingEnabled: { monthly: true, annual: true }, isActive: true, isPublic: true, isInternal: false, isPopular: false, displayOrder: 100, badgeText: "", ctaText: "", limits: { ordersMonthly: 0, workspaces: 0, teamMembers: 0, integrations: 0 }, features: { mobileApp: false, whatsappAutomation: false, aiConfirmationAgent: false, sawtyOS: false, landingPageOS: false, premiumSupport: false } };
   const monthlyEquivalent = billing === "monthly" ? selectedPlanData.monthlyPrice : Math.round(selectedPlanData.yearlyPrice / 12);
   const totalAmount = billing === "monthly" ? selectedPlanData.monthlyPrice : selectedPlanData.yearlyPrice;
+  const referralDiscount = Math.round(totalAmount * referralDiscountPct / 100 * 100) / 100;
+  const finalAmount = Math.max(totalAmount - referralDiscount, 0);
   const annualSavings = (selectedPlanData.monthlyPrice * 12) - selectedPlanData.yearlyPrice;
   const selectedMethodData = methods.find((method) => method.slug === selectedMethod) || methods[0] || null;
   const paymentQrUrl = selectedMethodData?.qr_code_path ? paymentAssetUrl(selectedMethodData.qr_code_path) : "";
@@ -157,15 +169,14 @@ export default function Payment() {
     setSaving(true); setError(""); setNotice("");
     const { error: requestError } = await supabase.rpc("create_subscription_payment_request_v1", { p_plan_code: selectedPlan, p_billing_cycle: billing === "yearly" ? "annual" : "monthly", p_request_type: requestType, p_payment_method: selectedMethodData?.slug || "bank_transfer", p_transaction_reference: null, p_user_note: requestType === "renewal" ? "Subscription renewal from Billing Center" : requestType === "upgrade" ? "Plan upgrade from Billing Center" : "Created from unified payment checkout" });
     if (requestError && !requestError.message.includes("PAYMENT_REQUEST_ALREADY_UNDER_REVIEW")) { setError(requestError.message); setSaving(false); return; }
-    const { data: latestRequest, error: fetchError } = await supabase.from("subscription_payment_requests").select("id,reference,requested_plan_id,billing_cycle,expected_amount_mad,currency,payment_method,transaction_reference,proof_path,proof_mime_type,status,admin_note,submitted_at,created_at").eq("owner_user_id", session.user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (fetchError) setError(fetchError.message); else { setRequest((latestRequest as PaymentRequest | null) ?? null); setNotice("Plan reserved. Add your transfer reference and receipt, then submit for verification."); }
+    const { data: latestRequest, error: fetchError } = await supabase.from("subscription_payment_requests").select("id,reference,requested_plan_id,billing_cycle,expected_amount_mad,currency,payment_method,transaction_reference,proof_path,proof_mime_type,status,admin_note,submitted_at,created_at").eq("owner_user_id", session.user.id).in("status", ["unpaid", "rejected", "submitted", "reviewing"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (fetchError) setError(fetchError.message); else { setRequest((latestRequest as PaymentRequest | null) ?? null); setNotice("Plan reserved. Upload your receipt to submit it for verification. The transfer reference is optional."); }
     setSaving(false);
   };
 
   const uploadProof = async () => {
     if (!session || !request || !selectedMethodData) { setError("No bank transfer method is available right now."); return; }
     if (!file) { setError("Choose your payment receipt first."); return; }
-    if (!reference.trim()) { setError("Enter the bank transfer reference."); return; }
     setSaving(true); setError(""); setNotice("");
     const extension = file.name.split(".").pop()?.toLowerCase() || "bin";
     const path = `${session.user.id}/${request.id}-${Date.now()}.${extension}`;
@@ -173,8 +184,13 @@ export default function Payment() {
     if (upload.error) { setError(upload.error.message); setSaving(false); return; }
     const methodUpdate = await supabase.rpc("update_subscription_payment_method_v1", { p_request_id: request.id, p_payment_method: selectedMethodData.slug });
     if (methodUpdate.error) { await supabase.storage.from("subscription-proofs").remove([path]); setError(methodUpdate.error.message); setSaving(false); return; }
-    const referenceUpdate = await supabase.rpc("update_subscription_payment_reference_v1", { p_request_id: request.id, p_transaction_reference: reference.trim() });
-    if (referenceUpdate.error) { await supabase.storage.from("subscription-proofs").remove([path]); setError(referenceUpdate.error.message); setSaving(false); return; }
+    // A receipt is the only required proof. Save a transfer reference only
+    // when the customer provided one, so an empty optional field can never
+    // block the payment-proof submission.
+    if (reference.trim()) {
+      const referenceUpdate = await supabase.rpc("update_subscription_payment_reference_v1", { p_request_id: request.id, p_transaction_reference: reference.trim() });
+      if (referenceUpdate.error) { await supabase.storage.from("subscription-proofs").remove([path]); setError(referenceUpdate.error.message); setSaving(false); return; }
+    }
     const result = await supabase.rpc("attach_subscription_payment_proof_v1", { p_request_id: request.id, p_proof_path: path, p_mime_type: file.type, p_size_bytes: file.size });
     if (result.error) { await supabase.storage.from("subscription-proofs").remove([path]); setError(result.error.message); setSaving(false); return; }
     const submitted = result.data as { id?: string; reference?: string; status?: string; submitted_at?: string } | null;
@@ -186,7 +202,7 @@ export default function Payment() {
         customerEmail: session.user.email || "Not provided",
         planName: selectedPlanData.name,
         billingCycle: billing === "yearly" ? "Annual" : "Monthly",
-        amountMad: totalAmount,
+        amountMad: finalAmount,
         currency: request.currency || "MAD",
         paymentMethod: selectedMethodData.display_name || "Bank transfer",
         transactionReference: reference.trim(),
@@ -196,7 +212,10 @@ export default function Payment() {
     } catch (receiptError) {
       console.warn("[Payment] Automatic receipt download failed", receiptError);
     }
-    navigate(isRenewalIntent ? "/waiting-verification?intent=renew" : "/waiting-verification", { replace: true });
+    const waitingUrl = isRenewalIntent
+      ? `/waiting-verification?intent=${encodeURIComponent(intentParam || "renew")}`
+      : "/waiting-verification";
+    navigate(waitingUrl, { replace: true });
   };
 
   const submitCheckout = async (event: FormEvent<HTMLFormElement>) => {
@@ -213,7 +232,10 @@ export default function Payment() {
     <section className="relative overflow-hidden border-b border-slate-200 bg-[#fff9fc] lg:border-b-0 lg:border-e">
       <div className="pointer-events-none absolute -start-44 -top-44 h-[480px] w-[480px] rounded-full bg-[#e73773]/[0.08] blur-3xl" />
       <div className="relative mx-auto flex min-h-full w-full max-w-[680px] flex-col px-5 py-8 sm:px-10 sm:py-12 xl:px-16 xl:py-14">
-        <img src={ecomosLogo} alt="EcomOS" className="h-8 w-auto self-start object-contain" />
+        <div className="flex items-center justify-between gap-3">
+          <img src={ecomosLogo} alt="EcomOS" className="h-8 w-auto object-contain" />
+          {showBackButton && <button type="button" onClick={() => navigate(backPath)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-500 transition hover:border-[#e73773]/40 hover:text-[#c92561]"><ArrowLeft size={13} /> Back</button>}
+        </div>
         <span className="mt-8 inline-flex w-fit items-center gap-1.5 rounded-full border border-[#e73773]/15 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-[#c92561]"><Sparkles size={12} /> One workspace. Every operation.</span>
         <h1 className="mt-4 max-w-xl text-[32px] font-black leading-[1.04] tracking-[-0.055em] text-slate-950 sm:text-[40px]">Activate your EcomOS workspace</h1>
         <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">{checkout.subheadline}</p>
@@ -236,13 +258,13 @@ export default function Payment() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e73773]/10 bg-white px-4 py-3.5 sm:px-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e73773]/10 text-[#d72d69]"><Landmark size={18} /></span><div><p className="text-sm font-black text-slate-950">{selectedMethodData.bank_name || selectedMethodData.display_name}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-400">Official EcomOS collection account</p></div></div><span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-wide text-emerald-700"><BadgeCheck size={11} />Recommended</span></div>
             <div className="grid md:grid-cols-[minmax(0,1fr)_164px]"><div className="divide-y divide-[#e73773]/10"><BankDetail label="Account holder" value={selectedMethodData.account_name || "Not configured"} onCopy={() => void copyValue("Account", selectedMethodData.account_name)} copied={copied === "Account"} /><BankDetail label="RIB" value={selectedMethodData.rib || "Not configured"} onCopy={() => void copyValue("RIB", selectedMethodData.rib)} copied={copied === "RIB"} featured /><BankDetail label="IBAN" value={selectedMethodData.iban || "Not configured"} onCopy={() => void copyValue("IBAN", selectedMethodData.iban)} copied={copied === "IBAN"} featured /></div><PaymentQr imageUrl={paymentQrUrl} previewMode={previewMode} value={selectedMethodData.iban || selectedMethodData.rib || selectedMethodData.slug} /></div>
           </div> : <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800">No bank account is active yet. Please contact EcomOS support.</div>}
-          <div className="grid gap-3 sm:grid-cols-[0.82fr_1.18fr]"><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bank transfer reference" className={inputClass} /><label className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#e73773]/35 bg-[#e73773]/[0.05] px-4 text-xs font-black text-[#cf2964] transition hover:bg-[#e73773]/10"><FileUp className="h-4 w-4" /><span className="max-w-64 truncate">{file ? file.name : "Upload payment receipt"}</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div>
-          <p className="rounded-xl bg-slate-50 px-3.5 py-3 text-[10px] leading-4 text-slate-500">{selectedMethodData?.instructions || "Upload JPG, PNG, WebP or PDF proof up to 10 MB."}</p>
+          <div className="grid gap-3 sm:grid-cols-[0.82fr_1.18fr]"><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bank transfer reference (optional)" aria-label="Bank transfer reference (optional)" className={inputClass} /><label className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#e73773]/35 bg-[#e73773]/[0.05] px-4 text-xs font-black text-[#cf2964] transition hover:bg-[#e73773]/10"><FileUp className="h-4 w-4" /><span className="max-w-64 truncate">{file ? file.name : "Upload payment receipt"}</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div>
+          <p className="rounded-xl bg-slate-50 px-3.5 py-3 text-[10px] leading-4 text-slate-500">{selectedMethodData?.instructions || "Upload JPG, PNG, WebP or PDF proof up to 10 MB."} <strong className="font-bold text-slate-700">Your transfer reference is optional.</strong></p>
         </div> : paymentMode === "credit_card" ? <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5"><div className="grid grid-cols-2 gap-3"><PaymentTypeCard icon={Building2} title="Bank transfer" onClick={() => setPaymentMode("bank_transfer")} /><PaymentTypeCard icon={CreditCard} title="Credit card" active accent={checkout.accent_color} /></div><div className="relative"><input inputMode="numeric" autoComplete="cc-number" placeholder="1234 5678 9012 3456" className={`${inputClass} pe-20`} /><span className="absolute inset-y-0 end-3 flex items-center text-[9px] font-black italic text-blue-800">VISA</span></div><div className="grid grid-cols-2 gap-3"><input inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" className={inputClass} /><input inputMode="numeric" autoComplete="cc-csc" placeholder="CVV" className={inputClass} /></div><div className="relative"><select defaultValue="" className={`${inputClass} appearance-none pe-10`}><option value="" disabled>Choose country</option><option>Morocco</option><option>France</option><option>Spain</option></select><ChevronDown className="pointer-events-none absolute end-3 top-4 h-4 w-4 text-slate-400" /></div><div className="grid grid-cols-3 gap-3"><input placeholder="Enter city" className={inputClass} /><input placeholder="Enter state" className={inputClass} /><input placeholder="ZIP code" className={inputClass} /></div></div> : <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5"><div className="rounded-xl bg-[#ffc439] px-6 py-3.5 text-center text-sm font-black italic text-[#003087]">PayPal</div><p className="mt-4 text-center text-xs leading-5 text-slate-500">Continue securely with PayPal to activate the {selectedPlanData.name} plan.</p></div>}
       </div>
       {request && <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 text-[9px] text-slate-500"><span>Payment reference</span><strong className="font-mono text-slate-800">{request.reference}</strong></div>}
       {showBlockingMessage && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-800">{blockMessage}</p>}{error && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-[10px] text-rose-700">{error}</p>}{notice && <p className="mt-3 rounded-lg border border-pink-200 bg-pink-50 p-3 text-[10px] text-pink-700">{notice}</p>}
-      <div className="mt-6 flex items-end justify-between gap-4 border-t border-slate-100 pt-5"><span className="text-lg font-black text-slate-950">Total</span><span className="text-end"><strong className="text-2xl font-black tracking-[-0.04em] text-slate-950">{totalAmount.toLocaleString()} MAD</strong><small className="block text-[9px] font-semibold text-slate-400">{monthlyEquivalent.toLocaleString()} MAD / month{billing === "yearly" ? " · billed annually" : ""}</small></span></div>
+      <div className="mt-6 border-t border-slate-100 pt-5 text-sm"><div className="flex items-center justify-between text-slate-500"><span>Original price</span><span>{totalAmount.toLocaleString()} MAD</span></div>{referralDiscountPct > 0 && <div className="mt-1 flex items-center justify-between font-bold text-emerald-600"><span>{isRenewalIntent ? "Referral Reward: -25%" : "Referral discount: -25%"}</span><span>-{referralDiscount.toLocaleString()} MAD</span></div>}<div className="mt-2 flex items-end justify-between gap-4"><span className="text-lg font-black text-slate-950">Final amount</span><span className="text-end"><strong className="text-2xl font-black tracking-[-0.04em] text-slate-950">{finalAmount.toLocaleString()} MAD</strong><small className="block text-[9px] font-semibold text-slate-400">{monthlyEquivalent.toLocaleString()} MAD / month{billing === "yearly" ? " · billed annually" : ""}</small></span></div></div>
       <button type="submit" disabled={saving || (paymentMode === "bank_transfer" && !selectedMethodData)} className="mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl text-sm font-black text-white shadow-[0_16px_32px_rgba(231,55,115,0.24)] transition hover:-translate-y-0.5 hover:brightness-105 disabled:opacity-50" style={{ background: `linear-gradient(105deg, ${checkout.accent_color}, #c92561)` }}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Processing…" : actionLabel}<ArrowRight className="h-4 w-4" /></button>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400"><span className="flex items-center gap-1.5"><ShieldCheck size={12} />{checkout.trust_note}</span>{checkout.support_whatsapp && <a href={`https://wa.me/${checkout.support_whatsapp.replace(/\D/g, "")}`} className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-[#d52d69]"><Headphones size={12} />Need help? {checkout.support_whatsapp}</a>}</div>
     </div></section>

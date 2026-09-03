@@ -29,7 +29,7 @@ export interface PlanLimitSet {
   ordersMonthly: number | null;
   ordersDaily?: number | null;
   workspaces: number | 'unlimited';
-  teamMembers: number;
+  teamMembers: number | 'unlimited';
   integrations: number | 'unlimited';
 }
 
@@ -103,28 +103,21 @@ export function normalizePlanRecord(input: any): PublicPlanRecord {
   const monthlyPrice = asNumber(input?.monthly_price_mad ?? input?.monthly_price ?? input?.monthlyPrice ?? input?.price_mad ?? 0, 0);
   const yearlyPrice = asNumber(input?.annual_price_mad ?? input?.annual_price ?? input?.yearlyPrice ?? monthlyPrice * 10, monthlyPrice * 10);
   const workspaceLimit = input?.workspace_limit ?? input?.workspaces_limit ?? input?.limits?.workspaces;
-  const teamMembers = asNumber(input?.team_member_limit ?? input?.members_limit ?? input?.team_members ?? input?.limits?.teamMembers ?? 0, 0);
+  const teamMemberLimit = input?.team_member_limit ?? input?.members_limit ?? input?.team_members ?? input?.limits?.teamMembers;
   const integrationLimit = input?.integration_limit ?? input?.integrations_limit ?? input?.limits?.integrations ?? null;
   const entitlementObject = readJsonObject(input?.entitlements, {});
   const featureObject = readJsonObject(input?.features, {});
+  const featureEnabled = (camelKey: keyof PlanFeatureSet, snakeKey: PlanFeatureKey) => Boolean(
+    featureObject[camelKey] ?? featureObject[snakeKey] ?? entitlementObject[snakeKey] ?? entitlementObject[camelKey] ?? DEFAULT_FEATURES[camelKey],
+  );
   const normalizedFeatures = {
     ...DEFAULT_FEATURES,
-    ...(entitlementObject && typeof entitlementObject === 'object' ? {
-      mobileApp: Boolean(entitlementObject.mobile_app ?? entitlementObject.mobileApp),
-      whatsappAutomation: Boolean(entitlementObject.whatsapp_automation ?? entitlementObject.whatsappAutomation),
-      aiConfirmationAgent: Boolean(entitlementObject.ai_whatsapp_confirmation_agent ?? entitlementObject.aiConfirmationAgent),
-      sawtyOS: Boolean(entitlementObject.sawty_os ?? entitlementObject.sawtyOS),
-      landingPageOS: Boolean(entitlementObject.landing_page_os ?? entitlementObject.landingPageOS),
-      premiumSupport: Boolean(entitlementObject.premium_support ?? entitlementObject.premiumSupport),
-    } : {}),
-    ...(featureObject && typeof featureObject === 'object' ? {
-      mobileApp: Boolean(featureObject.mobileApp ?? featureObject.mobile_app ?? DEFAULT_FEATURES.mobileApp),
-      whatsappAutomation: Boolean(featureObject.whatsappAutomation ?? featureObject.whatsapp_automation ?? DEFAULT_FEATURES.whatsappAutomation),
-      aiConfirmationAgent: Boolean(featureObject.aiConfirmationAgent ?? featureObject.ai_whatsapp_confirmation_agent ?? DEFAULT_FEATURES.aiConfirmationAgent),
-      sawtyOS: Boolean(featureObject.sawtyOS ?? featureObject.sawty_os ?? DEFAULT_FEATURES.sawtyOS),
-      landingPageOS: Boolean(featureObject.landingPageOS ?? featureObject.landing_page_os ?? DEFAULT_FEATURES.landingPageOS),
-      premiumSupport: Boolean(featureObject.premiumSupport ?? featureObject.premium_support ?? DEFAULT_FEATURES.premiumSupport),
-    } : {}),
+    mobileApp: featureEnabled('mobileApp', 'mobile_app'),
+    whatsappAutomation: featureEnabled('whatsappAutomation', 'whatsapp_automation'),
+    aiConfirmationAgent: featureEnabled('aiConfirmationAgent', 'ai_whatsapp_confirmation_agent'),
+    sawtyOS: featureEnabled('sawtyOS', 'sawty_os'),
+    landingPageOS: featureEnabled('landingPageOS', 'landing_page_os'),
+    premiumSupport: featureEnabled('premiumSupport', 'premium_support'),
   };
 
   const ordersMonthly = orderPeriod === 'day' ? Math.max(0, Math.round(orderLimit * 30)) : orderLimit;
@@ -132,7 +125,9 @@ export function normalizePlanRecord(input: any): PublicPlanRecord {
     ordersMonthly: ordersMonthly || null,
     ordersDaily: orderPeriod === 'day' ? Math.max(0, orderLimit) : null,
     workspaces: workspaceLimit == null || workspaceLimit === 'unlimited' || workspaceLimit === 'null' ? 'unlimited' : Number(workspaceLimit),
-    teamMembers: Math.max(0, Number(teamMembers || 0)),
+    teamMembers: teamMemberLimit == null || teamMemberLimit === 'unlimited' || teamMemberLimit === 'null'
+      ? 'unlimited'
+      : Math.max(0, Number(teamMemberLimit || 0)),
     integrations: integrationLimit == null || integrationLimit === 'unlimited' || integrationLimit === 'null' ? 'unlimited' : Number(integrationLimit),
   };
 

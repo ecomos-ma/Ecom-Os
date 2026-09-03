@@ -20,6 +20,9 @@ import {
   Loader2,
   Inbox,
   Plus,
+  Building2,
+  Sparkles,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -435,7 +438,7 @@ interface EnhancedHeaderProps {
 
 export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: EnhancedHeaderProps) {
   const navigate = useNavigate();
-  const { session, profile, workspace, availableWorkspaces, switchWorkspace, createWorkspace, signOut, teamPermissions } =
+  const { session, profile, workspace, availableWorkspaces, switchWorkspace, createWorkspace, refreshProfile, signOut, teamPermissions } =
     useAuth();
   const { isDark } = useTheme();
   const { notifications, unreadCount, loading: notificationsLoading, openNotification, markAllAsRead } =
@@ -531,6 +534,9 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
   };
 
   const displayName = profile?.full_name || profile?.email || "User";
+  const workspaceOptions = [workspace, ...availableWorkspaces].filter((item, index, all): item is NonNullable<typeof workspace> =>
+    Boolean(item?.id) && all.findIndex((candidate) => candidate?.id === item?.id) === index,
+  );
 
   useEffect(() => {
     if (!workspaceOpen) return;
@@ -552,9 +558,11 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
     const created = await createWorkspace(name);
     setCreatingWorkspace(false);
     if (!created) return;
+    await switchWorkspace(created.id);
     setNewWorkspaceName("");
     setShowWorkspaceCreator(false);
     setWorkspaceAllowance((current) => current ? { ...current, used: current.used + 1 } : current);
+    navigate("/setup");
   };
 
   return (
@@ -596,7 +604,9 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setWorkspaceOpen(!workspaceOpen);
+                  const nextOpen = !workspaceOpen;
+                  setWorkspaceOpen(nextOpen);
+                  if (nextOpen) void refreshProfile();
                 }}
                 aria-haspopup="menu"
                 aria-expanded={workspaceOpen}
@@ -615,18 +625,18 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
               {workspaceOpen && (
                 <div
                   role="menu"
-                  className="chdr-panel absolute right-0 top-[calc(100%+8px)] z-50 w-64 overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-xl"
+                  className="chdr-panel absolute right-0 top-[calc(100%+8px)] z-50 w-[320px] overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-2xl"
                 >
-                  <div className="px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-ink-muted">
+                  <div className="border-b border-base-border bg-gradient-to-r from-pink-500/[0.08] via-base-surface to-base-surface px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span>Workspaces</span>
-                      <span className="normal-case tracking-normal">
+                      <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">Workspaces</p><p className="mt-1 text-sm font-semibold text-ink">Switch your business view</p></div>
+                      <span className="rounded-full bg-base-surface px-2.5 py-1 text-[11px] font-semibold text-ink-muted shadow-sm">
                         {workspaceAllowance ? `${workspaceAllowance.used} / ${workspaceAllowance.limit ?? "∞"} used` : `${availableWorkspaces.length} used`}
                       </span>
                     </div>
                   </div>
-                  <div className="max-h-72 overflow-y-auto">
-                    {availableWorkspaces.map((ws) => (
+                  <div className="max-h-80 space-y-1 overflow-y-auto p-2">
+                    {workspaceOptions.map((ws) => (
                       <button
                         key={ws.id}
                         role="menuitem"
@@ -635,48 +645,32 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
                           switchWorkspace(ws.id);
                           setWorkspaceOpen(false);
                         }}
-                        className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-base-raised ${
-                          workspace?.id === ws.id ? "bg-base-raised" : ""
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all hover:bg-base-raised ${
+                          workspace?.id === ws.id ? "bg-pink-500/[0.08] ring-1 ring-inset ring-pink-500/15" : ""
                         }`}
                       >
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-pink-500 to-pink-600 text-xs font-bold text-white">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-pink-600 text-sm font-bold text-white shadow-sm shadow-pink-500/20">
                           {ws.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-ink">{ws.name}</div>
-                          {ws.plan && <div className="truncate text-xs capitalize text-ink-muted">{ws.plan}</div>}
+                          <div className="flex items-center gap-2"><span className="truncate text-sm font-semibold text-ink">{ws.name}</span>{workspace?.id === ws.id && <span className="rounded-full bg-pink-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Current</span>}</div>
+                          <div className="mt-0.5 truncate text-xs capitalize text-ink-muted">{ws.plan || "Workspace"}</div>
                         </div>
                         {workspace?.id === ws.id && (
-                          <CheckCircle2 size={14} className="shrink-0 text-green-500" />
+                          <CheckCircle2 size={16} className="shrink-0 text-pink-600" />
                         )}
                       </button>
                     ))}
+                    {workspaceOptions.length === 0 && <div className="px-3 py-6 text-center text-sm text-ink-muted">Your workspaces are loading. Reopen this menu in a moment.</div>}
                   </div>
-                  <div className="border-t border-base-border p-2" onClick={(event) => event.stopPropagation()}>
-                    {showWorkspaceCreator ? (
-                      <div className="space-y-2 p-1">
-                        <input
-                          autoFocus
-                          value={newWorkspaceName}
-                          onChange={(event) => setNewWorkspaceName(event.target.value)}
-                          onKeyDown={(event) => { if (event.key === "Enter") void handleCreateWorkspace(); }}
-                          placeholder="Workspace name"
-                          className="w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-sm text-ink outline-none focus:border-pink-500"
-                        />
-                        <div className="flex gap-2">
-                          <button onClick={() => setShowWorkspaceCreator(false)} className="flex-1 rounded-lg px-3 py-2 text-xs font-semibold text-ink-muted hover:bg-base-raised">Cancel</button>
-                          <button onClick={() => void handleCreateWorkspace()} disabled={!newWorkspaceName.trim() || creatingWorkspace} className="flex-1 rounded-lg bg-pink-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
-                            {creatingWorkspace ? "Creating…" : "Create"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : workspaceAllowance?.allowed === false ? (
+                  <div className="border-t border-base-border p-2.5" onClick={(event) => event.stopPropagation()}>
+                    {workspaceAllowance?.allowed === false ? (
                       <button onClick={() => { setWorkspaceOpen(false); navigate("/payment"); }} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-pink-600 hover:bg-pink-500/10">
                         Workspace limit reached <span className="text-xs">Upgrade</span>
                       </button>
                     ) : (
-                      <button onClick={() => setShowWorkspaceCreator(true)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-ink hover:bg-base-raised">
-                        <Plus size={15} /> Create Workspace
+                      <button onClick={() => { setWorkspaceOpen(false); setShowWorkspaceCreator(true); }} className="flex w-full items-center gap-2 rounded-xl bg-pink-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-pink-500/20 transition hover:bg-pink-600">
+                        <Plus size={16} /> Create Workspace
                       </button>
                     )}
                   </div>
@@ -970,6 +964,37 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
       </header>
 
       <GlobalSearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {showWorkspaceCreator && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="new-workspace-title">
+          <button aria-label="Close workspace creator" onClick={() => setShowWorkspaceCreator(false)} className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
+          <section className="relative w-full max-w-2xl overflow-hidden rounded-[28px] border border-white/20 bg-base-surface shadow-2xl">
+            <div className="relative overflow-hidden bg-[linear-gradient(135deg,#291323_0%,#7e1d49_57%,#e73773_120%)] px-6 pb-16 pt-6 text-white sm:px-8">
+              <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full border border-white/15" />
+              <div className="absolute right-12 top-16 h-20 w-20 rounded-full bg-white/10 blur-xl" />
+              <div className="relative flex items-start justify-between gap-4">
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/25"><Building2 size={22} /></div>
+                <button onClick={() => setShowWorkspaceCreator(false)} className="rounded-xl bg-white/10 p-2 text-white transition hover:bg-white/20" aria-label="Close"><X size={18} /></button>
+              </div>
+              <p className="relative mt-8 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-pink-100"><Sparkles size={12} />New business space</p>
+              <h2 id="new-workspace-title" className="relative mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Create a workspace, then set it up your way.</h2>
+              <p className="relative mt-2 max-w-lg text-sm leading-6 text-pink-100/85">You will start with a guided setup for your store, shipping and team — nothing is carried over from another workspace.</p>
+            </div>
+            <div className="relative -mt-9 mx-4 rounded-2xl border border-base-border bg-base-surface p-5 shadow-xl sm:mx-6 sm:p-6">
+              <label className="block text-sm font-semibold text-ink" htmlFor="workspace-name">Workspace name</label>
+              <p className="mt-1 text-xs text-ink-muted">Use your store or business name. You can change it later.</p>
+              <input id="workspace-name" autoFocus value={newWorkspaceName} onChange={(event) => setNewWorkspaceName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void handleCreateWorkspace(); }} placeholder="e.g. Atlas Store" className="mt-3 w-full rounded-xl border border-base-border bg-base-raised px-4 py-3 text-sm text-ink outline-none transition focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10" />
+              <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                {["Name your workspace", "Connect your store", "Choose delivery"].map((label, index) => <div key={label} className="flex items-center gap-2 rounded-xl bg-base-raised px-3 py-2.5 text-xs font-semibold text-ink-muted"><span className="grid h-5 w-5 place-items-center rounded-full bg-pink-500/10 text-[10px] text-pink-600">{index + 1}</span>{label}</div>)}
+              </div>
+              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button onClick={() => setShowWorkspaceCreator(false)} className="rounded-xl px-4 py-3 text-sm font-semibold text-ink-muted transition hover:bg-base-raised">Cancel</button>
+                <button onClick={() => void handleCreateWorkspace()} disabled={!newWorkspaceName.trim() || creatingWorkspace} className="inline-flex items-center justify-center gap-2 rounded-xl bg-pink-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 transition hover:bg-pink-600 disabled:cursor-not-allowed disabled:opacity-50"><Plus size={16} />{creatingWorkspace ? "Creating workspace…" : "Create & start setup"}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 });

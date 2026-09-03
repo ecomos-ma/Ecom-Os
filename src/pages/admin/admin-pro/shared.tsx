@@ -38,7 +38,7 @@ export function StatusBadge({ value }: { value: string | null | undefined }) {
   const copy = normalized.replace(/_/g, " ");
 
   // Green statuses
-  const good = ["active", "healthy", "resolved", "delivered", "published", "open", "paid", "approved", "waived"].includes(normalized);
+  const good = ["active", "healthy", "resolved", "delivered", "published", "open", "paid", "approved", "waived", "founder"].includes(normalized);
 
   // Orange/Yellow statuses
   const warning = ["warning", "suspended", "in_progress", "waiting_on_customer", "pending", "pending_payment", "submitted", "reviewing", "high", "urgent"].includes(normalized);
@@ -62,6 +62,7 @@ export function PlanBadge({ plan }: { plan: string | null | undefined }) {
     growth: { bg: "bg-purple-500/12", text: "text-purple-700 dark:text-purple-300", label: "Growth" },
     pro: { bg: "bg-amber-500/12", text: "text-amber-700 dark:text-amber-300", label: "Pro" },
     scale: { bg: "bg-emerald-500/12", text: "text-emerald-700 dark:text-emerald-300", label: "Scale" },
+    founder: { bg: "bg-brand-accent/12", text: "text-brand-accent", label: "Founder" },
   };
 
   const config = planConfig[normalized] || { bg: "bg-base-raised", text: "text-ink-muted", label: normalized };

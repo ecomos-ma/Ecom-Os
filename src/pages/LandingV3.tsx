@@ -57,7 +57,10 @@ export default function LandingV3() {
 
     useEffect(() => {
         const savedLang = localStorage.getItem("preferred_landing_lang") as LandingLanguage;
-        if (savedLang && ["ar", "en", "fr"].includes(savedLang)) setLang(savedLang);
+        // Arabic is no longer offered on the public landing page. Reset any
+        // previously saved Arabic preference to English.
+        if (savedLang === "en" || savedLang === "fr") setLang(savedLang);
+        else if (savedLang === "ar") localStorage.setItem("preferred_landing_lang", "en");
     }, []);
 
     const toggleLanguage = (newLang: LandingLanguage) => {
@@ -109,7 +112,7 @@ export default function LandingV3() {
 
                     <div className="flex items-center gap-2 sm:gap-3">
                         <div className="hidden items-center rounded-full border border-slate-200 bg-white p-1 sm:flex" aria-label="Language selector">
-                            {(["en", "fr", "ar"] as LandingLanguage[]).map((option) => (
+                            {(["en", "fr"] as LandingLanguage[]).map((option) => (
                                 <button
                                     key={option}
                                     type="button"
@@ -147,7 +150,7 @@ export default function LandingV3() {
                                 </a>
                             ))}
                             <div className="mt-3 flex gap-2 sm:hidden">
-                                {(["en", "fr", "ar"] as LandingLanguage[]).map((option) => (
+                                {(["en", "fr"] as LandingLanguage[]).map((option) => (
                                     <button key={option} onClick={() => { toggleLanguage(option); setMobileMenuOpen(false); }} className={`flex-1 rounded-xl py-2 text-xs font-bold uppercase ${lang === option ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"}`}>
                                         {option}
                                     </button>
@@ -163,7 +166,6 @@ export default function LandingV3() {
 
             <main id="product" className="relative overflow-hidden pb-24 pt-32 sm:pt-40">
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(circle_at_50%_15%,rgba(238,122,158,0.18),transparent_42%),linear-gradient(to_bottom,#fff7fa_0%,#fffdfd_70%)]" />
-                <div className="pointer-events-none absolute left-[8%] top-40 h-24 w-24 rounded-full border border-[#DB6A8F]/20 bg-white/40 blur-[1px]" />
                 <div className="pointer-events-none absolute right-[7%] top-56 h-40 w-40 rounded-full bg-[#DB6A8F]/[0.06] blur-2xl" />
 
                 <section className="relative mx-auto max-w-7xl px-5 text-center sm:px-6">

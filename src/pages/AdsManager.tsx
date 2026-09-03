@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, Search, ChevronUp, ChevronDown,
   AlertCircle, TrendingUp, MousePointerClick,
@@ -11,6 +12,7 @@ import { supabase } from "../lib/supabase";
 import { toast } from "../components/Toast";
 import { useAuth } from "../hooks/useAuth";
 import { convertAdSpend } from "../lib/metrics";
+import { getIntegrationLogo } from "../lib/integrationLogos";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +130,7 @@ function SortTh({
 const PAGE_SIZE = 20;
 
 export default function AdsManager() {
+  const navigate = useNavigate();
   const { workspace } = useAuth();
   const isMetaConnected = Boolean(workspace?.meta_system_user_token || workspace?.meta_access_token);
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
@@ -437,17 +440,17 @@ export default function AdsManager() {
 
       {/* Empty / No data state */}
       {!loading && campaigns.length === 0 && !error && (
-        <div className="py-12 md:py-24">
+        <div className="py-8 md:py-12">
           {!isMetaConnected ? (
-            <EmptyState 
-              title="No ad account connected" 
-              description="Connect your Meta Ads account to view live campaigns, spend, CPR and ROAS." 
-              primaryAction={
-                <button onClick={() => window.location.href = '/settings'} className="flex items-center gap-1.5 rounded-lg bg-brand px-5 py-2.5 text-[13px] font-medium text-white hover:bg-brand/90">
-                  Connect Meta
-                </button>
-              }
-            />
+            <section className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-[#1877F2]/15 bg-base-surface bg-[linear-gradient(135deg,rgba(24,119,242,0.08),transparent_55%)] p-6 text-center shadow-card sm:p-9">
+              <div className="mx-auto grid h-12 w-12 place-items-center overflow-hidden rounded-2xl border border-[#1877F2]/15 bg-white p-2 shadow-lg shadow-[#1877F2]/10"><img src={getIntegrationLogo("meta")} alt="Meta Ads" className="h-full w-full object-contain" /></div>
+              <h2 className="mt-4 text-xl font-bold text-ink">Connect Meta Ads to get started</h2>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-muted">Once connected, EcomOS will bring campaign spend, delivery metrics and ROAS into this workspace.</p>
+              <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+                <button onClick={() => navigate('/settings?tab=Integrations')} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1877F2] px-5 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#166fe5]">Connect Meta Ads <RefreshCw size={14} /></button>
+                <button onClick={() => navigate('/settings?tab=Integrations')} className="rounded-xl border border-base-border bg-base-surface px-5 py-2.5 text-[13px] font-semibold text-ink transition hover:bg-base-raised">See all integrations</button>
+              </div>
+            </section>
           ) : (
             <EmptyState 
               title="No campaigns found for this period" 

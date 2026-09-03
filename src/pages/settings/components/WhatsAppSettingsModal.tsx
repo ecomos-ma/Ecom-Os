@@ -710,25 +710,13 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
     if (!workspace?.id || !aiTestMessage.trim()) return;
     setBusy(true); setAiTestResult(null);
     try {
-      const { error: settingsError } = await supabase.from("whatsapp_ai_settings").upsert({
-        workspace_id: workspace.id,
-        enabled: aiSettings.enabled,
-        teach_text: aiSettings.teach_text,
-        fallback_reply: aiSettings.fallback_reply,
-        fallback_enabled: aiSettings.fallback_enabled,
-        fallback_show_options: aiSettings.fallback_show_options,
-        handoff_enabled: aiSettings.handoff_enabled,
-        handoff_message: aiSettings.handoff_message,
-        handoff_status: aiSettings.handoff_status || null,
-        handoff_voice_recording_id: aiSettings.handoff_voice_recording_id,
-        clarification_attempt_limit: aiSettings.clarification_attempt_limit,
-        permissions: aiSettings.permissions,
-      }, { onConflict: "workspace_id" });
-      if (settingsError) throw settingsError;
-      const data = await invokeWorker("ai_test", { message: aiTestMessage });
+      const data = await Promise.race([
+        invokeWorker("ai_test", { message: aiTestMessage }),
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("timeout")), 30_000)),
+      ]);
       const decision = data?.decision || {};
-      setAiTestResult(`${decision.intent || "unknown"}${decision.reply_text ? ` — ${decision.reply_text}` : ""}`);
-    } catch (error: any) { setAiTestResult(error.message || "AI test failed"); }
+      setAiTestResult(String(decision.reply_text || "AI test completed without a simulated reply."));
+    } catch { setAiTestResult("AI test failed. Check provider configuration."); }
     finally { setBusy(false); }
   };
 

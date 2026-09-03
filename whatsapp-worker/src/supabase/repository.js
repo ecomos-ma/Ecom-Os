@@ -204,9 +204,10 @@ export class SupabaseWhatsAppRepository {
   async listAiProviders() {
     const now = new Date().toISOString();
     return (await result(this.client.from("tool_api_providers")
-      .select("id,name,endpoint,credential_ciphertext,credential_iv,priority,health_status,cooldown_until,last_used_at")
-      .eq("provider", "gemini")
+      .select("id,name,provider,model,tool_scope,endpoint,credential_ciphertext,credential_iv,priority,health_status,cooldown_until,last_used_at")
+      .eq("tool_scope", "whatsapp_ai")
       .eq("enabled", true)
+      .or("health_status.is.null,health_status.eq.unknown,health_status.eq.healthy")
       .or(`cooldown_until.is.null,cooldown_until.lt.${now}`)
       .order("priority", { ascending: true })
       .order("last_used_at", { ascending: true, nullsFirst: true }), "Load WhatsApp AI providers")).data || [];
@@ -214,8 +215,8 @@ export class SupabaseWhatsAppRepository {
 
   async listAiProviderAvailability() {
     return (await result(this.client.from("tool_api_providers")
-      .select("id,enabled,health_status,cooldown_until")
-      .eq("provider", "gemini"), "Load WhatsApp AI provider availability")).data || [];
+      .select("id,provider,model,priority,enabled,health_status,cooldown_until")
+      .eq("tool_scope", "whatsapp_ai"), "Load WhatsApp AI provider availability")).data || [];
   }
 
   async recordAiProviderResult(providerId, values) {
@@ -252,6 +253,16 @@ export class SupabaseWhatsAppRepository {
       p_inbound_message_id: values.inboundMessageId,
       p_decision: values.decision,
     }), "Execute validated WhatsApp AI action")).data;
+  }
+
+  async executeAiActions(values) {
+    return (await result(this.client.rpc("execute_whatsapp_ai_actions", {
+      p_workspace_id: values.workspaceId,
+      p_order_id: values.orderId,
+      p_provider_event_id: values.providerEventId,
+      p_inbound_message_id: values.inboundMessageId,
+      p_decision: values.decision,
+    }), "Execute validated WhatsApp AI actions")).data;
   }
 
   async executeAiHandoff(values) {

@@ -1,4 +1,4 @@
-import { FormEvent, useState, useEffect } from "react";
+import { FormEvent, useState, useEffect, useRef } from "react";
 import { AlertTriangle, Loader2, Mail, Check, Clock, X } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../hooks/useAuth";
@@ -18,6 +18,7 @@ export default function AccountPrivacyTab() {
   const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const [deletionReason, setDeletionReason] = useState("");
   const [deletionConfirmed, setDeletionConfirmed] = useState(false);
+  const deletionLoadSequence = useRef(0);
 
   // Account Deletion
   const [showAccountDeletion, setShowAccountDeletion] = useState(false);
@@ -32,6 +33,7 @@ export default function AccountPrivacyTab() {
 
   const loadDeletionRequests = async () => {
     if (!session?.user.id) return;
+    const sequence = ++deletionLoadSequence.current;
     setLoadingRequests(true);
     try {
       const { data, error } = await supabase
@@ -42,7 +44,7 @@ export default function AccountPrivacyTab() {
       if (error) throw error;
       setDeletionRequests(data || []);
     } catch (error: any) {
-      toast.error("Failed to load deletion requests");
+      if (sequence === deletionLoadSequence.current) toast.error("Failed to load deletion requests");
       console.error(error);
     } finally {
       setLoadingRequests(false);

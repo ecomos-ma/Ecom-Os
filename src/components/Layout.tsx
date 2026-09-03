@@ -16,6 +16,41 @@ import { RefreshCw } from "lucide-react";
 import { MobileAppChrome } from "./MobileAppChrome";
 import { InventoryQRScanner } from "./inventory/InventoryQRScanner";
 import { OfflineBanner } from "./ErrorStates";
+import { isFounder } from "../lib/rbac";
+
+function MobilePlanGate() {
+  const { workspace, profile, session, isDemoMode } = useAuth();
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const founder = isFounder(profile?.role, session?.user.email);
+
+  useEffect(() => {
+    if (isDemoMode || founder) {
+      setAllowed(true);
+      return;
+    }
+    if (!workspace?.id) {
+      setAllowed(false);
+      return;
+    }
+
+    let active = true;
+    const check = () => supabase
+      .rpc("has_workspace_entitlement_v1", { p_workspace_id: workspace.id, p_entitlement_key: "mobile_app" })
+      .then(({ data }) => { if (active) setAllowed(data === true); })
+      .catch(() => { if (active) setAllowed(false); });
+    void check();
+    const channel = supabase
+      .channel(`mobile-plan-entitlement:${workspace.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "subscription_plans" }, () => void check())
+      .subscribe();
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [founder, isDemoMode, workspace?.id]);
+
+  return allowed === true ? null : <div className="fixed inset-0 z-[1000] bg-white md:hidden" aria-hidden="true" />;
+}
 
 function PullToRefresh({ children }: { children: React.ReactNode }) {
   const [pullProgress, setPullProgress] = useState(0);
@@ -118,7 +153,7 @@ export function Layout() {
   }, []);
 
   // Global Auto Sync timer (every 500ms) - works across all pages
-  const { workspace } = useAuth();
+  const { workspace, isDemoMode } = useAuth();
   const { setAccent } = useTheme();
 
   useEffect(() => {
@@ -136,11 +171,12 @@ export function Layout() {
   // then dispatches meta-sync-complete so useDashboardData reloads automatically.
   const syncAbortRef = useRef<{ cancelled: boolean } | null>(null);
   const syncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { isDemoMode } = useAuth();
-
   useEffect(() => {
-    // Skip Meta sync in demo mode
-    if (isDemoMode) return;
+    // Do not attempt an automatic Meta request until Meta is actually linked.
+    // Besides avoiding needless network work, this prevents a configuration
+    // toast from reappearing when the user only refreshes another page.
+    const metaConnected = Boolean(workspace?.meta_system_user_token || workspace?.meta_access_token);
+    if (isDemoMode || !metaConnected) return;
 
     const handler = (e: Event) => {
       const { from, to, rangeType } = (e as CustomEvent<{ from: string; to: string; rangeType: string }>).detail;
@@ -249,7 +285,7 @@ export function Layout() {
       if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
       if (syncAbortRef.current) syncAbortRef.current.cancelled = true;
     };
-  }, []); // no deps — handler reads only from the event payload
+  }, [isDemoMode, workspace?.meta_access_token, workspace?.meta_system_user_token]);
   // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -269,6 +305,7 @@ export function Layout() {
 
   return (
     <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-base-surface text-text-main">
+      <MobilePlanGate />
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-surface">
         <DemoBanner />

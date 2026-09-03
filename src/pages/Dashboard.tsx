@@ -32,7 +32,6 @@ import { useDashboardData } from "../hooks/useDashboardData";
 import { useOrders } from "../hooks/useOrders";
 import { useAuth } from "../hooks/useAuth";
 import { normalizeStatus } from "../utils/status";
-import { SellerSetupChecklist } from "../components/SellerSetupChecklist";
 
 type RangeType = "today" | "yesterday" | "thisMonth" | "all" | "custom";
 
@@ -616,8 +615,6 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
           </div>
         }
       />
-
-      <SellerSetupChecklist />
 
       {/* Custom Date Picker Dropdown - Rendered outside PageHeader */}
       {showDatePicker && (

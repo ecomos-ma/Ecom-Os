@@ -243,7 +243,13 @@ export async function enableBrowserNotifications(workspaceId: string): Promise<{
 
 export async function currentPushSubscriptionActive(): Promise<boolean> {
   if (browserNotificationPermissionState() === "unsupported" || Notification.permission !== "granted") return false;
-  const registration = await navigator.serviceWorker.ready;
+  // A stale or failed service-worker installation must never leave the entire
+  // notification settings page waiting forever.
+  const registration = await Promise.race<ServiceWorkerRegistration | null>([
+    navigator.serviceWorker.ready,
+    new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 3000)),
+  ]);
+  if (!registration) return false;
   return Boolean(await registration.pushManager.getSubscription());
 }
 

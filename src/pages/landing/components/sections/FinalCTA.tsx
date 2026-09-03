@@ -94,12 +94,12 @@ export function FinalCTA({ lang }: { lang: LandingLanguage }) {
                                 </span>
                             </div>
 
-                            <a href={salesPhoneHref} className="group flex shrink-0 items-center justify-between gap-2.5 rounded-2xl border border-white/15 bg-white px-3 py-3.5 text-[#21161a] shadow-xl transition hover:-translate-y-0.5 hover:bg-[#fff2f6] sm:gap-5 sm:px-5 md:min-w-[285px]">
-                                <span className="flex min-w-0 items-center gap-2 sm:gap-3">
-                                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FCE7EF] text-[#c93265]"><PhoneCall className="h-4 w-4" /></span>
-                                    <span><span className="block text-[8px] font-black uppercase tracking-[0.1em] text-slate-400 sm:text-[9px] sm:tracking-[0.14em]">{c.direct}</span><span dir="ltr" className="mt-1 block whitespace-nowrap text-[13px] font-black tracking-[0.01em] text-slate-950 sm:text-base sm:tracking-[0.02em]">{salesPhoneDisplay}</span></span>
+                            <a href={salesPhoneHref} className="group flex w-full min-w-0 shrink-0 items-center justify-between gap-2.5 rounded-2xl border border-white/15 bg-white px-3 py-3.5 text-[#21161a] shadow-xl transition hover:-translate-y-0.5 hover:bg-[#fff2f6] sm:gap-5 sm:px-5 md:w-auto md:min-w-[285px]">
+                                <span className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#FCE7EF] text-[#c93265] sm:h-10 sm:w-10"><PhoneCall className="h-4 w-4" /></span>
+                                    <span className="min-w-0"><span className="block truncate text-[8px] font-black uppercase tracking-[0.1em] text-slate-400 sm:text-[9px] sm:tracking-[0.14em]">{c.direct}</span><strong dir="ltr" className="!mt-1 !block whitespace-nowrap !text-[11px] !font-black !leading-4 !tracking-normal !text-slate-950 sm:!text-base sm:!tracking-[0.02em]" style={{ color: "#0f172a", display: "block" }}>{salesPhoneDisplay}</strong></span>
                                 </span>
-                                <span className="rounded-full bg-slate-950 px-2.5 py-2 text-center text-[9px] font-black leading-3 text-white transition group-hover:bg-[#DB3F73] sm:px-3 sm:text-[10px]">{c.talk}</span>
+                                <span className="shrink-0 whitespace-nowrap rounded-full bg-slate-950 px-2 py-1.5 text-center text-[8px] font-black leading-3 text-white transition group-hover:bg-[#DB3F73] sm:px-3 sm:py-2 sm:text-[10px]">{c.talk}</span>
                             </a>
                         </div>
                     </div>

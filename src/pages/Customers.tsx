@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, ChevronRight, MessageCircle, X } from "lucide-react";
+import { Download, Search, ChevronRight, MessageCircle, X } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { supabase } from "../lib/supabase";
@@ -119,6 +119,35 @@ export default function Customers() {
     [customers, search]
   );
 
+  const exportCustomers = () => {
+    if (!filteredCustomers.length) return;
+    const escapeCsv = (value: unknown) => {
+      const text = String(value ?? "");
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const rows = [
+      ["Customer ID", "Name", "Phone", "City", "Orders", "Lifetime value (MAD)", "Last order"],
+      ...filteredCustomers.map((customer) => [
+        customer.id,
+        customer.name,
+        customer.phone || "",
+        customer.city || "",
+        customer.orders,
+        customer.totalSpent,
+        customer.lastOrderAt || "",
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `ecomos-customers-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <PageHeader title="Customers" subtitle="A CRM-style customer panel with order lifetime value and contact history." />
@@ -133,6 +162,9 @@ export default function Customers() {
             className="w-full rounded-lg border border-base-border bg-base-surface py-2 pl-9 pr-3 text-[13px] text-ink placeholder:text-ink-faint focus:border-brand-accent/50"
           />
         </div>
+        <button type="button" onClick={exportCustomers} disabled={loading || filteredCustomers.length === 0} className="inline-flex items-center gap-2 rounded-lg border border-base-border bg-base-surface px-3 py-2 text-[13px] font-semibold text-ink transition hover:border-brand-accent/40 hover:bg-brand-accent/[0.04] disabled:cursor-not-allowed disabled:opacity-50">
+          <Download size={15} /> Export customers
+        </button>
       </div>
 
       {loading ? (

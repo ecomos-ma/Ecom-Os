@@ -11,6 +11,15 @@ const CURRENT_VERSIONS = {
   privacy: "1.0",
 };
 
+function legalAcceptanceTableUnavailable(error: { code?: string; message?: string; details?: string } | null | undefined) {
+  const detail = `${error?.message ?? ""} ${error?.details ?? ""}`.toLowerCase();
+  // PostgREST reports a missing relation as PGRST205 even though the browser
+  // network panel shows HTTP 404. Treat both representations as an optional
+  // migration gap rather than an application error.
+  return error?.code === "404" || error?.code === "42P01" || error?.code === "PGRST205"
+    || detail.includes("could not find the table") || detail.includes("legal_acceptance");
+}
+
 /**
  * Record legal acceptance when a user signs up
  */
@@ -42,8 +51,7 @@ export async function recordLegalAcceptance(
     });
 
     // 404 errors mean table doesn't exist yet (migrations not run) - this is ok
-    if (error && error.code === "404") {
-      console.warn("[legalService] legal_acceptance table not found - migrations may not be applied yet");
+    if (legalAcceptanceTableUnavailable(error)) {
       return { success: false, error: "table_missing", message: "Migrations not yet applied" };
     }
     if (error) throw error;
@@ -68,7 +76,7 @@ export async function getLatestLegalAcceptance(userId: string) {
       .single();
 
     // 404 errors mean table doesn't exist - return null gracefully
-    if (error && error.code === "404") {
+    if (legalAcceptanceTableUnavailable(error)) {
       return null;
     }
     if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows

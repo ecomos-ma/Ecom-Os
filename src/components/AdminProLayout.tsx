@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -135,6 +135,13 @@ const pageMeta = [
   ["/admin/platform", "Access & control", "Platform settings", "Security and global configuration."],
 ] as const;
 
+function founderNotificationDestination(notice: FounderNotification) {
+  if (notice.source === "payment") return `/admin/payments?status=submitted&request=${encodeURIComponent(notice.source_id)}`;
+  if (notice.source === "support_ticket" || notice.source === "support") return "/admin/support";
+  if (notice.source === "provider_failure") return "/admin/ai-tools";
+  return "/admin/operations?tab=activity";
+}
+
 export function AdminProLayout() {
   const { profile, session, signOut } = useAuth();
   const { authorization, can } = usePlatformAdmin();
@@ -149,6 +156,10 @@ export function AdminProLayout() {
   const [notifications, setNotifications] = useState<FounderNotification[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const knownPaymentNotificationIdsRef = useRef(new Set<string>());
+  const notificationsReadyRef = useRef(false);
+  const paymentSoundRef = useRef<HTMLAudioElement | null>(null);
+  const paymentSoundUnlockedRef = useRef(false);
   const previewMode = import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "admin";
 
   const visibleGroups = useMemo(() => navGroups
@@ -183,7 +194,36 @@ export function AdminProLayout() {
     return () => window.removeEventListener("keydown", onShortcut);
   }, []);
 
-  const loadNotifications = async () => {
+  const unlockPaymentSound = useCallback(() => {
+    if (!paymentSoundRef.current) {
+      paymentSoundRef.current = new Audio("/notification.mp3");
+      paymentSoundRef.current.preload = "auto";
+    }
+    paymentSoundUnlockedRef.current = true;
+  }, []);
+
+  const playPaymentSound = useCallback(() => {
+    if (!paymentSoundUnlockedRef.current) return;
+    const audio = paymentSoundRef.current;
+    if (!audio) return;
+    audio.currentTime = 0;
+    void audio.play().catch(() => {
+      // Browsers can deny sound until the founder interacts with the page.
+      paymentSoundUnlockedRef.current = false;
+    });
+  }, []);
+
+  useEffect(() => {
+    const unlock = () => unlockPaymentSound();
+    window.addEventListener("pointerdown", unlock, { once: true, passive: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, [unlockPaymentSound]);
+
+  const loadNotifications = useCallback(async () => {
     if (previewMode) {
       setNotifications([
         { source: "payment", source_id: "preview-1", title: "Payment needs review", detail: "Growth annual transfer submitted by Atlas Gadgets.", created_at: new Date().toISOString(), severity: "warning", read: false },
@@ -194,15 +234,32 @@ export function AdminProLayout() {
     }
     try {
       const result = await founderAdmin.notifications();
-      setNotifications(result.rows || []);
+      const rows = result.rows || [];
+      const paymentIds = new Set(rows.filter((item) => item.source === "payment").map((item) => item.source_id));
+      const hasNewPayment = notificationsReadyRef.current && [...paymentIds].some((id) => !knownPaymentNotificationIdsRef.current.has(id));
+      knownPaymentNotificationIdsRef.current = paymentIds;
+      notificationsReadyRef.current = true;
+      if (hasNewPayment) playPaymentSound();
+      setNotifications(rows);
       setUnreadNotifications(result.unread || 0);
     } catch {
       setNotifications([]);
       setUnreadNotifications(0);
     }
-  };
+  }, [playPaymentSound, previewMode]);
+
+  // Payment proofs are platform-wide rather than tied to the founder's own
+  // workspace. Poll the protected founder feed so the admin bell updates even
+  // when a seller submits proof from a different workspace.
+  useEffect(() => {
+    if (!authorization.is_root_founder) return;
+    void loadNotifications();
+    const timer = window.setInterval(() => void loadNotifications(), 20_000);
+    return () => window.clearInterval(timer);
+  }, [authorization.is_root_founder, loadNotifications]);
 
   const toggleNotifications = () => {
+    unlockPaymentSound();
     const next = !notificationsOpen;
     setNotificationsOpen(next);
     if (next) void loadNotifications();
@@ -269,7 +326,7 @@ export function AdminProLayout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="relative flex h-[74px] shrink-0 items-center gap-3 border-b border-base-border/70 bg-base-surface/95 px-4 backdrop-blur md:px-6">
+        <header className="relative z-[100] flex h-[74px] shrink-0 items-center gap-3 border-b border-base-border/70 bg-base-surface/95 px-4 shadow-[0_1px_0_rgba(20,12,18,0.04)] backdrop-blur md:px-6">
           <button aria-label="Open admin navigation" onClick={() => setMobileOpen(true)} className="rounded-xl p-2 text-ink-muted hover:bg-base-raised lg:hidden"><Menu size={20} /></button>
           <div className="min-w-0">
             <p className="text-[9px] font-black uppercase tracking-[0.18em] text-brand-accent">{currentMeta.section}</p>
@@ -291,7 +348,7 @@ export function AdminProLayout() {
             <ThemeToggle />
             {authorization.is_root_founder && <button onClick={toggleNotifications} className="relative rounded-xl p-2.5 text-ink-muted hover:bg-base-raised" title="Notifications" aria-expanded={notificationsOpen}><Bell size={17} />{unreadNotifications > 0 && <span className="absolute right-0 top-0 grid h-4 min-w-4 place-items-center rounded-full bg-danger px-1 text-[8px] font-black text-white">{Math.min(unreadNotifications, 99)}</span>}</button>}
             <span className="hidden rounded-full bg-brand-accent/10 px-2.5 py-1 text-[10px] font-black capitalize text-brand-accent sm:inline">{authorization.role?.replace(/_/g, " ")}</span>
-            {notificationsOpen && authorization.is_root_founder && <div className="absolute right-0 top-[calc(100%+0.55rem)] z-[70] w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-2xl"><div className="flex items-center justify-between border-b border-base-border px-4 py-3"><div><p className="text-sm font-black">Admin notifications</p><p className="text-[10px] text-ink-faint">Payments, support and platform attention</p></div><button onClick={() => void loadNotifications()} className="text-xs font-bold text-brand-accent">Refresh</button></div><div className="max-h-[430px] overflow-y-auto">{notifications.length ? notifications.map((notice) => <button key={`${notice.source}-${notice.source_id}`} onClick={() => { if (!previewMode && !notice.read) void founderAdmin.markNotificationRead(notice.source, notice.source_id).then(() => void loadNotifications()); }} className={`block w-full border-b border-base-border px-4 py-3 text-left last:border-0 hover:bg-base-raised ${notice.read ? "" : "bg-brand-accent/[0.04]"}`}><div className="flex items-start gap-2"><span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${notice.severity === "urgent" ? "bg-danger" : "bg-amber-500"}`} /><span><span className="block text-sm font-bold">{notice.title}</span><span className="mt-1 line-clamp-2 block text-xs leading-5 text-ink-muted">{notice.detail}</span><span className="mt-1 block text-[10px] text-ink-faint">{new Date(notice.created_at).toLocaleString()}</span></span></div></button>) : <p className="p-8 text-center text-sm text-ink-muted">No current platform notifications.</p>}</div></div>}
+            {notificationsOpen && authorization.is_root_founder && <div className="absolute right-0 top-[calc(100%+0.55rem)] z-[120] w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-2xl"><div className="flex items-center justify-between border-b border-base-border px-4 py-3"><div><p className="text-sm font-black">Admin notifications</p><p className="text-[10px] text-ink-faint">Payments, support and platform attention</p></div><button onClick={() => void loadNotifications()} className="text-xs font-bold text-brand-accent">Refresh</button></div><div className="max-h-[min(430px,calc(100dvh-110px))] overflow-y-auto">{notifications.length ? notifications.map((notice) => <button key={`${notice.source}-${notice.source_id}`} onClick={() => { const destination = founderNotificationDestination(notice); setNotificationsOpen(false); navigate(destination); if (!previewMode && !notice.read) void founderAdmin.markNotificationRead(notice.source, notice.source_id).catch(() => undefined).finally(() => void loadNotifications()); }} className={`block w-full border-b border-base-border px-4 py-3 text-left last:border-0 hover:bg-base-raised ${notice.read ? "" : "bg-brand-accent/[0.04]"}`}><div className="flex items-start gap-2"><span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${notice.severity === "urgent" ? "bg-danger" : "bg-amber-500"}`} /><span><span className="block text-sm font-bold">{notice.title}</span><span className="mt-1 line-clamp-2 block text-xs leading-5 text-ink-muted">{notice.detail}</span><span className="mt-1 block text-[10px] text-ink-faint">{new Date(notice.created_at).toLocaleString()}</span></span></div></button>) : <p className="p-8 text-center text-sm text-ink-muted">No current platform notifications.</p>}</div></div>}
           </div>
         </header>
 

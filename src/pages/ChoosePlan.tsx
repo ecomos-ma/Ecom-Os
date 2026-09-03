@@ -49,7 +49,7 @@ export default function ChoosePlan() {
       setSaving(false);
       return;
     }
-    navigate("/payment", { replace: true });
+    navigate("/payment?from=landing", { replace: true });
   };
 
   return <Screen>
