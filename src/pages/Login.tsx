@@ -158,7 +158,7 @@ export default function Login() {
   const startGoogleOAuth = async () => {
     setGoogleBusy(true);
     const safeReturnTo = getSafeReturnPath(searchParams.get("returnTo"), "");
-    const callbackPath = safeReturnTo ? `/login?returnTo=${encodeURIComponent(safeReturnTo)}` : "/login";
+    const callbackPath = safeReturnTo ? `/auth/callback?returnTo=${encodeURIComponent(safeReturnTo)}` : "/auth/callback";
     const { error: authError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: getAppUrlForPath(callbackPath) } });
     if (authError) {
       setGoogleBusy(false);

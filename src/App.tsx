@@ -12,6 +12,7 @@ import { LanguageProvider } from "./i18n";
 import { SupportModeProvider } from "./contexts/SupportModeContext";
 
 const Login = lazy(() => import("./pages/Login"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const ChoosePlan = lazy(() => import("./pages/ChoosePlan"));
 const Payment = lazy(() => import("./pages/Payment"));
 const WaitingForVerification = lazy(() => import("./pages/WaitingForVerification"));
@@ -115,6 +116,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<LoadablePage><EcomOSLanding /></LoadablePage>} />
               <Route path="/login" element={<LoadablePage><Login /></LoadablePage>} />
+              <Route path="/auth/callback" element={<LoadablePage><AuthCallback /></LoadablePage>} />
               <Route path="/choose-plan" element={<LoadablePage><ChoosePlan /></LoadablePage>} />
               <Route path="/payment" element={<LoadablePage><Payment /></LoadablePage>} />
               <Route path="/waiting-verification" element={<LoadablePage><WaitingForVerification /></LoadablePage>} />
@@ -129,7 +131,7 @@ export default function App() {
               <Route path="/landing-page/:id" element={<LoadablePage><PublicLandingPage /></LoadablePage>} />
               <Route path="/invite" element={<LoadablePage><Invite /></LoadablePage>} />
 
-              {/* OAuth redirect landing pages — must match GOOGLE_REDIRECT_URI / YOUCAN_REDIRECT_URI exactly (path only; host changes per environment). */}
+              {/* Provider integration callbacks exchange provider codes server-side. */}
               <Route path="/api/google/callback" element={<LoadablePage><OAuthCallback provider="google" /></LoadablePage>} />
               <Route path="/api/youcan/callback" element={<LoadablePage><OAuthCallback provider="youcan" /></LoadablePage>} />
 
