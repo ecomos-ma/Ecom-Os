@@ -25,12 +25,6 @@ export function canAccessShippingFeatures(
   profile: Profile | null | undefined,
   userHasShippingPermission: boolean
 ): boolean {
-  // The delivery queue remains available even when the optional Shipping
-  // setup module is disabled. Only the carrier-configuration route is gated.
-  if (!isShippingModuleEnabled(workspace) && route.startsWith("/shipping")) {
-    return false;
-  }
-
   // User must have shipping permission (unless they're an owner-like role)
   if (profile && isOwnerLikeRole(profile.role)) {
     return true;

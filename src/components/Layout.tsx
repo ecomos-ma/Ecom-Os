@@ -34,10 +34,17 @@ function MobilePlanGate() {
     }
 
     let active = true;
-    const check = () => supabase
-      .rpc("has_workspace_entitlement_v1", { p_workspace_id: workspace.id, p_entitlement_key: "mobile_app" })
-      .then(({ data }) => { if (active) setAllowed(data === true); })
-      .catch(() => { if (active) setAllowed(false); });
+    const check = async () => {
+      try {
+        const { data } = await supabase.rpc("has_workspace_entitlement_v1", {
+          p_workspace_id: workspace.id,
+          p_entitlement_key: "mobile_app",
+        });
+        if (active) setAllowed(data === true);
+      } catch {
+        if (active) setAllowed(false);
+      }
+    };
     void check();
     const channel = supabase
       .channel(`mobile-plan-entitlement:${workspace.id}`)

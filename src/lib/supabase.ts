@@ -6,24 +6,12 @@ import { createClient } from "@supabase/supabase-js";
 // The SERVICE_ROLE key and all OAuth client secrets must never be imported
 // into this file or anything under src/ — they only live in Supabase Edge
 // Function secrets (see supabase/functions/*).
-const viteEnv = typeof import.meta !== "undefined" && import.meta && "env" in import.meta ? import.meta.env : ({} as Record<string, string | undefined>);
-const configuredUrl = (viteEnv.VITE_SUPABASE_URL as string | undefined)?.trim();
-const configuredKey = (viteEnv.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
+const configuredUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const configuredKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 
 const configurationProblems: string[] = [];
 if (!configuredUrl) configurationProblems.push("VITE_SUPABASE_URL");
 if (!configuredKey) configurationProblems.push("VITE_SUPABASE_ANON_KEY");
-
-if (configuredUrl) {
-  try {
-    const parsed = new URL(configuredUrl);
-    if (parsed.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(parsed.hostname)) {
-      configurationProblems.push("VITE_SUPABASE_URL must use HTTPS outside local development");
-    }
-  } catch {
-    configurationProblems.push("VITE_SUPABASE_URL must be a valid URL");
-  }
-}
 
 export const supabaseConfigurationError = configurationProblems.length
   ? `Missing or invalid browser configuration: ${configurationProblems.join(", ")}.`
