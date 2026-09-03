@@ -149,6 +149,9 @@ export interface Order {
   id: string;
   workspace_id: string;
   order_number: string;
+  order_source?: "youcan" | "google_sheets" | "shopify" | "manual" | string | null;
+  order_sequence_number?: number | null;
+  display_order_id?: string | null;
   customer_id: string | null;
   customer_name?: string | null;
   city: string | null;
