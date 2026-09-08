@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme";
+import { LegalFooter } from "../components/LegalFooter";
 
 export default function Terms() {
   const { mode } = useTheme();
@@ -150,7 +151,7 @@ export default function Terms() {
                 <strong>Maintenance:</strong> We may perform scheduled or emergency maintenance, which may result in temporary service interruption. We will attempt to notify you of scheduled maintenance in advance.
               </p>
               <p className="leading-7 mb-2">
-                <strong>Support:</strong> Support availability depends on your subscription level. For support requests, contact support@ecomos.app.
+                <strong>Support:</strong> Support availability depends on your subscription level. For support requests, contact support@ecomos.ma.
               </p>
             </section>
 
@@ -210,7 +211,7 @@ export default function Terms() {
                 These Terms are governed by the laws of Morocco. Any disputes shall first be subject to good-faith negotiation between the parties.
               </p>
               <p className="leading-7 mt-3">
-                If you have questions about these terms, contact us at legal@ecomos.app.
+                If you have questions about these terms, contact us at legal@ecomos.ma.
               </p>
             </section>
 
@@ -229,6 +230,7 @@ export default function Terms() {
           </div>
         </div>
       </div>
+      <LegalFooter />
     </div>
   );
 }

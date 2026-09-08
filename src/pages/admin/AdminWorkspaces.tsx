@@ -54,7 +54,7 @@ export default function AdminWorkspaces() {
       // Fallback: essayer la requête directe
       const result = await supabase
         .from("workspaces")
-        .select("id, name, created_at, meta_access_token, meta_ad_account_id, is_active, status, created_by")
+        .select("id, name, created_at, is_active, status, created_by")
         .order("created_at", { ascending: false });
       
       data = result.data;
@@ -210,9 +210,6 @@ export default function AdminWorkspaces() {
                     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11.5px] font-medium ${active ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
                       {active ? "Active" : "Suspended"}
                     </span>
-                    {ws.meta_access_token && (
-                      <span className="inline-flex rounded-full px-2.5 py-0.5 text-[11.5px] font-medium bg-sky-500/10 text-sky-400">Meta ✓</span>
-                    )}
                     <div className="text-[11.5px] text-ink-faint">{new Date(ws.created_at).toLocaleDateString()}</div>
                   </div>
                 </div>

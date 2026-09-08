@@ -49,6 +49,18 @@ const seoMapping = {
     "/account-deletion": {
         title: "Delete Your Ecom OS Account",
         description: "Instructions on how to permanently delete your Ecom OS account and associated workspace data."
+    },
+    "/cookie-policy": {
+        title: "Cookie Policy | Ecom OS",
+        description: "Learn which cookies and browser storage Ecom OS uses for authentication, preferences, and connected integrations."
+    },
+    "/security": {
+        title: "Security | Ecom OS",
+        description: "Review the security controls Ecom OS uses for account, workspace, and integration data."
+    },
+    "/subprocessors": {
+        title: "Subprocessors | Ecom OS",
+        description: "See the infrastructure and connected providers that may process data for Ecom OS."
     }
 };
 

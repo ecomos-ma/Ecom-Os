@@ -55,8 +55,6 @@ export function SupportModeProvider({ children }: { children: ReactNode }) {
     const previewWorkspace: Workspace = {
       ...next.workspace,
       status: next.workspace.status as Workspace["status"],
-      meta_access_token: null,
-      meta_ad_account_id: null,
     };
 
     window.sessionStorage.setItem(STORAGE_KEY, next.session.id);

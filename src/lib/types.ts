@@ -20,9 +20,6 @@ export type ShippingCarrier = "ozon" | "coliaty" | "forcelog" | "ameex" | "sendi
 export interface Workspace {
   id: string;
   name: string;
-  meta_access_token: string | null;
-  meta_ad_account_id: string | null;
-  meta_system_user_token?: string | null;
   is_active?: boolean | null;
   status?: "active" | "suspended" | "deleted";
   plan?: string | null;

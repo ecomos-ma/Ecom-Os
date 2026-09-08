@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Mail, MessageCircle, MapPin, Clock } from "lucide-react";
 import { useTheme } from "../../hooks/useTheme";
+import { LegalFooter } from "../../components/LegalFooter";
 
 export default function Contact() {
   const { mode } = useTheme();
@@ -11,28 +12,28 @@ export default function Contact() {
       icon: Mail,
       title: "Email Support",
       description: "Email our support team for general inquiries and technical issues",
-      contact: "support@ecomos.app",
+      contact: "support@ecomos.ma",
       responseTime: "Usually within 24 hours",
     },
     {
       icon: MessageCircle,
       title: "Legal Inquiries",
       description: "Contact us for legal, privacy, or compliance matters",
-      contact: "legal@ecomos.app",
+      contact: "legal@ecomos.ma",
       responseTime: "Usually within 48 hours",
     },
     {
       icon: Mail,
       title: "Billing Support",
       description: "For subscription, payment, and refund inquiries",
-      contact: "billing@ecomos.app",
+      contact: "billing@ecomos.ma",
       responseTime: "Usually within 24 hours",
     },
     {
       icon: Mail,
       title: "Refund Requests",
       description: "Submit or inquire about refund requests",
-      contact: "refund@ecomos.app",
+      contact: "refund@ecomos.ma",
       responseTime: "Usually within 3 business days",
     },
   ];
@@ -103,7 +104,7 @@ export default function Contact() {
                     What if I need immediate support?
                   </h3>
                   <p className={`text-sm leading-6 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-                    For urgent issues, email support@ecomos.app with "URGENT" in the subject line. We prioritize critical system issues and account access problems.
+                    For urgent issues, email support@ecomos.ma with "URGENT" in the subject line. We prioritize critical system issues and account access problems.
                   </p>
                 </div>
 
@@ -112,7 +113,7 @@ export default function Contact() {
                     How do I request a refund?
                   </h3>
                   <p className={`text-sm leading-6 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-                    Visit the <Link to="/refund-policy" className="font-semibold hover:underline">Refund Policy</Link> for eligibility and procedures. You can submit refund requests via Settings › Billing or email refund@ecomos.app.
+                    Visit the <Link to="/refund-policy" className="font-semibold hover:underline">Refund Policy</Link> for eligibility and procedures. You can submit refund requests via Settings › Billing or email refund@ecomos.ma.
                   </p>
                 </div>
 
@@ -130,7 +131,7 @@ export default function Contact() {
                     What if I have a privacy or legal concern?
                   </h3>
                   <p className={`text-sm leading-6 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-                    Contact our Legal team at legal@ecomos.app. For data protection inquiries, visit our <Link to="/privacy" className="font-semibold hover:underline">Privacy Policy</Link>.
+                    Contact our Legal team at legal@ecomos.ma. For data protection inquiries, visit our <Link to="/privacy" className="font-semibold hover:underline">Privacy Policy</Link>.
                   </p>
                 </div>
 
@@ -196,6 +197,7 @@ export default function Contact() {
           </div>
         </div>
       </div>
+      <LegalFooter />
     </div>
   );
 }

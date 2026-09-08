@@ -288,8 +288,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // null in PostgREST even though the user has active memberships, which
       // previously left the switcher empty while its allowance counter was 2.
       const [workspacesRes, membershipRes] = await Promise.all([
-        supabase.from("workspaces").select("id, name, created_at, meta_access_token, meta_ad_account_id, created_by, plan").order("created_at", { ascending: true }),
-        supabase.from("profile_workspaces").select("workspace_id, workspaces(id, name, created_at, meta_access_token, meta_ad_account_id, created_by, plan)").eq("profile_id", profileId),
+        supabase.from("workspaces").select("id, name, created_at, created_by, plan").order("created_at", { ascending: true }),
+        supabase.from("profile_workspaces").select("workspace_id, workspaces(id, name, created_at, created_by, plan)").eq("profile_id", profileId),
       ]);
 
       const directWorkspaces = !workspacesRes.error ? (workspacesRes.data ?? []) as Workspace[] : [];

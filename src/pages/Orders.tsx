@@ -268,7 +268,7 @@ export default function Orders() {
   const displayOrders = useMemo(() => orders.slice(0, visibleCount), [orders, visibleCount]);
 
   const showShippingColumn = workspace?.show_shipping_column ?? false;
-  const isStoreConnected = !!workspace?.google_sheet_url || !!workspace?.youcan_access_token || !!workspace?.shopify_enabled || !!workspace?.meta_access_token;
+  const isStoreConnected = !!workspace?.google_sheet_url || !!workspace?.youcan_access_token || !!workspace?.shopify_enabled;
 
   // Auto Sync states
   const [autoSync, setAutoSync] = useState(false);

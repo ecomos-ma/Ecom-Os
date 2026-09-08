@@ -26,6 +26,11 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const DataDeletion = lazy(() => import("./pages/DataDeletion"));
+const AccountDeletion = lazy(() => import("./pages/AccountDeletion"));
+const CookiePolicy = lazy(() => import("./pages/CookiePolicy"));
+const Security = lazy(() => import("./pages/Security"));
+const Subprocessors = lazy(() => import("./pages/Subprocessors"));
 const Contact = lazy(() => import("./pages/public/Contact"));
 import { OrdersProvider } from "./contexts/OrdersContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
@@ -135,8 +140,11 @@ export default function App() {
                 <Route path="/terms" element={<LoadablePage><Terms /></LoadablePage>} />
                 <Route path="/refund-policy" element={<LoadablePage><RefundPolicy /></LoadablePage>} />
                 <Route path="/refund" element={<Navigate to="/refund-policy" replace />} />
-                <Route path="/data-deletion" element={<LoadablePage><Contact /></LoadablePage>} />
-                <Route path="/account-deletion" element={<LoadablePage><Contact /></LoadablePage>} />
+                <Route path="/data-deletion" element={<LoadablePage><DataDeletion /></LoadablePage>} />
+                <Route path="/account-deletion" element={<LoadablePage><AccountDeletion /></LoadablePage>} />
+                <Route path="/cookie-policy" element={<LoadablePage><CookiePolicy /></LoadablePage>} />
+                <Route path="/security" element={<LoadablePage><Security /></LoadablePage>} />
+                <Route path="/subprocessors" element={<LoadablePage><Subprocessors /></LoadablePage>} />
                 <Route path="/contact" element={<LoadablePage><Contact /></LoadablePage>} />
                 <Route path="/landing-page/:id" element={<LoadablePage><PublicLandingPage /></LoadablePage>} />
                 <Route path="/invite" element={<LoadablePage><Invite /></LoadablePage>} />

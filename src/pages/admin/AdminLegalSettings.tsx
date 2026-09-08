@@ -216,7 +216,7 @@ export default function AdminLegalSettings() {
                   value={formData.support_email}
                   onChange={(e) => setFormData({ ...formData, support_email: e.target.value })}
                   className="w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-ink placeholder:text-ink-muted focus:border-brand focus:ring-2 focus:ring-brand/15 outline-none"
-                  placeholder="support@ecomos.app"
+                  placeholder="support@ecomos.ma"
                 />
               </div>
               <div>
@@ -228,7 +228,7 @@ export default function AdminLegalSettings() {
                   value={formData.legal_email}
                   onChange={(e) => setFormData({ ...formData, legal_email: e.target.value })}
                   className="w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-ink placeholder:text-ink-muted focus:border-brand focus:ring-2 focus:ring-brand/15 outline-none"
-                  placeholder="legal@ecomos.app"
+                  placeholder="legal@ecomos.ma"
                 />
               </div>
             </div>

@@ -1,4 +1,5 @@
 const CANONICAL_PRODUCTION_URL = "https://www.ecomos.ma";
+const LEGACY_PRODUCTION_URL = "https://ecomscale.vercel.app";
 const LOCAL_FRONTEND_ORIGINS = [
   "http://localhost:8080",
   "http://127.0.0.1:8080",
@@ -12,11 +13,11 @@ export function frontendAppUrl(): string {
 }
 
 export function frontendOrigins(): Set<string> {
-  const configured = (Deno.env.get("ALLOWED_FRONTEND_ORIGINS") || "")
+  const configuredOrigins = (Deno.env.get("ALLOWED_FRONTEND_ORIGINS") || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  return new Set([CANONICAL_PRODUCTION_URL, "https://ecomos.ma", ...LOCAL_FRONTEND_ORIGINS, ...configured]);
+  return new Set([CANONICAL_PRODUCTION_URL, "https://ecomos.ma", LEGACY_PRODUCTION_URL, ...LOCAL_FRONTEND_ORIGINS, ...configuredOrigins]);
 }
 
 export function isTrustedFrontendUrl(value: string): boolean {

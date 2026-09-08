@@ -17,6 +17,7 @@ import { MobileAppChrome } from "./MobileAppChrome";
 import { InventoryQRScanner } from "./inventory/InventoryQRScanner";
 import { OfflineBanner } from "./ErrorStates";
 import { isFounder } from "../lib/rbac";
+import { metaAdsService } from "../services/metaAdsService";
 
 function MobilePlanGate() {
   const { workspace, profile, session, isDemoMode } = useAuth();
@@ -179,13 +180,15 @@ export function Layout() {
   const syncAbortRef = useRef<{ cancelled: boolean } | null>(null);
   const syncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    // Do not attempt an automatic Meta request until Meta is actually linked.
-    // Besides avoiding needless network work, this prevents a configuration
-    // toast from reappearing when the user only refreshes another page.
-    const metaConnected = Boolean(workspace?.meta_system_user_token || workspace?.meta_access_token);
-    if (isDemoMode || !metaConnected) return;
+    if (isDemoMode || !workspace?.id) return;
+    let metaConnected = false;
+    let disposed = false;
+    void metaAdsService.status().then((result) => {
+      if (!disposed) metaConnected = ["connected", "syncing", "sync_failed", "permission_required"].includes(result.state);
+    }).catch(() => undefined);
 
     const handler = (e: Event) => {
+      if (!metaConnected) return;
       const { from, to, rangeType } = (e as CustomEvent<{ from: string; to: string; rangeType: string }>).detail;
 
       // Debounce: cancel pending timer and stale in-flight request
@@ -288,11 +291,12 @@ export function Layout() {
 
     window.addEventListener("dashboard-date-changed", handler);
     return () => {
+      disposed = true;
       window.removeEventListener("dashboard-date-changed", handler);
       if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
       if (syncAbortRef.current) syncAbortRef.current.cancelled = true;
     };
-  }, [isDemoMode, workspace?.meta_access_token, workspace?.meta_system_user_token]);
+  }, [isDemoMode, workspace?.id]);
   // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {

@@ -648,7 +648,7 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
   const [connectionStates, setConnectionStates] = useState<Record<string, boolean>>({
     youcan: !!workspace?.youcan_access_token,
     google_sheets: false,
-    meta: !!workspace?.meta_access_token,
+    meta: false,
     tiktok: false,
     shopify: !!workspace?.shopify_access_token,
     ozon: !!workspace?.ozon_api_key,
@@ -672,12 +672,11 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
     setConnectionStates(prev => ({
       ...prev,
       youcan: !!workspace?.youcan_access_token,
-      meta: !!workspace?.meta_access_token,
       shopify: !!workspace?.shopify_access_token,
       ozon: !!workspace?.ozon_api_key,
       coliaty: !!workspace?.coliaty_public_key,
     }));
-  }, [workspace?.youcan_access_token, workspace?.meta_access_token, workspace?.shopify_access_token, workspace?.ozon_api_key, workspace?.coliaty_public_key]);
+  }, [workspace?.youcan_access_token, workspace?.shopify_access_token, workspace?.ozon_api_key, workspace?.coliaty_public_key]);
 
   // Define integration cards with their order and connection state tracking
   const integrationCards = [

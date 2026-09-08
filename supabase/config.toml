@@ -38,6 +38,38 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
+[functions.meta-auth-start]
+enabled = true
+verify_jwt = false
+
+[functions.meta-auth-callback]
+enabled = true
+verify_jwt = false
+
+[functions.meta-assets]
+enabled = true
+verify_jwt = false
+
+[functions.meta-sync]
+enabled = true
+verify_jwt = false
+
+[functions.meta-manage]
+enabled = true
+verify_jwt = false
+
+[functions.meta-bulk]
+enabled = true
+verify_jwt = false
+
+[functions.meta-rules]
+enabled = true
+verify_jwt = false
+
+[functions.meta-disconnect]
+enabled = true
+verify_jwt = false
+
 [functions.whatsapp-control]
 enabled = true
 verify_jwt = true
@@ -113,4 +145,3 @@ verify_jwt = false
 [functions.save-youcan-credentials]
 enabled = true
 verify_jwt = false
-

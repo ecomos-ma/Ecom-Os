@@ -46,8 +46,6 @@ const DEMO_AGENT_PROFILE: Profile = {
 const DEMO_WORKSPACE: Workspace = {
   id: DEMO_WORKSPACE_ID,
   name: "Nura Beauty Store",
-  meta_access_token: "demo_token_never_use_real",
-  meta_ad_account_id: "demo_ad_account",
   is_active: true,
   status: "active",
   plan: "premium",

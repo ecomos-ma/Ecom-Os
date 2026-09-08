@@ -12,6 +12,8 @@ import { BillingPage } from "./admin-pro/BillingPage";
 import { CampaignsPage, ProductsPage, SellersPage } from "./admin-pro/BusinessPages";
 import { PaymentMethodsPage } from "./admin-pro/BankTransferSettings";
 import ErrorCenter from "./ErrorCenter";
+import AdminDataDeletionRequests from "./AdminDataDeletionRequests";
+import AdminLegalSettings from "./AdminLegalSettings";
 
 export default function AdminPro() {
   const { pathname } = useLocation();
@@ -32,5 +34,7 @@ export default function AdminPro() {
   if (pathname.startsWith("/admin/platform")) return <PlatformSettingsPageV3 />;
   if (pathname.startsWith("/admin/ai-tools")) return <AiToolsConsole />;
   if (pathname.startsWith("/admin/errors")) return <ErrorCenter />;
+  if (pathname.startsWith("/admin/deletion-requests")) return <AdminDataDeletionRequests />;
+  if (pathname.startsWith("/admin/legal-settings")) return <AdminLegalSettings />;
   return <CommandCenter />;
 }

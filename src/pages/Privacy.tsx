@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme";
+import { LegalFooter } from "../components/LegalFooter";
 
 export default function Privacy() {
   const { mode } = useTheme();
@@ -198,7 +199,7 @@ export default function Privacy() {
                 <li><strong>Opt-out:</strong> Unsubscribe from marketing communications</li>
               </ul>
               <p className="leading-7 mt-3">
-                To exercise these rights, contact us at privacy@ecomos.app.
+                To exercise these rights, contact us at legal@ecomos.ma.
               </p>
             </section>
 
@@ -229,8 +230,7 @@ export default function Privacy() {
                 If you have questions about this Privacy Policy or data practices, contact us at:
               </p>
               <p className="leading-7">
-                <strong>Email:</strong> privacy@ecomos.app<br />
-                <strong>Email:</strong> legal@ecomos.app
+                <strong>Email:</strong> legal@ecomos.ma
               </p>
             </section>
 
@@ -245,6 +245,7 @@ export default function Privacy() {
           </div>
         </div>
       </div>
+      <LegalFooter />
     </div>
   );
 }

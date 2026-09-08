@@ -184,8 +184,8 @@ insert into public.platform_legal_settings (
 ) values (
   'Ecom OS',
   'Ecom OS SaaS',
-  'support@ecomos.app',
-  'legal@ecomos.app',
+  'support@ecomos.ma',
+  'legal@ecomos.ma',
   'Morocco',
   '1.0',
   '1.0',

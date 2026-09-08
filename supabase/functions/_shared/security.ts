@@ -22,7 +22,8 @@ export function serviceClient(): SupabaseClient {
 
 export function corsHeaders(_req: Request): Record<string, string> {
   const origin = _req.headers.get("origin") ?? "";
-  const allowedOrigins = frontendOrigins();
+  const configuredOrigins = frontendOrigins();
+  const allowedOrigins = new Set(["https://ecomscale.vercel.app", ...configuredOrigins]);
   const { "Access-Control-Allow-Origin": _wildcardOrigin, ...canonicalCorsHeaders } = supabaseCorsHeaders;
   return {
     ...canonicalCorsHeaders,

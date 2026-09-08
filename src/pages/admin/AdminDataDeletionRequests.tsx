@@ -62,6 +62,7 @@ export default function AdminDataDeletionRequests() {
   const handleUpdateStatus = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedRequest) return;
+    if (newStatus === "completed" && !window.confirm("Confirm that the approved deletion work has been completed and audited.")) return;
 
     setUpdatingStatus(true);
     try {
@@ -190,7 +191,7 @@ export default function AdminDataDeletionRequests() {
                 requests.map((request) => (
                   <tr key={request.id} className="hover:bg-base-raised/50 transition">
                     <td className="px-4 py-3 text-sm text-ink truncate">
-                      {request.user_id}
+                      {request.email || request.user_id || "Public request"}
                     </td>
                     <td className="px-4 py-3 text-sm text-ink capitalize">
                       {request.request_type.replace(/_/g, " ")}
@@ -241,7 +242,7 @@ export default function AdminDataDeletionRequests() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs font-semibold text-ink-muted uppercase mb-1">User ID</p>
-                  <p className="font-mono text-sm text-ink break-all">{selectedRequest.user_id}</p>
+                  <p className="font-mono text-sm text-ink break-all">{selectedRequest.reference_code || selectedRequest.email || selectedRequest.user_id || "Public request"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-ink-muted uppercase mb-1">Request Type</p>

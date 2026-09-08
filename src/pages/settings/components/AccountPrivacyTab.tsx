@@ -68,6 +68,8 @@ export default function AccountPrivacyTab() {
     try {
       const { error } = await supabase.from("data_deletion_requests").insert({
         user_id: session.user.id,
+        email: session.user.email || null,
+        source: "authenticated",
         request_type: "data_deletion",
         reason: deletionReason || undefined,
         status: "requested",
@@ -100,6 +102,8 @@ export default function AccountPrivacyTab() {
       // Create account deletion request in the system
       const { error: reqError } = await supabase.from("data_deletion_requests").insert({
         user_id: session.user.id,
+        email: session.user.email || null,
+        source: "authenticated",
         request_type: "account_deletion",
         status: "requested",
         data_to_delete: [

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTheme } from "../hooks/useTheme";
+import { LegalFooter } from "../components/LegalFooter";
 
 export default function RefundPolicy() {
   const { mode } = useTheme();
@@ -82,7 +83,7 @@ export default function RefundPolicy() {
                 <li>Submit your request</li>
               </ol>
               <p className="leading-7 mb-3">
-                Alternatively, you may email refund@ecomos.app with your request details.
+                Alternatively, you may email refund@ecomos.ma with your request details.
               </p>
 
               <h3 className={`mt-4 mb-2 font-semibold ${isDark ? "text-slate-200" : "text-slate-800"}`}>Review Process</h3>
@@ -163,9 +164,9 @@ export default function RefundPolicy() {
                 If you have questions about your subscription charge or need assistance:
               </p>
               <p className="leading-7">
-                <strong>Email:</strong> support@ecomos.app<br />
-                <strong>Refund Inquiries:</strong> refund@ecomos.app<br />
-                <strong>Billing Support:</strong> billing@ecomos.app
+                <strong>Email:</strong> support@ecomos.ma<br />
+                <strong>Refund Inquiries:</strong> refund@ecomos.ma<br />
+                <strong>Billing Support:</strong> billing@ecomos.ma
               </p>
             </section>
 
@@ -181,6 +182,7 @@ export default function RefundPolicy() {
           </div>
         </div>
       </div>
+      <LegalFooter />
     </div>
   );
 }
