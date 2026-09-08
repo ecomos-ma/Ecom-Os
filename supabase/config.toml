@@ -46,6 +46,10 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
+[functions.meta-oauth-callback]
+enabled = true
+verify_jwt = false
+
 [functions.meta-assets]
 enabled = true
 verify_jwt = false

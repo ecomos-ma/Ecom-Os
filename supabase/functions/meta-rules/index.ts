@@ -32,6 +32,12 @@ function value(rows: unknown, names: string[]): number {
   );
 }
 
+function nextEvaluationAt(rule: JsonObject): string {
+  return new Date(
+    Date.now() + Number(rule.schedule_minutes ?? 60) * 60_000,
+  ).toISOString();
+}
+
 async function runRule(
   client: ReturnType<typeof serviceClient>,
   workspaceId: string,
@@ -64,6 +70,13 @@ async function runRule(
           completed_at: new Date().toISOString(),
         })
         .eq("id", run.id);
+      await client
+        .from("meta_rules")
+        .update({
+          last_evaluated_at: new Date().toISOString(),
+          next_evaluation_at: nextEvaluationAt(rule),
+        })
+        .eq("id", rule.id);
       return {
         id: run.id,
         status: "skipped",
@@ -84,6 +97,13 @@ async function runRule(
           completed_at: new Date().toISOString(),
         })
         .eq("id", run.id);
+      await client
+        .from("meta_rules")
+        .update({
+          last_evaluated_at: new Date().toISOString(),
+          next_evaluation_at: nextEvaluationAt(rule),
+        })
+        .eq("id", rule.id);
       return { id: run.id, status: "skipped", reason: "Stale-data guard" };
     }
     const level = String(rule.entity_level ?? "ad");
@@ -109,9 +129,10 @@ async function runRule(
       p_since: sinceDate,
       p_until: untilDate,
     });
-    let cod = (
-      codData && typeof codData === "object" ? codData : {}
-    ) as Record<string, JsonObject>;
+    let cod = (codData && typeof codData === "object" ? codData : {}) as Record<
+      string,
+      JsonObject
+    >;
     let metricsByEntity = new Map<string, JsonObject>();
     for (const row of insights ?? []) {
       const id = String(row.entity_id);
@@ -167,36 +188,96 @@ async function runRule(
     const groupedLevel = level === "creative" || level === "product";
     if (groupedLevel) {
       const adRows = entities;
-      const productIds = level === "product"
-        ? [...new Set(adRows.map((ad) => String(ad.product_id ?? "")).filter(Boolean))]
-        : [];
+      const productIds =
+        level === "product"
+          ? [
+              ...new Set(
+                adRows.map((ad) => String(ad.product_id ?? "")).filter(Boolean),
+              ),
+            ]
+          : [];
       const { data: productRows } = productIds.length
-        ? await client.from("products").select("id,name,sku,stock").eq("workspace_id", workspaceId).in("id", productIds)
+        ? await client
+            .from("products")
+            .select("id,name,sku,stock")
+            .eq("workspace_id", workspaceId)
+            .in("id", productIds)
         : { data: [] as JsonObject[] };
-      const products = new Map((productRows ?? []).map((product) => [String(product.id), product as JsonObject]));
+      const products = new Map<string, JsonObject>(
+        ((productRows ?? []) as JsonObject[]).map((product) => [
+          String(product.id),
+          product,
+        ]),
+      );
       const groupedMetrics = new Map<string, JsonObject>();
       const groupedCod: Record<string, JsonObject> = {};
       const groupedEntities = new Map<string, JsonObject>();
       for (const ad of adRows) {
-        const groupId = String(level === "creative" ? ad.meta_creative_id ?? "" : ad.product_id ?? "");
+        const groupId = String(
+          level === "creative"
+            ? (ad.meta_creative_id ?? "")
+            : (ad.product_id ?? ""),
+        );
         const adId = String(ad.meta_ad_id ?? "");
         if (!groupId || !adId) continue;
         const product = products.get(groupId);
         const entity = groupedEntities.get(groupId) ?? {
           group_entity_id: groupId,
-          name: level === "product" ? String(product?.name ?? product?.sku ?? groupId) : `Creative ${groupId}`,
+          name:
+            level === "product"
+              ? String(product?.name ?? product?.sku ?? groupId)
+              : `Creative ${groupId}`,
           stock: level === "product" ? Number(product?.stock ?? 0) : null,
           _action_target_ids: [],
         };
         (entity._action_target_ids as string[]).push(adId);
         groupedEntities.set(groupId, entity);
         const sourceMeta = metricsByEntity.get(adId) ?? {};
-        const targetMeta = groupedMetrics.get(groupId) ?? { spend: 0, reach: 0, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0, leads: 0, frequency_weighted: 0 };
-        for (const key of ["spend", "reach", "impressions", "clicks", "purchases", "purchase_value", "leads", "frequency_weighted"]) targetMeta[key] = Number(targetMeta[key] ?? 0) + Number(sourceMeta[key] ?? 0);
+        const targetMeta = groupedMetrics.get(groupId) ?? {
+          spend: 0,
+          reach: 0,
+          impressions: 0,
+          clicks: 0,
+          purchases: 0,
+          purchase_value: 0,
+          leads: 0,
+          frequency_weighted: 0,
+        };
+        for (const key of [
+          "spend",
+          "reach",
+          "impressions",
+          "clicks",
+          "purchases",
+          "purchase_value",
+          "leads",
+          "frequency_weighted",
+        ])
+          targetMeta[key] =
+            Number(targetMeta[key] ?? 0) + Number(sourceMeta[key] ?? 0);
         groupedMetrics.set(groupId, targetMeta);
         const sourceCod = cod[adId] ?? {};
-        const targetCod = groupedCod[groupId] ?? { orders: 0, confirmed: 0, shipped: 0, delivered: 0, returned: 0, revenue: 0, net_profit: 0, attribution_reliable: true };
-        for (const key of ["orders", "confirmed", "shipped", "delivered", "returned", "revenue", "net_profit"]) targetCod[key] = Number(targetCod[key] ?? 0) + Number(sourceCod[key] ?? 0);
+        const targetCod = groupedCod[groupId] ?? {
+          orders: 0,
+          confirmed: 0,
+          shipped: 0,
+          delivered: 0,
+          returned: 0,
+          revenue: 0,
+          net_profit: 0,
+          attribution_reliable: true,
+        };
+        for (const key of [
+          "orders",
+          "confirmed",
+          "shipped",
+          "delivered",
+          "returned",
+          "revenue",
+          "net_profit",
+        ])
+          targetCod[key] =
+            Number(targetCod[key] ?? 0) + Number(sourceCod[key] ?? 0);
         groupedCod[groupId] = targetCod;
       }
       metricsByEntity = groupedMetrics;
@@ -230,9 +311,12 @@ async function runRule(
       const delivered = Number(orders.delivered ?? 0);
       const orderCount = Number(orders.orders ?? 0);
       const revenue = Number(orders.revenue ?? 0);
+      const netProfit =
+        orders.net_profit == null ? null : Number(orders.net_profit) - spend;
       const metrics: JsonObject = {
         ...meta,
         ...orders,
+        net_profit: netProfit,
         ctr: impressions ? (clicks / impressions) * 100 : 0,
         cpc: clicks ? spend / clicks : 0,
         cpm: impressions ? (spend / impressions) * 1000 : 0,
@@ -242,7 +326,7 @@ async function runRule(
         cpa: orderCount ? spend / orderCount : null,
         delivered_roas: spend ? revenue / spend : null,
         delivery_rate: orderCount ? (delivered / orderCount) * 100 : null,
-        profit: orders.net_profit ?? null,
+        profit: netProfit,
         stock: entity.stock ?? null,
       };
       if (
@@ -283,11 +367,14 @@ async function runRule(
         if (actionType === "pause" || actionType === "activate") {
           const desired = actionType === "pause" ? "PAUSED" : "ACTIVE";
           for (const targetId of actionTargetIds) {
-            const response = await metaRequest<{ success?: boolean }>(targetId, {
-              token: connection.accessToken,
-              method: "POST",
-              body: { status: desired },
-            });
+            const response = await metaRequest<{ success?: boolean }>(
+              targetId,
+              {
+                token: connection.accessToken,
+                method: "POST",
+                body: { status: desired },
+              },
+            );
             if (!response.success)
               throw new MetaError(
                 "Meta did not confirm rule action",
@@ -323,6 +410,7 @@ async function runRule(
             .eq("source", "rule")
             .eq("action", "increase_budget_percent")
             .eq("entity_id", id)
+            .eq("result", "success")
             .gte("created_at", `${today}T00:00:00Z`);
           const already = (prior ?? []).reduce((sum, log) => {
             const before = Number(
@@ -365,6 +453,7 @@ async function runRule(
             })
             .eq("workspace_id", workspaceId)
             .eq(idColumn, id);
+          actionAfter = { ...action, daily_budget: next };
         } else if (actionType === "duplicate") {
           const today = new Date().toISOString().slice(0, 10);
           const { data: priorDuplicates } = await client
@@ -374,10 +463,12 @@ async function runRule(
             .eq("source", "rule")
             .eq("source_id", rule.id)
             .eq("action", "duplicate")
+            .eq("result", "success")
             .gte("created_at", `${today}T00:00:00Z`);
           const duplicatesToday = (priorDuplicates ?? []).reduce(
             (sum, log) =>
-              sum + Number((log.after_state as JsonObject)?.duplicates_created ?? 1),
+              sum +
+              Number((log.after_state as JsonObject)?.duplicates_created ?? 1),
             0,
           );
           const allowed = Math.max(
@@ -396,19 +487,37 @@ async function runRule(
             );
           let created = 0;
           for (const targetId of actionTargetIds) {
-            for (let index = 0; index < copies && created < allowed; index += 1) {
-              await metaRequest(`${targetId}/copies`, {
-                token: connection.accessToken,
-                method: "POST",
-                body: {
-                  status_option: status(action.status),
-                  deep_copy: true,
-                  rename_options: {
-                    rename_strategy: "DEEP_RENAME",
-                    rename_prefix: "Rule winner ",
+            for (
+              let index = 0;
+              index < copies && created < allowed;
+              index += 1
+            ) {
+              const response = await metaRequest<JsonObject>(
+                `${targetId}/copies`,
+                {
+                  token: connection.accessToken,
+                  method: "POST",
+                  body: {
+                    status_option: status(action.status),
+                    deep_copy: true,
+                    rename_options: {
+                      rename_strategy: "DEEP_RENAME",
+                      rename_prefix: "Rule winner ",
+                    },
                   },
                 },
-              });
+              );
+              if (
+                !response.copied_campaign_id &&
+                !response.copied_adset_id &&
+                !response.copied_ad_id
+              )
+                throw new MetaError(
+                  "Meta did not confirm rule duplicate",
+                  502,
+                  "temporary",
+                  true,
+                );
               created += 1;
             }
             if (created >= allowed) break;
@@ -474,9 +583,7 @@ async function runRule(
       .from("meta_rules")
       .update({
         last_evaluated_at: new Date().toISOString(),
-        next_evaluation_at: new Date(
-          Date.now() + Number(rule.schedule_minutes ?? 60) * 60_000,
-        ).toISOString(),
+        next_evaluation_at: nextEvaluationAt(rule),
       })
       .eq("id", rule.id);
     return {
@@ -496,6 +603,13 @@ async function runRule(
         completed_at: new Date().toISOString(),
       })
       .eq("id", run.id);
+    await client
+      .from("meta_rules")
+      .update({
+        last_evaluated_at: new Date().toISOString(),
+        next_evaluation_at: nextEvaluationAt(rule),
+      })
+      .eq("id", rule.id);
     throw error;
   }
 }

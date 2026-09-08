@@ -177,6 +177,7 @@ export default function AdsManager() {
   const [descending, setDescending] = useState(true);
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBudget, setBulkBudget] = useState("");
   const [columns, setColumns] = useState<Set<string>>(
     new Set([
       "spend",
@@ -319,8 +320,15 @@ export default function AdsManager() {
           if (!creativeId) continue;
           const metric = metricMap[String(ad.meta_ad_id)] ?? EMPTY_METRIC;
           const current = displayMetrics[creativeId] ?? { ...EMPTY_METRIC };
-          for (const key of Object.keys(EMPTY_METRIC) as Array<keyof Metric>)
-            current[key] += metric[key];
+          current.spend += metric.spend;
+          current.reach += metric.reach;
+          current.impressions += metric.impressions;
+          current.clicks += metric.clicks;
+          current.purchases += metric.purchases;
+          current.purchase_value += metric.purchase_value;
+          // Keep the weighted contribution until every ad using this creative
+          // has been folded in; derived ratios are recalculated below.
+          current.frequency += metric.frequency * metric.impressions;
           displayMetrics[creativeId] = current;
           const adCod = displayCod[String(ad.meta_ad_id)] ?? {};
           const codCurrent = remappedCod[creativeId] ?? {};
@@ -338,6 +346,18 @@ export default function AdsManager() {
           codCurrent.attribution_reliable =
             codCurrent.attribution_reliable || adCod.attribution_reliable;
           remappedCod[creativeId] = codCurrent;
+        }
+        for (const metric of Object.values(displayMetrics)) {
+          metric.ctr = metric.impressions
+            ? (metric.clicks / metric.impressions) * 100
+            : 0;
+          metric.cpc = metric.clicks ? metric.spend / metric.clicks : 0;
+          metric.cpm = metric.impressions
+            ? (metric.spend / metric.impressions) * 1000
+            : 0;
+          metric.frequency = metric.impressions
+            ? metric.frequency / metric.impressions
+            : 0;
         }
         displayCod = remappedCod;
       }
@@ -394,6 +414,8 @@ export default function AdsManager() {
           ...row,
           ...metric,
           ...c,
+          net_profit:
+            c.net_profit == null ? null : Number(c.net_profit) - metric.spend,
           cpa: orders ? metric.spend / orders : null,
           cost_delivered: delivered ? metric.spend / delivered : null,
           delivery_rate: orders ? (delivered / orders) * 100 : null,
@@ -474,8 +496,8 @@ export default function AdsManager() {
     }
   };
   const bulkAction = async (
-    operation: "set_status" | "duplicate",
-    desired?: string,
+    operation: "set_status" | "set_budget" | "duplicate",
+    desired?: string | number,
   ) => {
     if (!["campaigns", "adsets", "ads"].includes(tab) || !selected.size) return;
     setBusy(true);
@@ -485,7 +507,8 @@ export default function AdsManager() {
         entity_id: id,
         entity_type: entityType,
         operation,
-        status: desired,
+        ...(operation === "set_status" ? { status: desired } : {}),
+        ...(operation === "set_budget" ? { daily_budget: desired } : {}),
       }));
       const result = await metaAdsService.bulk({
         action: "enqueue",
@@ -499,6 +522,7 @@ export default function AdsManager() {
         `Bulk job queued (${result.job?.total_items ?? items.length} items).`,
       );
       setSelected(new Set());
+      if (operation === "set_budget") setBulkBudget("");
       await loadData();
     } catch (actionError) {
       toast.error(
@@ -690,7 +714,10 @@ export default function AdsManager() {
       {tab === "workflows" && (
         <Workflows
           onUse={(workflow) => {
-            setWorkflowDraft({ ...(workflow.configuration ?? {}), _workflow_id: workflow.id });
+            setWorkflowDraft({
+              ...(workflow.configuration ?? {}),
+              _workflow_id: workflow.id,
+            });
             setTab("bulk");
           }}
         />
@@ -729,6 +756,32 @@ export default function AdsManager() {
                 >
                   <Copy size={12} /> Duplicate paused
                 </button>
+                {["campaigns", "adsets"].includes(tab) && (
+                  <>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={bulkBudget}
+                      onChange={(event) => setBulkBudget(event.target.value)}
+                      aria-label="Bulk daily budget"
+                      placeholder={`Daily budget (${currency})`}
+                      className="w-40 rounded-lg border border-base-border bg-base-surface px-3 py-2 text-[12px] text-ink outline-none focus:border-brand"
+                    />
+                    <button
+                      disabled={
+                        !Number.isFinite(Number(bulkBudget)) ||
+                        Number(bulkBudget) < 1
+                      }
+                      onClick={() =>
+                        bulkAction("set_budget", Number(bulkBudget))
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg border border-base-border px-3 py-2 text-[12px] text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Set budget
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -1280,7 +1333,9 @@ function ProductsView({ rows, currency }: { rows: Row[]; currency: string }) {
             </span>
             <span>{item.orders} orders</span>
             <span>{item.delivered} delivered</span>
-            <span>{currency} {fmt(item.net_profit)} profit</span>
+            <span>
+              {currency} {fmt(item.net_profit)} profit
+            </span>
             <span>
               {item.spend ? fmt(item.revenue / item.spend) : "—"}x ROAS
             </span>
@@ -1608,6 +1663,7 @@ function BulkLauncher({
   const [preview, setPreview] = useState<Row | null>(null);
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [jobs, setJobs] = useState<Row[]>([]);
   const config = (
     creatives: Row[] = files.map((file) => ({
       name: file.name,
@@ -1669,6 +1725,37 @@ function BulkLauncher({
       toast.error(error instanceof Error ? error.message : "Preview failed");
     }
   };
+  const loadJobs = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("meta_bulk_jobs")
+      .select(
+        "id,job_type,status,total_items,processed_items,succeeded_items,failed_items,checkpoint,last_error,created_at,completed_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("ad_account_id", accountId)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    if (!error) setJobs(data ?? []);
+  }, [workspaceId, accountId]);
+  useEffect(() => {
+    void loadJobs();
+    const timer = window.setInterval(() => void loadJobs(), 5000);
+    return () => window.clearInterval(timer);
+  }, [loadJobs]);
+  const jobAction = async (
+    action: "cancel" | "retry_failed",
+    jobId: string,
+  ) => {
+    try {
+      await metaAdsService.bulk({ action, job_id: jobId });
+      toast.success(
+        action === "cancel" ? "Bulk job cancelled." : "Failed items requeued.",
+      );
+      await loadJobs();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Job action failed");
+    }
+  };
   const launch = async () => {
     if (!preview) return;
     setBusy(true);
@@ -1691,6 +1778,7 @@ function BulkLauncher({
       );
       setFiles([]);
       setPreview(null);
+      await loadJobs();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Bulk launch failed",
@@ -1750,7 +1838,13 @@ function BulkLauncher({
           <SelectField
             label="CTA"
             value={form.call_to_action}
-            options={["SHOP_NOW", "LEARN_MORE", "SIGN_UP", "CONTACT_US", "GET_OFFER"]}
+            options={[
+              "SHOP_NOW",
+              "LEARN_MORE",
+              "SIGN_UP",
+              "CONTACT_US",
+              "GET_OFFER",
+            ]}
             onChange={(v) => setForm({ ...form, call_to_action: v })}
           />
           <label>
@@ -1779,27 +1873,65 @@ function BulkLauncher({
             label="Creatives per ad set"
             type="number"
             value={form.creatives_per_adset}
-            onChange={(v) => setForm({ ...form, creatives_per_adset: Number(v) })}
+            onChange={(v) =>
+              setForm({ ...form, creatives_per_adset: Number(v) })
+            }
           />
           <label>
-            <span className="mb-1 block text-[11px] text-ink-muted">Facebook Page</span>
-            <select value={form.page_id} onChange={(event) => setForm({ ...form, page_id: event.target.value })} className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink">
+            <span className="mb-1 block text-[11px] text-ink-muted">
+              Facebook Page
+            </span>
+            <select
+              value={form.page_id}
+              onChange={(event) =>
+                setForm({ ...form, page_id: event.target.value })
+              }
+              className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink"
+            >
               <option value="">Select Page</option>
-              {connection.pages.map((asset) => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}
+              {connection.pages.map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.name || asset.id}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            <span className="mb-1 block text-[11px] text-ink-muted">Instagram (optional)</span>
-            <select value={form.instagram_account_id} onChange={(event) => setForm({ ...form, instagram_account_id: event.target.value })} className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink">
+            <span className="mb-1 block text-[11px] text-ink-muted">
+              Instagram (optional)
+            </span>
+            <select
+              value={form.instagram_account_id}
+              onChange={(event) =>
+                setForm({ ...form, instagram_account_id: event.target.value })
+              }
+              className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink"
+            >
               <option value="">None</option>
-              {connection.instagram_accounts.map((asset) => <option key={asset.id} value={asset.id}>{asset.username || asset.name || asset.id}</option>)}
+              {connection.instagram_accounts.map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.username || asset.name || asset.id}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            <span className="mb-1 block text-[11px] text-ink-muted">Pixel / dataset</span>
-            <select value={form.pixel_id} onChange={(event) => setForm({ ...form, pixel_id: event.target.value })} className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink">
+            <span className="mb-1 block text-[11px] text-ink-muted">
+              Pixel / dataset
+            </span>
+            <select
+              value={form.pixel_id}
+              onChange={(event) =>
+                setForm({ ...form, pixel_id: event.target.value })
+              }
+              className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink"
+            >
               <option value="">None</option>
-              {connection.pixels.map((asset) => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}
+              {connection.pixels.map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.name || asset.id}
+                </option>
+              ))}
             </select>
           </label>
           <SelectField
@@ -1907,6 +2039,83 @@ function BulkLauncher({
           Safe default: new objects publish PAUSED. Active publishing must be
           selected explicitly.
         </p>
+      </div>
+      <div className="space-y-3 rounded-2xl border border-base-border bg-base-surface p-5 xl:col-span-2">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-ink">Recent durable jobs</h3>
+            <p className="mt-1 text-[11px] text-ink-muted">
+              Progress is checkpointed server-side; retry only requeues failed
+              items.
+            </p>
+          </div>
+          <button
+            onClick={() => void loadJobs()}
+            className="rounded-lg border border-base-border p-2 text-ink-muted"
+            aria-label="Refresh jobs"
+          >
+            <RefreshCw size={13} />
+          </button>
+        </div>
+        {jobs.map((job) => {
+          const total = Number(job.total_items || 0);
+          const processed = Number(job.processed_items || 0);
+          const percent = total
+            ? Math.min(100, Math.round((processed / total) * 100))
+            : 0;
+          return (
+            <div
+              key={job.id}
+              className="rounded-xl border border-base-border bg-base-raised/40 p-3"
+            >
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="font-semibold text-ink">
+                  {String(job.job_type).split("_").join(" ")}
+                </span>
+                <span className="rounded-full bg-base-raised px-2 py-0.5 uppercase text-ink-muted">
+                  {job.status}
+                </span>
+                <span className="ml-auto text-ink-muted">
+                  {processed}/{total} · {job.succeeded_items || 0} succeeded ·{" "}
+                  {job.failed_items || 0} failed
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-base-raised">
+                <div
+                  className="h-full bg-brand transition-all"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              {job.last_error && (
+                <p className="mt-2 text-[11px] text-danger">{job.last_error}</p>
+              )}
+              <div className="mt-2 flex gap-2">
+                {["queued", "processing"].includes(job.status) && (
+                  <button
+                    onClick={() => void jobAction("cancel", job.id)}
+                    className="rounded-lg border border-danger/30 px-2 py-1 text-[10px] text-danger"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {["partial_failure", "failed"].includes(job.status) &&
+                  Number(job.failed_items || 0) > 0 && (
+                    <button
+                      onClick={() => void jobAction("retry_failed", job.id)}
+                      className="rounded-lg border border-base-border px-2 py-1 text-[10px] text-ink"
+                    >
+                      Retry failed only
+                    </button>
+                  )}
+              </div>
+            </div>
+          );
+        })}
+        {!jobs.length && (
+          <p className="py-5 text-center text-[12px] text-ink-muted">
+            No bulk jobs for this ad account yet.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -2022,19 +2231,48 @@ function ScalingCenter({ accountId }: { accountId: string }) {
   const [mode, setMode] = useState("vertical_scale");
   const [value, setValue] = useState(20);
   const [ids, setIds] = useState("");
+  const [destinationIds, setDestinationIds] = useState("");
+  const [destinationStatus, setDestinationStatus] = useState("PAUSED");
   const targets = ids.split(/[\s,]+/).filter(Boolean);
+  const destinations = destinationIds.split(/[\s,]+/).filter(Boolean);
   const copyCount = Math.max(1, Math.min(20, Math.floor(value)));
   const plannedActions =
-    mode === "vertical_scale" ? targets.length : targets.length * copyCount;
+    mode === "vertical_scale"
+      ? targets.length
+      : targets.length * copyCount * Math.max(1, destinations.length);
   const execute = async () => {
     if (!targets.length) return toast.error("Paste provider IDs first.");
+    if (mode === "creative_scale" && !destinations.length)
+      return toast.error("Choose at least one destination ad set.");
     if (plannedActions > 1000)
       return toast.error("A scaling job is limited to 1000 operations.");
     const operation = mode === "vertical_scale" ? "set_budget" : "duplicate";
     const entityType = mode === "creative_scale" ? "ad" : "adset";
-    const items: Row[] = operation === "set_budget"
-      ? targets.map((id) => ({ entity_id: id, entity_type: entityType, operation, daily_budget: value }))
-      : targets.flatMap((id) => Array.from({ length: copyCount }, () => ({ entity_id: id, entity_type: entityType, operation, status: "PAUSED" })));
+    const items: Row[] =
+      operation === "set_budget"
+        ? targets.map((id) => ({
+            entity_id: id,
+            entity_type: entityType,
+            operation,
+            daily_budget: value,
+          }))
+        : targets.flatMap((id) =>
+            (destinations.length ? destinations : [""]).flatMap(
+              (destinationId) =>
+                Array.from({ length: copyCount }, () => ({
+                  entity_id: id,
+                  entity_type: entityType,
+                  operation,
+                  status: destinationStatus,
+                  ...(mode === "horizontal_scale" && destinationId
+                    ? { campaign_id: destinationId }
+                    : {}),
+                  ...(mode === "creative_scale"
+                    ? { adset_id: destinationId }
+                    : {}),
+                })),
+            ),
+          );
     try {
       await metaAdsService.bulk({
         action: "enqueue",
@@ -2090,6 +2328,34 @@ function ScalingCenter({ accountId }: { accountId: string }) {
             className="min-h-28 w-full rounded-xl border border-base-border bg-base-raised p-3 text-sm text-ink"
           />
         </label>
+        {mode !== "vertical_scale" && (
+          <>
+            <label className="block">
+              <span className="mb-1 block text-[11px] text-ink-muted">
+                {mode === "creative_scale"
+                  ? "Destination ad set IDs"
+                  : "Destination campaign IDs (optional)"}
+              </span>
+              <textarea
+                value={destinationIds}
+                onChange={(e) => setDestinationIds(e.target.value)}
+                placeholder="Paste comma-separated provider IDs"
+                className="min-h-20 w-full rounded-xl border border-base-border bg-base-raised p-3 text-sm text-ink"
+              />
+            </label>
+            <label className="block text-[11px] text-ink-muted">
+              Destination status
+              <select
+                value={destinationStatus}
+                onChange={(event) => setDestinationStatus(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-sm text-ink"
+              >
+                <option value="PAUSED">PAUSED</option>
+                <option value="ACTIVE">ACTIVE</option>
+              </select>
+            </label>
+          </>
+        )}
       </div>
       <div className="rounded-2xl border border-base-border bg-base-surface p-5">
         <h3 className="font-semibold text-ink">Impact preview</h3>
@@ -2099,8 +2365,24 @@ function ScalingCenter({ accountId }: { accountId: string }) {
           <InfoLine label="Operation" value={mode.replace(/_/g, " ")} />
           <InfoLine
             label="Destination status"
-            value={mode === "vertical_scale" ? "Unchanged" : "PAUSED"}
+            value={mode === "vertical_scale" ? "Unchanged" : destinationStatus}
           />
+          {mode !== "vertical_scale" && (
+            <InfoLine
+              label={
+                mode === "creative_scale"
+                  ? "Destination ad sets"
+                  : "Destination campaigns"
+              }
+              value={
+                destinations.length
+                  ? String(destinations.length)
+                  : mode === "horizontal_scale"
+                    ? "Original campaign"
+                    : "Required"
+              }
+            />
+          )}
           <InfoLine
             label="Budget / copies"
             value={String(mode === "vertical_scale" ? value : copyCount)}
@@ -2108,7 +2390,11 @@ function ScalingCenter({ accountId }: { accountId: string }) {
         </div>
         <button
           onClick={execute}
-          disabled={!targets.length || plannedActions > 1000}
+          disabled={
+            !targets.length ||
+            plannedActions > 1000 ||
+            (mode === "creative_scale" && !destinations.length)
+          }
           className="mt-4 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-40"
         >
           Execute durable scaling job
@@ -2165,8 +2451,20 @@ function RulesCenter({
           name: form.name,
           entity_level: form.entity_level,
           conditions: [
-            { field: form.field, operator: form.operator, value: Number(form.value) },
-            ...(form.and_enabled ? [{ field: form.second_field, operator: form.second_operator, value: Number(form.second_value) }] : []),
+            {
+              field: form.field,
+              operator: form.operator,
+              value: Number(form.value),
+            },
+            ...(form.and_enabled
+              ? [
+                  {
+                    field: form.second_field,
+                    operator: form.second_operator,
+                    value: Number(form.second_value),
+                  },
+                ]
+              : []),
           ],
           action: {
             type: form.action,
@@ -2177,7 +2475,9 @@ function RulesCenter({
           schedule_minutes: Number(form.schedule_minutes),
           lookback_days: Number(form.lookback_days),
           stale_after_minutes: Number(form.stale_after_minutes),
-          max_budget_increase_percent_day: Number(form.max_budget_increase_percent_day),
+          max_budget_increase_percent_day: Number(
+            form.max_budget_increase_percent_day,
+          ),
           max_duplicates_day: Number(form.max_duplicates_day),
           dry_run: form.dry_run,
           enabled: false,
@@ -2271,18 +2571,92 @@ function RulesCenter({
         </div>
         <div className="mt-3 rounded-xl border border-base-border bg-base-raised/40 p-3">
           <label className="flex items-center gap-2 text-[12px] text-ink">
-            <input type="checkbox" checked={form.and_enabled} onChange={(event) => setForm({ ...form, and_enabled: event.target.checked })} />
+            <input
+              type="checkbox"
+              checked={form.and_enabled}
+              onChange={(event) =>
+                setForm({ ...form, and_enabled: event.target.checked })
+              }
+            />
             Add AND condition
           </label>
-          {form.and_enabled && <div className="mt-3 grid gap-3 sm:grid-cols-3"><SelectField label="AND metric" value={form.second_field} options={["spend", "orders", "delivered", "delivered_roas", "delivery_rate", "profit", "frequency", "ctr", "cpa", "stock"]} onChange={(v) => setForm({ ...form, second_field: v })} /><SelectField label="Operator" value={form.second_operator} options={["gt", "gte", "lt", "lte", "eq", "neq"]} onChange={(v) => setForm({ ...form, second_operator: v })} /><Field label="Value" type="number" value={form.second_value} onChange={(v) => setForm({ ...form, second_value: Number(v) })} /></div>}
+          {form.and_enabled && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <SelectField
+                label="AND metric"
+                value={form.second_field}
+                options={[
+                  "spend",
+                  "orders",
+                  "delivered",
+                  "delivered_roas",
+                  "delivery_rate",
+                  "profit",
+                  "frequency",
+                  "ctr",
+                  "cpa",
+                  "stock",
+                ]}
+                onChange={(v) => setForm({ ...form, second_field: v })}
+              />
+              <SelectField
+                label="Operator"
+                value={form.second_operator}
+                options={["gt", "gte", "lt", "lte", "eq", "neq"]}
+                onChange={(v) => setForm({ ...form, second_operator: v })}
+              />
+              <Field
+                label="Value"
+                type="number"
+                value={form.second_value}
+                onChange={(v) => setForm({ ...form, second_value: Number(v) })}
+              />
+            </div>
+          )}
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
-          <Field label="Action % / copies" type="number" value={form.action_value} onChange={(v) => setForm({ ...form, action_value: Number(v) })} />
-          <Field label="Check every (min)" type="number" value={form.schedule_minutes} onChange={(v) => setForm({ ...form, schedule_minutes: Number(v) })} />
-          <Field label="Lookback (days)" type="number" value={form.lookback_days} onChange={(v) => setForm({ ...form, lookback_days: Number(v) })} />
-          <Field label="Stale after (min)" type="number" value={form.stale_after_minutes} onChange={(v) => setForm({ ...form, stale_after_minutes: Number(v) })} />
-          <Field label="Max budget +% / day" type="number" value={form.max_budget_increase_percent_day} onChange={(v) => setForm({ ...form, max_budget_increase_percent_day: Number(v) })} />
-          <Field label="Max duplicates / day" type="number" value={form.max_duplicates_day} onChange={(v) => setForm({ ...form, max_duplicates_day: Number(v) })} />
+          <Field
+            label="Action % / copies"
+            type="number"
+            value={form.action_value}
+            onChange={(v) => setForm({ ...form, action_value: Number(v) })}
+          />
+          <Field
+            label="Check every (min)"
+            type="number"
+            value={form.schedule_minutes}
+            onChange={(v) => setForm({ ...form, schedule_minutes: Number(v) })}
+          />
+          <Field
+            label="Lookback (days)"
+            type="number"
+            value={form.lookback_days}
+            onChange={(v) => setForm({ ...form, lookback_days: Number(v) })}
+          />
+          <Field
+            label="Stale after (min)"
+            type="number"
+            value={form.stale_after_minutes}
+            onChange={(v) =>
+              setForm({ ...form, stale_after_minutes: Number(v) })
+            }
+          />
+          <Field
+            label="Max budget +% / day"
+            type="number"
+            value={form.max_budget_increase_percent_day}
+            onChange={(v) =>
+              setForm({ ...form, max_budget_increase_percent_day: Number(v) })
+            }
+          />
+          <Field
+            label="Max duplicates / day"
+            type="number"
+            value={form.max_duplicates_day}
+            onChange={(v) =>
+              setForm({ ...form, max_duplicates_day: Number(v) })
+            }
+          />
         </div>
         <label className="mt-3 flex items-center gap-2 text-[12px] text-ink">
           <input

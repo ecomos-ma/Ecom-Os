@@ -20,11 +20,7 @@ function useClock() {
 
 export const Topbar = memo(function Topbar() {
   const now = useClock();
-  const {
-    session,
-    profile,
-    signOut,
-  } = useAuth();
+  const { session, profile, signOut } = useAuth();
   const { t, formatDate } = useI18n();
   const { isDark } = useTheme();
 
@@ -40,18 +36,25 @@ export const Topbar = memo(function Topbar() {
   const getPageTitle = (pathname: string): TranslationKey => {
     if (pathname === "/") return "navigation.dashboard";
     if (pathname.startsWith("/orders")) return "navigation.orders";
-    if (pathname.startsWith("/products") || pathname.startsWith("/inventory")) return "navigation.productsInventory";
+    if (pathname.startsWith("/products") || pathname.startsWith("/inventory"))
+      return "navigation.productsInventory";
     if (pathname.startsWith("/customers")) return "navigation.customers";
     if (pathname.startsWith("/delivering")) return "navigation.delivering";
     if (pathname.startsWith("/shipping")) return "navigation.shipping";
     if (pathname.startsWith("/confirmation")) return "navigation.confirmation";
+    if (pathname.startsWith("/whatsapp")) return "navigation.whatsapp";
     if (pathname.startsWith("/expenses")) return "navigation.expenses";
     if (pathname.startsWith("/finance")) return "navigation.finance";
-    if (pathname.startsWith("/scenario") || pathname.startsWith("/cod-scenarios")) return "navigation.codScenarios";
+    if (
+      pathname.startsWith("/scenario") ||
+      pathname.startsWith("/cod-scenarios")
+    )
+      return "navigation.codScenarios";
     if (pathname.startsWith("/ads-manager")) return "navigation.adsManager";
     if (pathname.startsWith("/tiktok-ads")) return "navigation.tiktokAds";
     if (pathname.startsWith("/team")) return "navigation.team";
-    if (pathname.startsWith("/tools") || pathname.startsWith("/amine")) return "navigation.tools";
+    if (pathname.startsWith("/tools") || pathname.startsWith("/amine"))
+      return "navigation.tools";
     // removed Ozon-specific page title — integrations removed
     if (pathname.startsWith("/settings")) return "navigation.settings";
     if (pathname.startsWith("/admin")) return "navigation.adminPlatform";
@@ -61,9 +64,7 @@ export const Topbar = memo(function Topbar() {
   const pageTitle = t(getPageTitle(location.pathname));
 
   return (
-    <header
-      className="flex flex-none items-center justify-between border-b border-brand-border bg-brand-background px-5 pb-3 pt-[calc(12px+env(safe-area-inset-top))] md:pb-0 md:pt-0 md:h-14"
-    >
+    <header className="flex flex-none items-center justify-between border-b border-brand-border bg-brand-background px-5 pb-3 pt-[calc(12px+env(safe-area-inset-top))] md:pb-0 md:pt-0 md:h-14">
       {/* Mobile Topbar */}
       <div className="flex md:hidden flex-1 items-center justify-between w-full">
         <div className="flex items-center gap-3">
@@ -75,7 +76,9 @@ export const Topbar = memo(function Topbar() {
           >
             <Menu size={20} />
           </button>
-          <h1 className="text-[17px] font-semibold tracking-tight text-ink">{pageTitle}</h1>
+          <h1 className="text-[17px] font-semibold tracking-tight text-ink">
+            {pageTitle}
+          </h1>
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
@@ -118,6 +121,6 @@ export const Topbar = memo(function Topbar() {
           <ChangelogMenu />
         </div>
       </div>
-    </header >
+    </header>
   );
 });

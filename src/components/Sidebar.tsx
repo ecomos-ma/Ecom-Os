@@ -28,6 +28,7 @@ import {
   Gauge,
   Sparkles,
   Wand2,
+  MessageCircle,
   LogOut,
   Menu,
   X,
@@ -35,43 +36,135 @@ import {
 } from "lucide-react";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 import ecomosIconMark from "../assets/AppStore_iOS_1024x1024.webp";
+import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
 import { useI18n, type TranslationKey } from "../i18n";
-import { fetchBillingOverview, type BillingOverview } from "../services/billingService";
+import {
+  fetchBillingOverview,
+  type BillingOverview,
+} from "../services/billingService";
 
 // ─── Nav Data ─────────────────────────────────────────────────────────────────
 
-type NavItem = { to: string; labelKey: TranslationKey; icon: LucideIcon; permission?: keyof TeamPermissions };
+type NavItem = {
+  to: string;
+  labelKey: TranslationKey;
+  icon: LucideIcon;
+  image?: string;
+  permission?: keyof TeamPermissions;
+};
 type NavGroup = { labelKey: TranslationKey; links: NavItem[] };
 
 const mainGroups: NavGroup[] = [
   {
     labelKey: "navigation.main",
     links: [
-      { to: "/dashboard", labelKey: "navigation.dashboard", icon: LayoutDashboard, permission: "dashboard" },
-      { to: "/orders", labelKey: "navigation.orders", icon: Package, permission: "orders" },
-      { to: "/confirmation", labelKey: "navigation.confirmation", icon: ClipboardCheck, permission: "confirmation" },
-      { to: "/delivering", labelKey: "navigation.delivering", icon: Truck, permission: "orders" },
-      { to: "/shipping", labelKey: "navigation.shipping", icon: Truck, permission: "shipping" },
+      {
+        to: "/dashboard",
+        labelKey: "navigation.dashboard",
+        icon: LayoutDashboard,
+        permission: "dashboard",
+      },
+      {
+        to: "/orders",
+        labelKey: "navigation.orders",
+        icon: Package,
+        permission: "orders",
+      },
+      {
+        to: "/confirmation",
+        labelKey: "navigation.confirmation",
+        icon: ClipboardCheck,
+        permission: "confirmation",
+      },
+      {
+        to: "/whatsapp",
+        labelKey: "navigation.whatsapp",
+        icon: MessageCircle,
+        image: whatsappLogo,
+        permission: "confirmation",
+      },
+      {
+        to: "/delivering",
+        labelKey: "navigation.delivering",
+        icon: Truck,
+        permission: "orders",
+      },
+      {
+        to: "/shipping",
+        labelKey: "navigation.shipping",
+        icon: Truck,
+        permission: "shipping",
+      },
     ],
   },
   {
     labelKey: "navigation.management",
     links: [
-      { to: "/customers", labelKey: "navigation.customers", icon: Users, permission: "customers" },
-      { to: "/products-inventory", labelKey: "navigation.productsInventory", icon: Box, permission: "products" },
-      { to: "/ads-manager", labelKey: "navigation.adsManager", icon: ChartBar, permission: "ads" },
-      { to: "/tiktok-ads", labelKey: "navigation.tiktokAds", icon: Music2, permission: "tiktok_ads" },
-      { to: "/expenses", labelKey: "navigation.expenses", icon: Wallet, permission: "expenses" },
-      { to: "/finance", labelKey: "navigation.finance", icon: Wallet, permission: "expenses" },
-      { to: "/scenario", labelKey: "navigation.codScenarios", icon: ClipboardCheck, permission: "codscenarios" },
-      { to: "/team", labelKey: "navigation.team", icon: Users, permission: "team" },
+      {
+        to: "/customers",
+        labelKey: "navigation.customers",
+        icon: Users,
+        permission: "customers",
+      },
+      {
+        to: "/products-inventory",
+        labelKey: "navigation.productsInventory",
+        icon: Box,
+        permission: "products",
+      },
+      {
+        to: "/ads-manager",
+        labelKey: "navigation.adsManager",
+        icon: ChartBar,
+        permission: "ads",
+      },
+      {
+        to: "/tiktok-ads",
+        labelKey: "navigation.tiktokAds",
+        icon: Music2,
+        permission: "tiktok_ads",
+      },
+      {
+        to: "/expenses",
+        labelKey: "navigation.expenses",
+        icon: Wallet,
+        permission: "expenses",
+      },
+      {
+        to: "/finance",
+        labelKey: "navigation.finance",
+        icon: Wallet,
+        permission: "expenses",
+      },
+      {
+        to: "/scenario",
+        labelKey: "navigation.codScenarios",
+        icon: ClipboardCheck,
+        permission: "codscenarios",
+      },
+      {
+        to: "/team",
+        labelKey: "navigation.team",
+        icon: Users,
+        permission: "team",
+      },
     ],
   },
   {
     labelKey: "navigation.system",
     links: [
-      { to: "/settings", labelKey: "navigation.settings", icon: SettingsIcon, permission: "settings" },
-      { to: "/tools", labelKey: "navigation.tools", icon: Wand2, permission: "settings" },
+      {
+        to: "/settings",
+        labelKey: "navigation.settings",
+        icon: SettingsIcon,
+        permission: "settings",
+      },
+      {
+        to: "/tools",
+        labelKey: "navigation.tools",
+        icon: Wand2,
+        permission: "settings",
+      },
     ],
   },
 ];
@@ -129,7 +222,9 @@ function NavLinkItem({
         [
           "group relative flex items-center rounded-xl text-[13px] font-medium transition-all duration-150 outline-none",
           "focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-1",
-          collapsed ? "justify-center px-0 py-2.5 w-11 mx-auto" : "gap-3 px-3.5 py-2.5",
+          collapsed
+            ? "justify-center px-0 py-2.5 w-11 mx-auto"
+            : "gap-3 px-3.5 py-2.5",
           isActive
             ? collapsed
               ? "bg-brand text-white shadow-md shadow-brand/25"
@@ -140,22 +235,28 @@ function NavLinkItem({
     >
       {({ isActive }) => (
         <>
-          <link.icon
-            size={18}
-            strokeWidth={1.8}
-            className={
-              isActive
-                ? collapsed
-                  ? "text-white flex-shrink-0"
-                  : "text-brand flex-shrink-0"
-                : accent
-                  ? "text-brand/60 flex-shrink-0"
-                  : "text-ink-faint flex-shrink-0 group-hover:text-ink-muted transition-colors"
-            }
-          />
-          {!collapsed && (
-            <span className="truncate leading-none">{label}</span>
+          {link.image ? (
+            <img
+              src={link.image}
+              alt=""
+              className="h-[18px] w-[18px] flex-shrink-0 rounded-[5px] object-cover"
+            />
+          ) : (
+            <link.icon
+              size={18}
+              strokeWidth={1.8}
+              className={
+                isActive
+                  ? collapsed
+                    ? "text-white flex-shrink-0"
+                    : "text-brand flex-shrink-0"
+                  : accent
+                    ? "text-brand/60 flex-shrink-0"
+                    : "text-ink-faint flex-shrink-0 group-hover:text-ink-muted transition-colors"
+              }
+            />
           )}
+          {!collapsed && <span className="truncate leading-none">{label}</span>}
           {/* Tooltip for collapsed */}
           {collapsed && (
             <span
@@ -190,7 +291,9 @@ function NavGroupSection({
       {!collapsed && (
         <div className="mb-1 mt-1 px-3.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-faint/70">
           {isAdmin ? (
-            <div className="flex items-center gap-1.5 text-brand/60"><Shield size={10} /> {groupLabel}</div>
+            <div className="flex items-center gap-1.5 text-brand/60">
+              <Shield size={10} /> {groupLabel}
+            </div>
           ) : (
             groupLabel
           )}
@@ -228,22 +331,40 @@ function loadSidebarCapacity(userId: string) {
   return request;
 }
 
-function CapacityUpgradeCard({ userId, workspaceId, onNavigate }: { userId: string | undefined; workspaceId: string | undefined; onNavigate?: () => void }) {
+function CapacityUpgradeCard({
+  userId,
+  workspaceId,
+  onNavigate,
+}: {
+  userId: string | undefined;
+  workspaceId: string | undefined;
+  onNavigate?: () => void;
+}) {
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const dismissKey = workspaceId ? `ecomos:sidebar-capacity-dismissed:${workspaceId}` : "";
+  const dismissKey = workspaceId
+    ? `ecomos:sidebar-capacity-dismissed:${workspaceId}`
+    : "";
 
   useEffect(() => {
     if (!userId || !workspaceId) return;
-    setDismissed(localStorage.getItem(`ecomos:sidebar-capacity-dismissed:${workspaceId}`) === "true");
+    setDismissed(
+      localStorage.getItem(
+        `ecomos:sidebar-capacity-dismissed:${workspaceId}`,
+      ) === "true",
+    );
     let active = true;
-    void loadSidebarCapacity(userId).then((value) => {
-      if (active) setOverview(value);
-    }).catch(() => {
-      // A billing card must never affect navigation if the optional summary is unavailable.
-      if (active) setOverview(null);
-    });
-    return () => { active = false; };
+    void loadSidebarCapacity(userId)
+      .then((value) => {
+        if (active) setOverview(value);
+      })
+      .catch(() => {
+        // A billing card must never affect navigation if the optional summary is unavailable.
+        if (active) setOverview(null);
+      });
+    return () => {
+      active = false;
+    };
   }, [userId, workspaceId]);
 
   const subscription = overview?.subscription;
@@ -251,10 +372,18 @@ function CapacityUpgradeCard({ userId, workspaceId, onNavigate }: { userId: stri
   if (dismissed || !subscription || limit === null || limit <= 0) return null;
 
   const used = Math.max(0, subscription.usage.orders ?? 0);
-  const percent = Math.min(100, Math.max(0, Math.round(subscription.usage.ordersPercent ?? (used / limit) * 100)));
+  const percent = Math.min(
+    100,
+    Math.max(
+      0,
+      Math.round(subscription.usage.ordersPercent ?? (used / limit) * 100),
+    ),
+  );
   const circle = 2 * Math.PI * 25;
-  const planName = overview?.plan?.name || subscription.plan?.name || "your plan";
-  const periodLabel = subscription.limits.orderPeriod === "day" ? "today" : "this month";
+  const planName =
+    overview?.plan?.name || subscription.plan?.name || "your plan";
+  const periodLabel =
+    subscription.limits.orderPeriod === "day" ? "today" : "this month";
 
   const dismiss = () => {
     if (dismissKey) localStorage.setItem(dismissKey, "true");
@@ -264,21 +393,65 @@ function CapacityUpgradeCard({ userId, workspaceId, onNavigate }: { userId: stri
   return (
     <section className="relative overflow-hidden rounded-2xl border border-[#e73773]/20 bg-[linear-gradient(145deg,#fff3f7_0%,#fffaff_58%,#fff1f6_100%)] p-3.5 shadow-[0_10px_22px_rgba(231,55,115,0.11)]">
       <div className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-[#e73773]/10 blur-2xl" />
-      <button type="button" onClick={dismiss} aria-label="Dismiss capacity reminder" className="absolute right-2 top-2 rounded-md p-1 text-[#bd7190] transition hover:bg-white/80 hover:text-[#a91f51]"><X size={13} /></button>
+      <button
+        type="button"
+        onClick={dismiss}
+        aria-label="Dismiss capacity reminder"
+        className="absolute right-2 top-2 rounded-md p-1 text-[#bd7190] transition hover:bg-white/80 hover:text-[#a91f51]"
+      >
+        <X size={13} />
+      </button>
       <div className="relative flex items-center gap-3">
         <div className="relative grid h-12 w-12 shrink-0 place-items-center">
-          <svg viewBox="0 0 60 60" className="h-12 w-12 -rotate-90" aria-hidden="true">
-            <circle cx="30" cy="30" r="25" fill="none" stroke="currentColor" strokeWidth="4" className="text-[#f9d7e4]" />
-            <circle cx="30" cy="30" r="25" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="text-[#e73773]" strokeDasharray={circle} strokeDashoffset={circle * (1 - percent / 100)} />
+          <svg
+            viewBox="0 0 60 60"
+            className="h-12 w-12 -rotate-90"
+            aria-hidden="true"
+          >
+            <circle
+              cx="30"
+              cy="30"
+              r="25"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              className="text-[#f9d7e4]"
+            />
+            <circle
+              cx="30"
+              cy="30"
+              r="25"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeLinecap="round"
+              className="text-[#e73773]"
+              strokeDasharray={circle}
+              strokeDashoffset={circle * (1 - percent / 100)}
+            />
           </svg>
-          <span className="absolute text-[10px] font-black tracking-tight text-[#c52560]">{percent}%</span>
+          <span className="absolute text-[10px] font-black tracking-tight text-[#c52560]">
+            {percent}%
+          </span>
         </div>
         <div className="min-w-0 pr-4">
-          <p className="flex items-center gap-1 text-[11px] font-black text-[#431526]"><Gauge size={13} className="text-[#e73773]" />Used capacity</p>
-          <p className="mt-1 text-[10px] leading-4 text-[#8c6573]">{used.toLocaleString()} of {limit.toLocaleString()} orders used {periodLabel} on {planName}.</p>
+          <p className="flex items-center gap-1 text-[11px] font-black text-[#431526]">
+            <Gauge size={13} className="text-[#e73773]" />
+            Used capacity
+          </p>
+          <p className="mt-1 text-[10px] leading-4 text-[#8c6573]">
+            {used.toLocaleString()} of {limit.toLocaleString()} orders used{" "}
+            {periodLabel} on {planName}.
+          </p>
         </div>
       </div>
-      <NavLink to="/payment?intent=upgrade" onClick={onNavigate} className="relative mt-3 flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[linear-gradient(100deg,#ed3b78,#c92561)] px-3 text-[10px] font-black text-white shadow-[0_8px_14px_rgba(231,55,115,0.26)] transition hover:-translate-y-px hover:brightness-105">Upgrade plan <ArrowUpRight size={13} /></NavLink>
+      <NavLink
+        to="/payment?intent=upgrade"
+        onClick={onNavigate}
+        className="relative mt-3 flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-[linear-gradient(100deg,#ed3b78,#c92561)] px-3 text-[10px] font-black text-white shadow-[0_8px_14px_rgba(231,55,115,0.26)] transition hover:-translate-y-px hover:brightness-105"
+      >
+        Upgrade plan <ArrowUpRight size={13} />
+      </NavLink>
     </section>
   );
 }
@@ -337,7 +510,13 @@ function ProfileFooter({
 
   return (
     <div className="shrink-0 border-t border-base-border/60 p-3 space-y-2">
-      {showCapacity && <CapacityUpgradeCard userId={session?.user?.id} workspaceId={workspaceId} onNavigate={onNavigate} />}
+      {showCapacity && (
+        <CapacityUpgradeCard
+          userId={session?.user?.id}
+          workspaceId={workspaceId}
+          onNavigate={onNavigate}
+        />
+      )}
       {/* User row */}
       <div className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 hover:bg-base-raised/60 transition-colors">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -386,27 +565,44 @@ function SidebarContent({
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
-  const { profile, session, signOut, subscriptionStatus, workspace, teamPermissions } = useAuth();
-  const isAdmin = profile?.role === "founder" && session?.user?.email?.trim().toLowerCase() === "amineelaaouamecom@gmail.com";
+  const {
+    profile,
+    session,
+    signOut,
+    subscriptionStatus,
+    workspace,
+    teamPermissions,
+  } = useAuth();
+  const isAdmin =
+    profile?.role === "founder" &&
+    session?.user?.email?.trim().toLowerCase() ===
+      "amineelaaouamecom@gmail.com";
   const ownerLike = isOwnerLikeRole(profile?.role);
 
   // Filter mainGroups based on workspace settings and permissions
-  const filteredMainGroups = mainGroups.map(group => ({
-    ...group,
-    links: group.links.filter(link => {
-      if (link.permission && !ownerLike && !teamPermissions[link.permission]) return false;
-      if (link.to === "/shipping" && !isShippingModuleEnabled(workspace)) return false;
-      // Hide "Shipping" link if shipping module is disabled OR show_shipping_column is false
-      if (link.to === "/shipping") {
-        return isShippingModuleEnabled(workspace) && workspace?.show_shipping_column === true;
-      }
-      // Delivering is always visible (not controlled by shipping module)
-      if (link.to === "/tiktok-ads") {
-        return teamPermissions.tiktok_ads;
-      }
-      return true;
-    })
-  })).filter(group => group.links.length > 0);
+  const filteredMainGroups = mainGroups
+    .map((group) => ({
+      ...group,
+      links: group.links.filter((link) => {
+        if (link.permission && !ownerLike && !teamPermissions[link.permission])
+          return false;
+        if (link.to === "/shipping" && !isShippingModuleEnabled(workspace))
+          return false;
+        // Hide "Shipping" link if shipping module is disabled OR show_shipping_column is false
+        if (link.to === "/shipping") {
+          return (
+            isShippingModuleEnabled(workspace) &&
+            workspace?.show_shipping_column === true
+          );
+        }
+        // Delivering is always visible (not controlled by shipping module)
+        if (link.to === "/tiktok-ads") {
+          return teamPermissions.tiktok_ads;
+        }
+        return true;
+      }),
+    }))
+    .filter((group) => group.links.length > 0);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -480,7 +676,9 @@ const DesktopSidebar = memo(function DesktopSidebar({
       <div
         className={[
           "flex items-center border-b border-base-border/70",
-          collapsed ? "justify-center px-0 py-[18px]" : "justify-between px-4 py-[18px]",
+          collapsed
+            ? "justify-center px-0 py-[18px]"
+            : "justify-between px-4 py-[18px]",
         ].join(" ")}
       >
         {collapsed ? (
@@ -552,7 +750,9 @@ const TabletSidebar = memo(function TabletSidebar() {
       <div
         className={[
           "flex items-center border-b border-base-border/70",
-          expanded ? "justify-between px-4 py-[18px]" : "justify-center px-0 py-[18px]",
+          expanded
+            ? "justify-between px-4 py-[18px]"
+            : "justify-center px-0 py-[18px]",
         ].join(" ")}
       >
         {expanded ? (
@@ -578,11 +778,7 @@ const TabletSidebar = memo(function TabletSidebar() {
 
 // ─── Mobile Drawer ────────────────────────────────────────────────────────────
 
-export function MobileDrawerTrigger({
-  onOpen,
-}: {
-  onOpen: () => void;
-}) {
+export function MobileDrawerTrigger({ onOpen }: { onOpen: () => void }) {
   return (
     <button
       type="button"
@@ -630,7 +826,9 @@ function MobileDrawer({
       <div
         className={[
           "fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 md:hidden",
-          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
+          open
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none",
         ].join(" ")}
         aria-hidden="true"
         onClick={onClose}

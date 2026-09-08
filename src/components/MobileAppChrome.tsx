@@ -19,6 +19,7 @@ import {
   Users,
   Wallet,
   WandSparkles,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -28,6 +29,7 @@ import type { TeamPermissions } from "../lib/types";
 import { useNotifications } from "../contexts/NotificationContext";
 import { getUserInitials } from "../services/avatarService";
 import MobileBottomSheet from "./MobileBottomSheet";
+import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
 
 type Icon = LucideIcon;
 
@@ -36,24 +38,111 @@ type MobileDestination = {
   label: string;
   description: string;
   icon: Icon;
+  image?: string;
   permission?: keyof TeamPermissions;
   requiresShipping?: boolean;
 };
 
 const secondaryDestinations: MobileDestination[] = [
-  { to: "/confirmation", label: "Confirmation", description: "Confirm new orders", icon: ClipboardCheck, permission: "confirmation" },
-  { to: "/shipping", label: "Shipping", description: "Create and track shipments", icon: Truck, permission: "shipping", requiresShipping: true },
-  { to: "/customers", label: "Customers", description: "Customer history and details", icon: Users, permission: "customers" },
-  { to: "/products-inventory", label: "Products & inventory", description: "Catalog, stock and variants", icon: Boxes, permission: "products" },
-  { to: "/ads-manager", label: "Ads Manager", description: "Campaign performance", icon: Megaphone, permission: "ads" },
-  { to: "/tiktok-ads", label: "TikTok Ads", description: "TikTok campaign performance", icon: Megaphone, permission: "tiktok_ads" },
-  { to: "/expenses", label: "Expenses", description: "Track operating costs", icon: Wallet, permission: "expenses" },
-  { to: "/finance", label: "Finance", description: "Revenue and profitability", icon: CircleDollarSign, permission: "expenses" },
-  { to: "/scenario", label: "Scenario", description: "Model COD outcomes", icon: SlidersHorizontal, permission: "codscenarios" },
-  { to: "/team", label: "Team", description: "Members and access", icon: Users, permission: "team" },
-  { to: "/settings", label: "Settings", description: "Workspace and integrations", icon: Settings, permission: "settings" },
-  { to: "/tools", label: "Tools", description: "Commerce utilities", icon: WandSparkles, permission: "settings" },
-  { to: "/notifications", label: "Notifications", description: "Updates and activity", icon: Bell },
+  {
+    to: "/confirmation",
+    label: "Confirmation",
+    description: "Confirm new orders",
+    icon: ClipboardCheck,
+    permission: "confirmation",
+  },
+  {
+    to: "/whatsapp",
+    label: "WhatsApp",
+    description: "Inbox and customer conversations",
+    icon: MessageCircle,
+    image: whatsappLogo,
+    permission: "confirmation",
+  },
+  {
+    to: "/shipping",
+    label: "Shipping",
+    description: "Create and track shipments",
+    icon: Truck,
+    permission: "shipping",
+    requiresShipping: true,
+  },
+  {
+    to: "/customers",
+    label: "Customers",
+    description: "Customer history and details",
+    icon: Users,
+    permission: "customers",
+  },
+  {
+    to: "/products-inventory",
+    label: "Products & inventory",
+    description: "Catalog, stock and variants",
+    icon: Boxes,
+    permission: "products",
+  },
+  {
+    to: "/ads-manager",
+    label: "Ads Manager",
+    description: "Campaign performance",
+    icon: Megaphone,
+    permission: "ads",
+  },
+  {
+    to: "/tiktok-ads",
+    label: "TikTok Ads",
+    description: "TikTok campaign performance",
+    icon: Megaphone,
+    permission: "tiktok_ads",
+  },
+  {
+    to: "/expenses",
+    label: "Expenses",
+    description: "Track operating costs",
+    icon: Wallet,
+    permission: "expenses",
+  },
+  {
+    to: "/finance",
+    label: "Finance",
+    description: "Revenue and profitability",
+    icon: CircleDollarSign,
+    permission: "expenses",
+  },
+  {
+    to: "/scenario",
+    label: "Scenario",
+    description: "Model COD outcomes",
+    icon: SlidersHorizontal,
+    permission: "codscenarios",
+  },
+  {
+    to: "/team",
+    label: "Team",
+    description: "Members and access",
+    icon: Users,
+    permission: "team",
+  },
+  {
+    to: "/settings",
+    label: "Settings",
+    description: "Workspace and integrations",
+    icon: Settings,
+    permission: "settings",
+  },
+  {
+    to: "/tools",
+    label: "Tools",
+    description: "Commerce utilities",
+    icon: WandSparkles,
+    permission: "settings",
+  },
+  {
+    to: "/notifications",
+    label: "Notifications",
+    description: "Updates and activity",
+    icon: Bell,
+  },
 ];
 
 const routeTitles: Array<[string, string]> = [
@@ -61,6 +150,7 @@ const routeTitles: Array<[string, string]> = [
   ["/settings/notifications", "Notification settings"],
   ["/scenario", "Scenario"],
   ["/confirmation", "Confirmation"],
+  ["/whatsapp", "WhatsApp"],
   ["/delivering", "Delivering"],
   ["/shipping", "Shipping"],
   ["/customers", "Customers"],
@@ -90,15 +180,22 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
   const ownerLike = isOwnerLikeRole(profile?.role);
   const shippingEnabled = isShippingModuleEnabled(workspace);
-  const can = (permission?: keyof TeamPermissions) => !permission || ownerLike || Boolean(teamPermissions[permission]);
+  const can = (permission?: keyof TeamPermissions) =>
+    !permission || ownerLike || Boolean(teamPermissions[permission]);
   const canScan = can("inventory") || can("products");
 
   const moreDestinations = useMemo(
-    () => secondaryDestinations.filter((item) => can(item.permission) && (!item.requiresShipping || shippingEnabled)),
+    () =>
+      secondaryDestinations.filter(
+        (item) =>
+          can(item.permission) && (!item.requiresShipping || shippingEnabled),
+      ),
     [ownerLike, shippingEnabled, teamPermissions],
   );
 
-  const pageTitle = routeTitles.find(([path]) => isRouteActive(location.pathname, path))?.[1] ?? "EcomOS";
+  const pageTitle =
+    routeTitles.find(([path]) => isRouteActive(location.pathname, path))?.[1] ??
+    "EcomOS";
   const initials = getUserInitials(profile?.full_name);
 
   useEffect(() => {
@@ -109,7 +206,9 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
   const primaryItems = [
     can("dashboard") ? { to: "/dashboard", label: "Home", icon: Home } : null,
     can("orders") ? { to: "/orders", label: "Orders", icon: Package } : null,
-    can("shipping") && shippingEnabled ? { to: "/delivering", label: "Delivering", icon: Truck } : null,
+    can("shipping") && shippingEnabled
+      ? { to: "/delivering", label: "Delivering", icon: Truck }
+      : null,
   ].filter(Boolean) as Array<{ to: string; label: string; icon: Icon }>;
 
   return (
@@ -121,12 +220,16 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           className="mobile-context-control"
           aria-label="Open workspace settings"
         >
-          <span className="mobile-avatar" aria-hidden="true">{initials}</span>
+          <span className="mobile-avatar" aria-hidden="true">
+            {initials}
+          </span>
           <span className="min-w-0 text-left">
             <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
               {workspace?.name || "Workspace"}
             </span>
-            <span className="block truncate text-[15px] font-bold leading-tight text-ink">{pageTitle}</span>
+            <span className="block truncate text-[15px] font-bold leading-tight text-ink">
+              {pageTitle}
+            </span>
           </span>
         </button>
 
@@ -134,7 +237,11 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           type="button"
           onClick={() => navigate("/notifications")}
           className="mobile-icon-button relative"
-          aria-label={unreadCount ? `${unreadCount} unread notifications` : "Notifications"}
+          aria-label={
+            unreadCount
+              ? `${unreadCount} unread notifications`
+              : "Notifications"
+          }
         >
           <Bell size={19} />
           {unreadCount > 0 && (
@@ -145,9 +252,18 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         </button>
       </header>
 
-      <nav className="mobile-bottom-nav md:hidden" aria-label="Primary navigation">
+      <nav
+        className="mobile-bottom-nav md:hidden"
+        aria-label="Primary navigation"
+      >
         {primaryItems.slice(0, 2).map(({ to, label, icon: ItemIcon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => `mobile-nav-item ${isActive ? "is-active" : ""}`}>
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `mobile-nav-item ${isActive ? "is-active" : ""}`
+            }
+          >
             <ItemIcon size={21} strokeWidth={2} />
             <span>{label}</span>
           </NavLink>
@@ -161,12 +277,20 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           aria-haspopup="dialog"
           aria-expanded={quickActionsOpen}
         >
-          <span><Plus size={25} strokeWidth={2.5} /></span>
+          <span>
+            <Plus size={25} strokeWidth={2.5} />
+          </span>
           <small>Create</small>
         </button>
 
         {primaryItems.slice(2).map(({ to, label, icon: ItemIcon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => `mobile-nav-item ${isActive ? "is-active" : ""}`}>
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `mobile-nav-item ${isActive ? "is-active" : ""}`
+            }
+          >
             <ItemIcon size={21} strokeWidth={2} />
             <span>{label}</span>
           </NavLink>
@@ -184,27 +308,52 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         </button>
       </nav>
 
-      <MobileBottomSheet isOpen={moreOpen} onClose={() => setMoreOpen(false)} title="More">
-        <nav className="grid grid-cols-2 gap-2 pb-2" aria-label="All available sections">
-          {moreDestinations.map(({ to, label, description, icon: ItemIcon }) => {
-            const active = isRouteActive(location.pathname, to);
-            return (
-              <button
-                type="button"
-                key={to}
-                onClick={() => navigate(to)}
-                className={`group flex min-h-[104px] flex-col items-start rounded-2xl border p-3 text-left transition active:scale-[0.98] ${active ? "border-brand/40 bg-brand/10" : "border-base-border bg-base-raised/55"}`}
-              >
-                <span className={`grid h-9 w-9 place-items-center rounded-xl ${active ? "bg-brand text-white" : "bg-base-surface text-ink-muted"}`}>
-                  <ItemIcon size={17} />
-                </span>
-                <span className="mt-2 flex w-full items-center gap-1 text-[13px] font-bold text-ink">
-                  <span className="min-w-0 flex-1 truncate">{label}</span><ChevronRight size={13} className="shrink-0 text-ink-faint" />
-                </span>
-                <span className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-ink-faint">{description}</span>
-              </button>
-            );
-          })}
+      <MobileBottomSheet
+        isOpen={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        title="More"
+      >
+        <nav
+          className="grid grid-cols-2 gap-2 pb-2"
+          aria-label="All available sections"
+        >
+          {moreDestinations.map(
+            ({ to, label, description, icon: ItemIcon, image }) => {
+              const active = isRouteActive(location.pathname, to);
+              return (
+                <button
+                  type="button"
+                  key={to}
+                  onClick={() => navigate(to)}
+                  className={`group flex min-h-[104px] flex-col items-start rounded-2xl border p-3 text-left transition active:scale-[0.98] ${active ? "border-brand/40 bg-brand/10" : "border-base-border bg-base-raised/55"}`}
+                >
+                  <span
+                    className={`grid h-9 w-9 place-items-center rounded-xl ${active ? "bg-brand text-white" : "bg-base-surface text-ink-muted"}`}
+                  >
+                    {image ? (
+                      <img
+                        src={image}
+                        alt=""
+                        className="h-[19px] w-[19px] rounded-[5px]"
+                      />
+                    ) : (
+                      <ItemIcon size={17} />
+                    )}
+                  </span>
+                  <span className="mt-2 flex w-full items-center gap-1 text-[13px] font-bold text-ink">
+                    <span className="min-w-0 flex-1 truncate">{label}</span>
+                    <ChevronRight
+                      size={13}
+                      className="shrink-0 text-ink-faint"
+                    />
+                  </span>
+                  <span className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-ink-faint">
+                    {description}
+                  </span>
+                </button>
+              );
+            },
+          )}
         </nav>
         <button
           type="button"
@@ -215,7 +364,11 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         </button>
       </MobileBottomSheet>
 
-      <MobileBottomSheet isOpen={quickActionsOpen} onClose={() => setQuickActionsOpen(false)} title="Quick actions">
+      <MobileBottomSheet
+        isOpen={quickActionsOpen}
+        onClose={() => setQuickActionsOpen(false)}
+        title="Quick actions"
+      >
         <div className="grid grid-cols-2 gap-2 pb-2">
           {can("orders") && (
             <button
@@ -226,9 +379,15 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               }}
               className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-brand/35 bg-brand/10 p-3 text-left transition active:scale-[0.98]"
             >
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand text-white shadow-sm"><Plus size={19} /></span>
-              <span className="mt-3 text-[13px] font-bold text-ink">New order</span>
-              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Add a manual COD order</span>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand text-white shadow-sm">
+                <Plus size={19} />
+              </span>
+              <span className="mt-3 text-[13px] font-bold text-ink">
+                New order
+              </span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">
+                Add a manual COD order
+              </span>
             </button>
           )}
           {can("confirmation") && (
@@ -240,9 +399,15 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               }}
               className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-base-border bg-base-raised/55 p-3 text-left transition active:scale-[0.98]"
             >
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/12 text-emerald-600"><ClipboardCheck size={19} /></span>
-              <span className="mt-3 text-[13px] font-bold text-ink">Confirm orders</span>
-              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Open your call queue</span>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/12 text-emerald-600">
+                <ClipboardCheck size={19} />
+              </span>
+              <span className="mt-3 text-[13px] font-bold text-ink">
+                Confirm orders
+              </span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">
+                Open your call queue
+              </span>
             </button>
           )}
           {can("shipping") && shippingEnabled && (
@@ -254,9 +419,15 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               }}
               className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-base-border bg-base-raised/55 p-3 text-left transition active:scale-[0.98]"
             >
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/12 text-sky-600"><Truck size={19} /></span>
-              <span className="mt-3 text-[13px] font-bold text-ink">Delivering</span>
-              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Track active parcels</span>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-sky-500/12 text-sky-600">
+                <Truck size={19} />
+              </span>
+              <span className="mt-3 text-[13px] font-bold text-ink">
+                Delivering
+              </span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">
+                Track active parcels
+              </span>
             </button>
           )}
           {canScan && (
@@ -268,9 +439,15 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               }}
               className="group flex min-h-[116px] flex-col items-start rounded-2xl border border-base-border bg-base-raised/55 p-3 text-left transition active:scale-[0.98]"
             >
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-500/12 text-violet-600"><ScanLine size={19} /></span>
-              <span className="mt-3 text-[13px] font-bold text-ink">Scan parcel</span>
-              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">Find an order by QR code</span>
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-500/12 text-violet-600">
+                <ScanLine size={19} />
+              </span>
+              <span className="mt-3 text-[13px] font-bold text-ink">
+                Scan parcel
+              </span>
+              <span className="mt-0.5 text-[11px] leading-4 text-ink-muted">
+                Find an order by QR code
+              </span>
             </button>
           )}
         </div>

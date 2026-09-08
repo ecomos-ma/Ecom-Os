@@ -27,6 +27,7 @@ const fr: Record<keyof typeof en, string> = {
   "navigation.dashboard": "Tableau de bord",
   "navigation.orders": "Commandes",
   "navigation.confirmation": "Confirmation",
+  "navigation.whatsapp": "WhatsApp",
   "navigation.delivering": "Livraison",
   "navigation.shipping": "Expédition",
   "navigation.customers": "Clients",
@@ -46,7 +47,8 @@ const fr: Record<keyof typeof en, string> = {
   "topbar.notifications": "Notifications",
   "topbar.searchPlaceholder": "Rechercher des commandes, clients, produits…",
   "settings.title": "Paramètres",
-  "settings.description": "Gérez votre espace de travail, votre équipe, vos intégrations et votre compte.",
+  "settings.description":
+    "Gérez votre espace de travail, votre équipe, vos intégrations et votre compte.",
   "settings.tab.workspace": "Espace de travail",
   "settings.tab.team": "Équipe",
   "settings.tab.integrations": "Intégrations",
@@ -54,22 +56,32 @@ const fr: Record<keyof typeof en, string> = {
   "settings.workspace.title": "Paramètres de l’espace de travail",
   "settings.workspace.name": "Nom de l’espace de travail",
   "settings.workspace.save": "Enregistrer l’espace de travail",
-  "settings.workspace.saved": "Les paramètres de l’espace de travail ont été enregistrés.",
-  "settings.workspace.saveError": "Impossible d’enregistrer les paramètres de l’espace de travail.",
-  "settings.workspace.permissionError": "Vous n’êtes pas autorisé à modifier cet espace de travail.",
+  "settings.workspace.saved":
+    "Les paramètres de l’espace de travail ont été enregistrés.",
+  "settings.workspace.saveError":
+    "Impossible d’enregistrer les paramètres de l’espace de travail.",
+  "settings.workspace.permissionError":
+    "Vous n’êtes pas autorisé à modifier cet espace de travail.",
   "settings.workspace.modulesDelivery": "Modules et livraison",
   "settings.workspace.languageLabel": "Langue de l’espace de travail",
-  "settings.workspace.languageDescription": "Choisissez la langue utilisée dans cet espace de travail pour tous les membres.",
-  "settings.workspace.languageHelper": "La modification de la langue met à jour l’interface pour tous les membres de l’espace de travail.",
-  "settings.workspace.languageSuccess": "La langue de l’espace de travail a été mise à jour.",
-  "settings.workspace.languageError": "Impossible de mettre à jour la langue de l’espace de travail.",
+  "settings.workspace.languageDescription":
+    "Choisissez la langue utilisée dans cet espace de travail pour tous les membres.",
+  "settings.workspace.languageHelper":
+    "La modification de la langue met à jour l’interface pour tous les membres de l’espace de travail.",
+  "settings.workspace.languageSuccess":
+    "La langue de l’espace de travail a été mise à jour.",
+  "settings.workspace.languageError":
+    "Impossible de mettre à jour la langue de l’espace de travail.",
   "settings.workspace.shippingModule": "Module de livraison",
-  "settings.workspace.shippingDescription": "Autorisez l’équipe à utiliser les processus de livraison et les transporteurs dans cet espace de travail.",
+  "settings.workspace.shippingDescription":
+    "Autorisez l’équipe à utiliser les processus de livraison et les transporteurs dans cet espace de travail.",
   "settings.workspace.shippingActive": "Actif",
   "settings.workspace.shippingInactive": "Inactif",
-  "settings.workspace.shippingDisabledMessage": "Le module de livraison est désactivé pour cet espace de travail.",
+  "settings.workspace.shippingDisabledMessage":
+    "Le module de livraison est désactivé pour cet espace de travail.",
   "settings.workspace.shippingColumn": "Colonne du statut d’expédition",
-  "settings.workspace.shippingColumnDescription": "Afficher le statut d’expédition dans le tableau des commandes.",
+  "settings.workspace.shippingColumnDescription":
+    "Afficher le statut d’expédition dans le tableau des commandes.",
   "settings.workspace.carrier": "Transporteur par défaut",
   "settings.workspace.businessModel": "Modèle de coûts de l’entreprise",
   "settings.workspace.seller": "Vendeur",
@@ -119,31 +131,42 @@ const fr: Record<keyof typeof en, string> = {
   "errors.accessDenied": "Accès refusé",
   "errors.notFound": "Page introuvable",
   "notification.order.created.title": "Nouvelle commande",
-  "notification.order.created.message": "La commande {order_number} est prête à être confirmée.",
+  "notification.order.created.message":
+    "La commande {order_number} est prête à être confirmée.",
   "notification.order.assigned.title": "Commande attribuée",
-  "notification.order.assigned.message": "La commande {order_number} vous a été attribuée.",
+  "notification.order.assigned.message":
+    "La commande {order_number} vous a été attribuée.",
   "notification.order.unassigned.title": "Commande désattribuée",
-  "notification.order.unassigned.message": "L’attribution d’une commande a changé.",
+  "notification.order.unassigned.message":
+    "L’attribution d’une commande a changé.",
   "notification.order.confirmed.title": "Commande confirmée",
-  "notification.order.confirmed.message": "La commande {order_number} a été confirmée.",
+  "notification.order.confirmed.message":
+    "La commande {order_number} a été confirmée.",
   "notification.order.no_response.title": "Relance client nécessaire",
-  "notification.order.no_response.message": "Une commande attribuée nécessite une nouvelle tentative de confirmation.",
+  "notification.order.no_response.message":
+    "Une commande attribuée nécessite une nouvelle tentative de confirmation.",
   "notification.order.cancelled.title": "Commande annulée",
   "notification.order.cancelled.message": "Une commande a été annulée.",
   "notification.order.duplicate.title": "Commande en double détectée",
-  "notification.order.duplicate.message": "Vérifiez une commande potentiellement en double.",
+  "notification.order.duplicate.message":
+    "Vérifiez une commande potentiellement en double.",
   "notification.order.blacklisted.title": "Commande sur liste noire",
-  "notification.order.blacklisted.message": "Une commande sur liste noire doit être vérifiée.",
+  "notification.order.blacklisted.message":
+    "Une commande sur liste noire doit être vérifiée.",
   "notification.shipping.ready_to_send.title": "Commande prête à envoyer",
-  "notification.shipping.ready_to_send.message": "Une commande confirmée est prête à être expédiée.",
+  "notification.shipping.ready_to_send.message":
+    "Une commande confirmée est prête à être expédiée.",
   "notification.shipping.sent_to_carrier.title": "Envoyée au transporteur",
-  "notification.shipping.sent_to_carrier.message": "Une commande a été envoyée à son transporteur.",
+  "notification.shipping.sent_to_carrier.message":
+    "Une commande a été envoyée à son transporteur.",
   "notification.shipping.picked_up.title": "Colis ramassé",
-  "notification.shipping.picked_up.message": "Un transporteur a ramassé un colis.",
+  "notification.shipping.picked_up.message":
+    "Un transporteur a ramassé un colis.",
   "notification.shipping.in_transit.title": "Colis en transit",
   "notification.shipping.in_transit.message": "Un colis est en transit.",
   "notification.shipping.out_for_delivery.title": "En cours de livraison",
-  "notification.shipping.out_for_delivery.message": "Un colis est en cours de livraison.",
+  "notification.shipping.out_for_delivery.message":
+    "Un colis est en cours de livraison.",
   "notification.shipping.delivered.title": "Commande livrée",
   "notification.shipping.delivered.message": "Un colis a été livré.",
   "notification.shipping.refused.title": "Livraison refusée",
@@ -153,55 +176,87 @@ const fr: Record<keyof typeof en, string> = {
   "notification.shipping.cancelled.title": "Expédition annulée",
   "notification.shipping.cancelled.message": "Une expédition a été annulée.",
   "notification.shipping.provider_error.title": "Erreur du transporteur",
-  "notification.shipping.provider_error.message": "Un transporteur nécessite votre attention.",
-  "notification.shipping.tracking_failed.title": "Échec de synchronisation du suivi",
-  "notification.shipping.tracking_failed.message": "Le suivi du colis n’a pas pu être actualisé.",
+  "notification.shipping.provider_error.message":
+    "Un transporteur nécessite votre attention.",
+  "notification.shipping.tracking_failed.title":
+    "Échec de synchronisation du suivi",
+  "notification.shipping.tracking_failed.message":
+    "Le suivi du colis n’a pas pu être actualisé.",
   "notification.inventory.low_stock.title": "Stock faible",
-  "notification.inventory.low_stock.message": "Le stock de {product_name} devient faible.",
+  "notification.inventory.low_stock.message":
+    "Le stock de {product_name} devient faible.",
   "notification.inventory.out_of_stock.title": "Rupture de stock",
-  "notification.inventory.out_of_stock.message": "{product_name} est en rupture de stock.",
+  "notification.inventory.out_of_stock.message":
+    "{product_name} est en rupture de stock.",
   "notification.inventory.restocked.title": "Produit réapprovisionné",
-  "notification.inventory.restocked.message": "Un produit est de nouveau en stock.",
+  "notification.inventory.restocked.message":
+    "Un produit est de nouveau en stock.",
   "notification.inventory.adjusted.title": "Stock ajusté",
-  "notification.inventory.adjusted.message": "Les quantités en stock ont été ajustées.",
-  "notification.team.invitation_received.title": "Invitation à un espace de travail",
-  "notification.team.invitation_received.message": "Vous avez été invité à rejoindre un espace de travail.",
+  "notification.inventory.adjusted.message":
+    "Les quantités en stock ont été ajustées.",
+  "notification.team.invitation_received.title":
+    "Invitation à un espace de travail",
+  "notification.team.invitation_received.message":
+    "Vous avez été invité à rejoindre un espace de travail.",
   "notification.team.member_joined.title": "Un membre a rejoint l’équipe",
-  "notification.team.member_joined.message": "Un membre a rejoint l’espace de travail.",
+  "notification.team.member_joined.message":
+    "Un membre a rejoint l’espace de travail.",
   "notification.team.member_removed.title": "Membre retiré",
-  "notification.team.member_removed.message": "L’accès d’un membre à l’espace de travail a été retiré.",
+  "notification.team.member_removed.message":
+    "L’accès d’un membre à l’espace de travail a été retiré.",
   "notification.team.role_changed.title": "Rôle d’équipe modifié",
-  "notification.team.role_changed.message": "Le rôle d’un membre de l’équipe a été mis à jour.",
+  "notification.team.role_changed.message":
+    "Le rôle d’un membre de l’équipe a été mis à jour.",
   "notification.finance.expense_created.title": "Dépense enregistrée",
-  "notification.finance.expense_created.message": "Une dépense de l’espace de travail a été enregistrée.",
-  "notification.ads.meta_sync_failed.title": "Échec de synchronisation Meta Ads",
-  "notification.ads.meta_sync_failed.message": "Meta Ads n’a pas pu être synchronisé.",
-  "notification.ads.tiktok_sync_failed.title": "Échec de synchronisation TikTok Ads",
-  "notification.ads.tiktok_sync_failed.message": "TikTok Ads n’a pas pu être synchronisé.",
+  "notification.finance.expense_created.message":
+    "Une dépense de l’espace de travail a été enregistrée.",
+  "notification.ads.meta_sync_failed.title":
+    "Échec de synchronisation Meta Ads",
+  "notification.ads.meta_sync_failed.message":
+    "Meta Ads n’a pas pu être synchronisé.",
+  "notification.ads.tiktok_sync_failed.title":
+    "Échec de synchronisation TikTok Ads",
+  "notification.ads.tiktok_sync_failed.message":
+    "TikTok Ads n’a pas pu être synchronisé.",
   "notification.ads.token_expired.title": "Autorisation publicitaire expirée",
-  "notification.ads.token_expired.message": "Reconnectez l’intégration publicitaire.",
+  "notification.ads.token_expired.message":
+    "Reconnectez l’intégration publicitaire.",
   "notification.integration.connected.title": "Intégration connectée",
-  "notification.integration.connected.message": "Une intégration de l’espace de travail a été connectée.",
+  "notification.integration.connected.message":
+    "Une intégration de l’espace de travail a été connectée.",
   "notification.integration.disconnected.title": "Intégration déconnectée",
-  "notification.integration.disconnected.message": "Une intégration de l’espace de travail a été déconnectée.",
-  "notification.integration.token_expired.title": "Autorisation d’intégration expirée",
-  "notification.integration.token_expired.message": "Reconnectez l’intégration pour reprendre la synchronisation.",
-  "notification.integration.sync_failed.title": "Échec de synchronisation de l’intégration",
-  "notification.integration.sync_failed.message": "Une intégration n’a pas pu être synchronisée.",
+  "notification.integration.disconnected.message":
+    "Une intégration de l’espace de travail a été déconnectée.",
+  "notification.integration.token_expired.title":
+    "Autorisation d’intégration expirée",
+  "notification.integration.token_expired.message":
+    "Reconnectez l’intégration pour reprendre la synchronisation.",
+  "notification.integration.sync_failed.title":
+    "Échec de synchronisation de l’intégration",
+  "notification.integration.sync_failed.message":
+    "Une intégration n’a pas pu être synchronisée.",
   "notification.security.new_login.title": "Nouvelle connexion",
-  "notification.security.new_login.message": "Une nouvelle connexion à Ecom OS a été détectée.",
+  "notification.security.new_login.message":
+    "Une nouvelle connexion à Ecom OS a été détectée.",
   "notification.security.password_changed.title": "Mot de passe modifié",
-  "notification.security.password_changed.message": "Votre mot de passe Ecom OS a été modifié.",
-  "notification.security.integration_revoked.title": "Accès à l’intégration révoqué",
-  "notification.security.integration_revoked.message": "L’autorisation d’une intégration a été révoquée.",
+  "notification.security.password_changed.message":
+    "Votre mot de passe Ecom OS a été modifié.",
+  "notification.security.integration_revoked.title":
+    "Accès à l’intégration révoqué",
+  "notification.security.integration_revoked.message":
+    "L’autorisation d’une intégration a été révoquée.",
   "notification.system.announcement.title": "Annonce Ecom OS",
-  "notification.system.announcement.message": "Une nouvelle annonce Ecom OS est disponible.",
+  "notification.system.announcement.message":
+    "Une nouvelle annonce Ecom OS est disponible.",
   "notification.system.maintenance.title": "Maintenance planifiée",
-  "notification.system.maintenance.message": "Une maintenance Ecom OS est planifiée.",
+  "notification.system.maintenance.message":
+    "Une maintenance Ecom OS est planifiée.",
   "notification.system.incident.title": "Incident de service",
-  "notification.system.incident.message": "Un incident de service Ecom OS nécessite votre attention.",
+  "notification.system.incident.message":
+    "Un incident de service Ecom OS nécessite votre attention.",
   "notification.system.feature_update.title": "Nouvelle fonctionnalité Ecom OS",
-  "notification.system.feature_update.message": "Une nouvelle fonctionnalité Ecom OS est disponible.",
+  "notification.system.feature_update.message":
+    "Une nouvelle fonctionnalité Ecom OS est disponible.",
 };
 
 export default fr;

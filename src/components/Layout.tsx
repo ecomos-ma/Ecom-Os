@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { EnhancedHeader } from "./EnhancedHeader";
 import { ToastContainer, toast } from "./Toast";
@@ -49,7 +49,11 @@ function MobilePlanGate() {
     void check();
     const channel = supabase
       .channel(`mobile-plan-entitlement:${workspace.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "subscription_plans" }, () => void check())
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "subscription_plans" },
+        () => void check(),
+      )
       .subscribe();
     return () => {
       active = false;
@@ -57,7 +61,12 @@ function MobilePlanGate() {
     };
   }, [founder, isDemoMode, workspace?.id]);
 
-  return allowed === true ? null : <div className="fixed inset-0 z-[1000] bg-white md:hidden" aria-hidden="true" />;
+  return allowed === true ? null : (
+    <div
+      className="fixed inset-0 z-[1000] bg-white md:hidden"
+      aria-hidden="true"
+    />
+  );
 }
 
 function PullToRefresh({ children }: { children: React.ReactNode }) {
@@ -120,16 +129,33 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
   }, [pullProgress, isRefreshing]);
 
   return (
-    <div ref={containerRef} className="relative h-full min-h-0 w-full overflow-y-auto overscroll-contain">
+    <div
+      ref={containerRef}
+      className="relative h-full min-h-0 w-full overflow-y-auto overscroll-contain"
+    >
       <div
         className="absolute top-0 left-0 w-full flex justify-center items-end pb-3 overflow-hidden transition-all duration-100 ease-out z-50 pointer-events-none"
-        style={{ height: pullProgress > 0 ? pullProgress + 20 : 0, opacity: pullProgress / 80 }}
+        style={{
+          height: pullProgress > 0 ? pullProgress + 20 : 0,
+          opacity: pullProgress / 80,
+        }}
       >
-        <div className={`p-2 bg-base-surface/80 backdrop-blur-md border border-base-border rounded-full shadow-lg text-ink ${isRefreshing ? 'animate-spin text-brand' : ''}`}>
-          <RefreshCw size={16} className={isRefreshing ? "" : "transform rotate-180"} style={{ transform: isRefreshing ? '' : `rotate(${pullProgress * 3}deg)` }} />
+        <div
+          className={`p-2 bg-base-surface/80 backdrop-blur-md border border-base-border rounded-full shadow-lg text-ink ${isRefreshing ? "animate-spin text-brand" : ""}`}
+        >
+          <RefreshCw
+            size={16}
+            className={isRefreshing ? "" : "transform rotate-180"}
+            style={{
+              transform: isRefreshing ? "" : `rotate(${pullProgress * 3}deg)`,
+            }}
+          />
         </div>
       </div>
-      <div className="min-h-full w-full transition-transform duration-100 ease-out" style={{ transform: `translateY(${pullProgress}px)` }}>
+      <div
+        className="min-h-full w-full transition-transform duration-100 ease-out"
+        style={{ transform: `translateY(${pullProgress}px)` }}
+      >
         {children}
       </div>
     </div>
@@ -137,12 +163,20 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
 }
 
 export function Layout() {
-  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const location = useLocation();
+  const isWhatsAppInbox = location.pathname.startsWith("/whatsapp");
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
   useEffect(() => {
     const online = () => setIsOnline(true);
     const offline = () => setIsOnline(false);
-    window.addEventListener("online", online); window.addEventListener("offline", offline);
-    return () => { window.removeEventListener("online", online); window.removeEventListener("offline", offline); };
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
+    };
   }, []);
   const navigate = useNavigate();
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -151,13 +185,24 @@ export function Layout() {
     const handleHaptic = (e: MouseEvent | TouchEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
-      const isClickable = target.closest('button') || target.closest('a') || window.getComputedStyle(target).cursor === 'pointer';
-      if (isClickable && typeof navigator !== "undefined" && navigator.vibrate) {
+      const isClickable =
+        target.closest("button") ||
+        target.closest("a") ||
+        window.getComputedStyle(target).cursor === "pointer";
+      if (
+        isClickable &&
+        typeof navigator !== "undefined" &&
+        navigator.vibrate
+      ) {
         navigator.vibrate(10);
       }
     };
-    document.addEventListener("click", handleHaptic, { capture: true, passive: true });
-    return () => document.removeEventListener("click", handleHaptic, { capture: true });
+    document.addEventListener("click", handleHaptic, {
+      capture: true,
+      passive: true,
+    });
+    return () =>
+      document.removeEventListener("click", handleHaptic, { capture: true });
   }, []);
 
   // Global Auto Sync timer (every 500ms) - works across all pages
@@ -167,8 +212,13 @@ export function Layout() {
   useEffect(() => {
     if (!workspace?.id) return;
 
-    const storedAccent = localStorage.getItem(`ecom-scale-accent:${workspace.id}`);
-    if (storedAccent && /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(storedAccent)) {
+    const storedAccent = localStorage.getItem(
+      `ecom-scale-accent:${workspace.id}`,
+    );
+    if (
+      storedAccent &&
+      /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(storedAccent)
+    ) {
       setAccent(storedAccent);
     }
   }, [workspace?.id, setAccent]);
@@ -183,13 +233,24 @@ export function Layout() {
     if (isDemoMode || !workspace?.id) return;
     let metaConnected = false;
     let disposed = false;
-    void metaAdsService.status().then((result) => {
-      if (!disposed) metaConnected = ["connected", "syncing", "sync_failed", "permission_required"].includes(result.state);
-    }).catch(() => undefined);
+    void metaAdsService
+      .status()
+      .then((result) => {
+        if (!disposed)
+          metaConnected = [
+            "connected",
+            "syncing",
+            "sync_failed",
+            "permission_required",
+          ].includes(result.state);
+      })
+      .catch(() => undefined);
 
     const handler = (e: Event) => {
       if (!metaConnected) return;
-      const { from, to, rangeType } = (e as CustomEvent<{ from: string; to: string; rangeType: string }>).detail;
+      const { from, to, rangeType } = (
+        e as CustomEvent<{ from: string; to: string; rangeType: string }>
+      ).detail;
 
       // Debounce: cancel pending timer and stale in-flight request
       if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
@@ -201,7 +262,10 @@ export function Layout() {
 
         // Build the same payload that AdsManager's handleSync uses
         const rangeMap: Record<string, string> = {
-          today: "today", "7d": "last_7d", "14d": "last_14d", "30d": "last_30d",
+          today: "today",
+          "7d": "last_7d",
+          "14d": "last_14d",
+          "30d": "last_30d",
         };
         const datePreset = rangeMap[rangeType] ?? "custom";
         const payload: Record<string, unknown> = { date_preset: datePreset };
@@ -212,7 +276,10 @@ export function Layout() {
         }
 
         try {
-          const { data, error: fnErr } = await supabase.functions.invoke("meta-sync", { body: payload });
+          const { data, error: fnErr } = await supabase.functions.invoke(
+            "meta-sync",
+            { body: payload },
+          );
           if (token.cancelled) return; // response arrived after a newer request started
 
           if (fnErr) {
@@ -255,7 +322,10 @@ export function Layout() {
             }
 
             if (data.token_expired) {
-              toast.error("Meta token expired — please reconnect in Meta Business Suite.", 7000);
+              toast.error(
+                "Meta token expired — please reconnect in Meta Business Suite.",
+                7000,
+              );
               return;
             }
 
@@ -267,7 +337,10 @@ export function Layout() {
 
           // Signal useDashboardData (and AdsManager if mounted) to reload
           // Include currency in the event detail when available so Dashboard can format spend consistently
-          const detail = data && typeof data === "object" && "currency" in data ? { currency: data.currency } : undefined;
+          const detail =
+            data && typeof data === "object" && "currency" in data
+              ? { currency: data.currency }
+              : undefined;
           // Persist into a session-global variable so other components can read before an event listener runs
           try {
             if (detail && detail.currency) {
@@ -276,14 +349,19 @@ export function Layout() {
           } catch (e) {
             // ignore
           }
-          window.dispatchEvent(new CustomEvent("meta-sync-complete", { detail }));
+          window.dispatchEvent(
+            new CustomEvent("meta-sync-complete", { detail }),
+          );
         } catch (err: any) {
           if (token.cancelled) return;
           // Silent fail on network errors — keep existing data, do not crash
           console.warn("[Layout] Background Meta sync failed:", err?.message);
           // Only show toast for non-abort errors
           if (!String(err?.message).includes("AbortError")) {
-            toast.error(`Ad Spend sync failed: ${err?.message ?? "unknown error"}`, 4000);
+            toast.error(
+              `Ad Spend sync failed: ${err?.message ?? "unknown error"}`,
+              4000,
+            );
           }
         }
       }, 400);
@@ -322,20 +400,26 @@ export function Layout() {
         <DemoBanner />
         <OfflineBanner online={isOnline} />
         <ActivityTracker />
-        <div className="hidden md:block"><EnhancedHeader /></div>
+        <div className="hidden md:block">
+          <EnhancedHeader />
+        </div>
         <MobileAppChrome onScan={() => setScannerOpen(true)} />
         <AdminPreviewBanner />
         <AnnouncementTray />
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
           <div className="h-full w-full md:hidden">
             <PullToRefresh>
-              <PageContent className="mobile-page-content min-h-full">
+              <PageContent
+                className={`${isWhatsAppInbox ? "!p-0" : "mobile-page-content"} min-h-full`}
+              >
                 <Outlet />
               </PageContent>
             </PullToRefresh>
           </div>
           <div className="hidden h-full w-full overflow-y-auto overscroll-contain md:block">
-            <PageContent className="h-full min-h-full">
+            <PageContent
+              className={`h-full min-h-full ${isWhatsAppInbox ? "!p-0" : ""}`}
+            >
               <Outlet />
             </PageContent>
           </div>

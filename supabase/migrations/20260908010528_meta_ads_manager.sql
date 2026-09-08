@@ -378,10 +378,12 @@ create table if not exists public.meta_workflow_runs (
   input jsonb not null default '{}'::jsonb,
   resolved_configuration jsonb not null default '{}'::jsonb,
   status text not null default 'queued',
+  error text,
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   completed_at timestamptz
 );
+alter table public.meta_workflow_runs add column if not exists error text;
 
 create table if not exists public.meta_rules (
   id uuid primary key default gen_random_uuid(),
@@ -461,10 +463,13 @@ create index if not exists meta_ads_lookup_idx on public.meta_ads(workspace_id, 
 create index if not exists meta_creatives_lookup_idx on public.meta_creatives(workspace_id, ad_account_id, meta_creative_id);
 create index if not exists meta_insights_daily_date_idx on public.meta_insights_daily(workspace_id, ad_account_id, report_date desc);
 create index if not exists meta_insights_daily_entity_idx on public.meta_insights_daily(workspace_id, reporting_level, entity_id, report_date desc);
-create index if not exists meta_bulk_jobs_queue_idx on public.meta_bulk_jobs(status, next_run_at, created_at) where status in ('queued','processing','partial_failure');
+create index if not exists meta_bulk_jobs_queue_idx on public.meta_bulk_jobs(status, next_run_at, created_at) where status in ('queued','processing');
 create index if not exists meta_bulk_job_items_queue_idx on public.meta_bulk_job_items(job_id, status, next_retry_at, item_index) where status in ('queued','failed');
 create index if not exists meta_rules_due_idx on public.meta_rules(enabled, next_evaluation_at) where enabled;
-create unique index if not exists meta_workflow_runs_bulk_job_idx on public.meta_workflow_runs(bulk_job_id) where bulk_job_id is not null;
+-- A non-partial unique index is intentional: PostgreSQL still permits multiple
+-- NULLs, while PostgREST can infer this index for `on_conflict=bulk_job_id`.
+drop index if exists public.meta_workflow_runs_bulk_job_idx;
+create unique index if not exists meta_workflow_runs_bulk_job_idx on public.meta_workflow_runs(bulk_job_id);
 create index if not exists meta_action_logs_workspace_idx on public.meta_action_logs(workspace_id, created_at desc);
 create index if not exists orders_meta_report_idx on public.orders(workspace_id, created_at desc) where meta_attribution_status in ('Exact','UTM matched');
 create index if not exists orders_meta_ad_idx on public.orders(workspace_id, meta_ad_id) where meta_ad_id is not null;
@@ -608,11 +613,11 @@ begin
       'last_sync_at', c.last_sync_at, 'last_successful_sync_at', c.last_successful_sync_at,
       'last_sync_error', c.last_sync_error, 'created_at', c.created_at
     ) end,
-    'businesses', coalesce((select jsonb_agg(jsonb_build_object('id',b.meta_business_id,'name',b.name,'verification_status',b.verification_status) order by b.name) from public.meta_businesses b where b.workspace_id=p_workspace_id), '[]'::jsonb),
-    'ad_accounts', coalesce((select jsonb_agg(jsonb_build_object('id',a.meta_ad_account_id,'name',a.account_name,'currency',a.currency,'timezone',a.timezone_name,'account_status',a.account_status,'is_default',a.is_default,'is_enabled',a.is_enabled,'last_sync_at',a.last_sync_at,'last_sync_error',a.last_sync_error) order by a.account_name) from public.meta_ad_accounts a where a.workspace_id=p_workspace_id), '[]'::jsonb),
-    'pages', coalesce((select jsonb_agg(jsonb_build_object('id',p.meta_page_id,'name',p.name,'category',p.category,'picture_url',p.picture_url,'is_default',p.is_default) order by p.name) from public.meta_pages p where p.workspace_id=p_workspace_id), '[]'::jsonb),
-    'instagram_accounts', coalesce((select jsonb_agg(jsonb_build_object('id',i.meta_instagram_account_id,'username',i.username,'name',i.name,'page_id',i.page_id,'profile_picture_url',i.profile_picture_url,'is_default',i.is_default) order by coalesce(i.username,i.name)) from public.meta_instagram_accounts i where i.workspace_id=p_workspace_id), '[]'::jsonb),
-    'pixels', coalesce((select jsonb_agg(jsonb_build_object('id',x.meta_pixel_id,'name',x.name,'ad_account_id',x.ad_account_id,'last_fired_time',x.last_fired_time,'is_default',x.is_default,'is_unavailable',x.is_unavailable) order by x.name) from public.meta_pixels x where x.workspace_id=p_workspace_id), '[]'::jsonb)
+    'businesses', coalesce((select jsonb_agg(jsonb_build_object('id',b.meta_business_id,'name',b.name,'verification_status',b.verification_status) order by b.name) from public.meta_businesses b where b.workspace_id=p_workspace_id and b.connection_id=c.id), '[]'::jsonb),
+    'ad_accounts', coalesce((select jsonb_agg(jsonb_build_object('id',a.meta_ad_account_id,'name',a.account_name,'currency',a.currency,'timezone',a.timezone_name,'account_status',a.account_status,'is_default',a.is_default,'is_enabled',a.is_enabled,'last_sync_at',a.last_sync_at,'last_sync_error',a.last_sync_error) order by a.account_name) from public.meta_ad_accounts a where a.workspace_id=p_workspace_id and a.connection_id=c.id), '[]'::jsonb),
+    'pages', coalesce((select jsonb_agg(jsonb_build_object('id',p.meta_page_id,'name',p.name,'category',p.category,'picture_url',p.picture_url,'is_default',p.is_default) order by p.name) from public.meta_pages p where p.workspace_id=p_workspace_id and p.connection_id=c.id), '[]'::jsonb),
+    'instagram_accounts', coalesce((select jsonb_agg(jsonb_build_object('id',i.meta_instagram_account_id,'username',i.username,'name',i.name,'page_id',i.page_id,'profile_picture_url',i.profile_picture_url,'is_default',i.is_default) order by coalesce(i.username,i.name)) from public.meta_instagram_accounts i where i.workspace_id=p_workspace_id and i.connection_id=c.id), '[]'::jsonb),
+    'pixels', coalesce((select jsonb_agg(jsonb_build_object('id',x.meta_pixel_id,'name',x.name,'ad_account_id',x.ad_account_id,'last_fired_time',x.last_fired_time,'is_default',x.is_default,'is_unavailable',x.is_unavailable) order by x.name) from public.meta_pixels x where x.workspace_id=p_workspace_id and x.connection_id=c.id), '[]'::jsonb)
   ) into result
   from (select 1) seed
   left join lateral (
@@ -635,12 +640,24 @@ begin
     select entity_id,
       jsonb_build_object(
         'orders', count(*),
-        'confirmed', count(*) filter (where o.order_status in ('CONFIRMED','READY','OUT_FOR_DELIVERY','DELIVERED')),
+        'confirmed', count(*) filter (where o.order_status in ('CONFIRMED','READY','OUT_FOR_DELIVERY','DELIVERED','COMING_BACK')),
         'shipped', count(*) filter (where o.order_status in ('OUT_FOR_DELIVERY','DELIVERED')),
         'delivered', count(*) filter (where o.order_status = 'DELIVERED'),
         'returned', count(*) filter (where o.order_status = 'COMING_BACK'),
         'revenue', coalesce(sum(o.total) filter (where o.order_status = 'DELIVERED'),0),
-        'net_profit', coalesce(sum(o.total - coalesce(o.shipping_cost,0) - coalesce(p.cost,w.business_product_cost,0) * greatest(coalesce(o.quantity,1),1)) filter (where o.order_status = 'DELIVERED'),0),
+        -- This is the order contribution after product, shipping and configured
+        -- operational fees. The caller subtracts the matching Meta spend so the
+        -- displayed/rule-engine value follows Ecom OS's profit engine exactly.
+        'net_profit',
+          coalesce(sum(
+            o.total
+            - case when coalesce(w.business_cost_model,'seller')='affiliate' then 0 else coalesce(o.shipping_cost,0) end
+            - case
+                when coalesce(item_cost.item_count,0) > 0 then coalesce(item_cost.cost,0)
+                else coalesce(p.cost,w.business_product_cost,0)
+              end
+          ) filter (where o.order_status = 'DELIVERED'),0)
+          - coalesce(sum(operational_fees.amount),0),
         'attribution_reliable', true
       ) metrics
     from (
@@ -650,7 +667,25 @@ begin
       where ids.entity_id is not null
     ) o
     join public.workspaces w on w.id=o.workspace_id
+    left join lateral (
+      select count(*) item_count,
+        coalesce(sum(greatest(coalesce(item.quantity,1),1) * coalesce(product.cost,0)),0) cost
+      from public.order_items item
+      left join public.products product
+        on product.id=item.product_id and product.workspace_id=o.workspace_id
+      where item.workspace_id=o.workspace_id and item.order_id=o."Order ID"
+    ) item_cost on true
     left join lateral (select product.cost from public.products product where product.workspace_id=o.workspace_id and product.sku=o.sku order by product.created_at desc nulls last limit 1) p on true
+    left join lateral (
+      select coalesce(sum(rule.amount),0) amount
+      from public.workspace_cost_rules rule
+      where rule.workspace_id=o.workspace_id and rule.enabled
+        and (
+          rule.trigger='entered'
+          or (rule.trigger='confirmed' and o.order_status in ('CONFIRMED','READY','OUT_FOR_DELIVERY','DELIVERED','COMING_BACK'))
+          or (rule.trigger='delivered' and o.order_status='DELIVERED')
+        )
+    ) operational_fees on true
     where o.workspace_id=p_workspace_id and o.meta_attribution_status in ('Exact','UTM matched')
       and o.created_at >= p_since::timestamptz and o.created_at < (p_until + 1)::timestamptz
     group by entity_id
