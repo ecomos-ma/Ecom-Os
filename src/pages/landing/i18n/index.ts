@@ -10,12 +10,12 @@ export const i18n = {
             security: "Security",
             resources: "Resources",
             login: "Login",
-            startFree: "Start Free",
+            startFree: "Start Now",
         },
         hero: {
             title: "One system for your entire e-commerce operation.",
             subtitle: "Orders, customers, confirmation, Moroccan delivery, advertising, team, finance and delivered profit — managed from Ecom OS.",
-            primary: "Start Free",
+            primary: "Start Now",
             secondary: "See how Ecom OS works",
             trustText: "Setup in minutes. No credit card required."
         },
@@ -48,12 +48,12 @@ export const i18n = {
             security: "الأمان",
             resources: "المصادر",
             login: "دخول",
-            startFree: "ابدأ مجاناً",
+            startFree: "ابدأ الآن",
         },
         hero: {
             title: "كل تجارتك الإلكترونية. نظام تشغيل واحد.",
             subtitle: "الطلبات والعملاء والتأكيد والتوصيل داخل المغرب والإعلانات والفريق والمالية والربح بعد التوصيل — تدار من Ecom OS.",
-            primary: "ابدأ مجاناً",
+            primary: "ابدأ الآن",
             secondary: "شاهد كيف يعمل Ecom OS",
             trustText: "إعداد في دقائق. لا حاجة لبطاقة ائتمان."
         },

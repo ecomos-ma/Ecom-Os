@@ -54,7 +54,7 @@ function validateDecision(decision) {
   const confidence = Number(decision.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw gatewayError("AI response has invalid confidence", "invalid_response");
   if (Array.isArray(decision.actions)) {
-    if (!decision.actions.length || decision.actions.length > 8) throw gatewayError("AI response has an invalid action count", "invalid_response");
+    if (decision.actions.length > 8) throw gatewayError("AI response has an invalid action count", "invalid_response");
     for (const action of decision.actions) {
       if (!action || typeof action !== "object" || Array.isArray(action) || typeof action.type !== "string" || !action.type.trim()) {
         throw gatewayError("AI response has an invalid action", "invalid_response");
@@ -221,7 +221,7 @@ export class WhatsAppAiGateway {
     return "";
   }
 
-  async infer(context, message, { testOnly = false } = {}) {
+  async infer(context, message, { testOnly = false, signal } = {}) {
     const providers = (await this.repository.listAiProviders())
       .filter((provider) => !provider.tool_scope || provider.tool_scope === "whatsapp_ai")
       .sort((a, b) => Number(a.priority ?? 100) - Number(b.priority ?? 100));
@@ -276,12 +276,20 @@ export class WhatsAppAiGateway {
           const credential = await this.#decrypt(provider);
           await this.#event(context.workspace?.id, context.order?.["Order ID"], "provider_request_started", { provider_id: provider.id, provider: provider.provider, model: provider.model, attempt: attempt + 1, test_only: testOnly });
           const controller = new AbortController();
+          const abortFromCaller = () => controller.abort();
+          signal?.addEventListener("abort", abortFromCaller, { once: true });
           const timeout = setTimeout(() => controller.abort(), this.config.aiTimeoutMs);
           let response;
           try {
+            if (signal?.aborted) {
+              const aborted = new Error("AI request was cancelled");
+              aborted.name = "AbortError";
+              throw aborted;
+            }
             response = await this.#request(provider, credential, this.#prompt(context, message, testOnly), controller.signal);
           } finally {
             clearTimeout(timeout);
+            signal?.removeEventListener("abort", abortFromCaller);
           }
           const responseText = await response.text();
           await this.#event(context.workspace?.id, context.order?.["Order ID"], "provider_http_status", { provider_id: provider.id, provider: provider.provider, status: response.status, test_only: testOnly });
@@ -298,9 +306,21 @@ export class WhatsAppAiGateway {
             action: "whatsapp_ai_inbound",
           });
           await this.#event(context.workspace?.id, context.order?.["Order ID"], "ai_success", { provider_id: provider.id, provider: provider.provider, model: provider.model, test_only: testOnly });
-          return { ...decision, providerId: provider.id };
+          const latencyMs = Date.now() - startedAt;
+          const simulatedReply = String(decision.reply_text || decision.customer_reply || "").trim()
+            || `Simulation: AI detected ${decision.intent || "a customer request"}. No order changes were made.`;
+          return {
+            ...decision,
+            reply_text: testOnly ? simulatedReply : decision.reply_text,
+            providerId: provider.id,
+            provider_used: provider.provider,
+            model: provider.model,
+            latency_ms: latencyMs,
+            ...(testOnly ? { simulated_reply: simulatedReply } : {}),
+          };
         } catch (error) {
           finalError = error;
+          if (signal?.aborted) throw error;
           const status = Number(error?.status || 0);
           const canRetry = attempt === 0 && status !== 401 && status !== 403 && status !== 404 && status !== 429;
           if (canRetry) {
@@ -318,7 +338,7 @@ export class WhatsAppAiGateway {
       const reasonCode = finalError?.reasonCode || reasonCodeForErrors(errors);
       const cooldownSeconds = reasonCode === "invalid_response" ? 0 : status === 429 ? 300 : terminal ? 3600 : 30;
       const parseFailure = finalError?.reasonCode === "invalid_response" || finalError?.code === "INVALID_STRUCTURED_RESPONSE";
-      if (!testOnly) await this.repository.recordAiProviderResult(provider.id, {
+      if (!testOnly && !signal?.aborted) await this.repository.recordAiProviderResult(provider.id, {
           success: parseFailure,
           durationMs: Date.now() - startedAt,
           error: parseFailure ? null : messageText,

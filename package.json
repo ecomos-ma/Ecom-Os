@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "npm run test:run",
     "test:run": "npm run test:i18n && npm run test:notifications && npm run test:tiktok && npm run test:whatsapp && npm run test:workspace-reset && npm run test:multitenant",
@@ -24,6 +24,7 @@
     "verify": "npm run test:run && npm run build"
   },
   "dependencies": {
+    "@paypal/react-paypal-js": "^10.4.0",
     "@supabase/supabase-js": "^2.111.0",
     "@tanstack/react-virtual": "^3.14.9",
     "dotenv": "^17.4.2",

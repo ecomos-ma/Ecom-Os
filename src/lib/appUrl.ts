@@ -9,7 +9,23 @@ export function getAppUrl(): string {
   if (import.meta.env.DEV && typeof window !== "undefined") {
     return normalizeBaseUrl(window.location.origin);
   }
-  return normalizeBaseUrl(configuredAppUrl || CANONICAL_PRODUCTION_URL);
+
+  if (configuredAppUrl) {
+    try {
+      const configured = new URL(configuredAppUrl);
+      const isAllowedProductionHost = configured.protocol === "https:"
+        && (configured.hostname === "www.ecomos.ma" || configured.hostname === "ecomos.ma")
+        && !configured.username
+        && !configured.password
+        && !configured.port
+        && configured.pathname === "/";
+      if (isAllowedProductionHost) return CANONICAL_PRODUCTION_URL;
+    } catch {
+      // Fall through to the fixed production origin.
+    }
+  }
+
+  return CANONICAL_PRODUCTION_URL;
 }
 
 export function getAppUrlForPath(path: string): string {

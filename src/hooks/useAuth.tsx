@@ -165,7 +165,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const previewWorkspaceRef = useRef<PreviewWorkspaceState | null>(null);
   const sessionRef = useRef<typeof session>(null);
   const profileLoadRef = useRef<{ userId: string; promise: Promise<void> } | null>(null);
-  const invitationLookupAttemptedRef = useRef(new Set<string>());
   const baseSubscriptionRef = useRef({ plan: "", workspaceLimit: 0, status: "checking", allowed: null as boolean | null });
   const subscriptionVerifiedRef = useRef(false);
 
@@ -280,44 +279,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let localProfile = profileData as Profile;
     const userEmail = currentSession?.user?.email ?? null;
-
-    // Invitation discovery is not part of normal workspace boot. It is tried
-    // once per authenticated user through a narrowly scoped RPC, so a policy
-    // failure can neither block auth nor repeatedly generate 403 requests.
-    if (userEmail && !invitationLookupAttemptedRef.current.has(userId)) {
-      invitationLookupAttemptedRef.current.add(userId);
-      try {
-        const { data: invitation, error: invitationErr } = await supabase
-          .rpc("get_my_pending_workspace_invitation");
-
-        if (invitationErr) {
-          const errDetail = invitationErr?.message ?? invitationErr?.details ?? JSON.stringify(invitationErr);
-          if (isSupabaseTableError(invitationErr)) {
-            console.warn("[useAuth] Invitation lookup skipped due to Supabase access issue:", errDetail);
-          } else {
-            console.warn("[useAuth] Invitation lookup failed:", errDetail);
-          }
-        }
-
-        const pendingInvitation = Array.isArray(invitation) ? invitation[0] : invitation;
-        if (pendingInvitation?.id) {
-          // Role, workspace, and permission changes are privileged. Accept the
-          // invitation through a security-definer RPC instead of allowing the
-          // browser to update those profile columns directly.
-          const { error: acceptErr } = await supabase.rpc("accept_workspace_invitation", {
-            p_invitation_id: pendingInvitation.id,
-          });
-
-          if (acceptErr) {
-            console.error("[useAuth] Accept invitation failed:", acceptErr);
-          } else {
-            return loadProfileAndWorkspaceInternal(userId);
-          }
-        }
-      } catch (error) {
-        console.error("[useAuth] Error checking pending invitations:", error);
-      }
-    }
 
     const loadWorkspaceMemberships = async (profileId: string) => {
       setWorkspacePlan("");
@@ -568,6 +529,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = useCallback(async () => {
     const uid = sessionRef.current?.user?.id;
     if (!uid) return;
+    const inFlight = profileLoadRef.current?.userId === uid ? profileLoadRef.current.promise : null;
+    if (inFlight) await inFlight;
     await loadProfileRef.current!(uid);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ← stable: reads session and loadProfileAndWorkspace through refs

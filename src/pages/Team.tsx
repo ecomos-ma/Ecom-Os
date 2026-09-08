@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { getAppUrlForPath } from "../lib/appUrl";
 import { useAuth } from "../hooks/useAuth";
 import { useTeamData, type TeamMember } from "../hooks/useTeamData";
 import { ALL_ALLOWED_SECTIONS, normalizeAllowedSections, ROLE_LABELS, ROLE_OPTIONS } from "../lib/rbac";
@@ -18,6 +17,33 @@ import {
   TrendingUp, Package, Wifi, Coffee, AlertCircle, ChevronRight,
   Search, RefreshCw, Award, Zap, Target, BarChart2, MessageSquare,
 } from "lucide-react";
+
+async function invitationFunctionError(error: unknown, data: any) {
+  if (data?.error) return String(data.error);
+  const response = (error as { context?: Response })?.context;
+  if (response instanceof Response) {
+    try {
+      const body = await response.clone().json();
+      if (body?.error) return String(body.error);
+    } catch {
+      // Keep the provider's safe fallback message below.
+    }
+  }
+  return error instanceof Error ? error.message : "Invitation service failed";
+}
+
+async function invokeInvitationFunction(body: Record<string, unknown>) {
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const refreshed = await supabase.auth.refreshSession();
+    session = refreshed.data.session;
+  }
+  if (!session?.access_token) throw new Error("Your session has expired. Please sign in again.");
+  return supabase.functions.invoke("send-team-invitation", {
+    body,
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -262,28 +288,16 @@ export default function Team() {
     setInviteBusy(true);
     try {
       const allowedSections = inviteForm.role === "supervisor" ? ALL_ALLOWED_SECTIONS : normalizeAllowedSections(inviteForm.allowedSections);
-      
-      // Generate a unique token for the invitation
-      const token = crypto.randomUUID();
-      
-      // Create invitation directly (RLS policies are now fixed)
-      const { data: invitation, error } = await supabase.from("workspace_invitations").insert({
-        id: token,
+      const { data, error } = await invokeInvitationFunction({
+        action: "create",
         workspace_id: workspace.id,
-        email: inviteForm.email.trim().toLowerCase(),
+        email: inviteForm.email,
+        full_name: inviteForm.fullName,
         role: inviteForm.role,
         allowed_sections: allowedSections,
-        invited_by: session.user.id,
-        status: "pending",
-      }).select().single();
-
-      if (error) throw error;
-
-      // Generate invite link
-      const inviteLink = getAppUrlForPath(`/invite?token=${encodeURIComponent(token)}`);
-
-      // Skip Edge Function call for now - provide manual link
-      toast.success(`Invitation created! Share this link: ${inviteLink}`);
+      });
+      if (error || data?.error) throw new Error(await invitationFunctionError(error, data));
+      toast.success(data?.invitation?.resent ? "Invitation resent." : "Invitation email sent.");
 
       setShowInviteModal(false);
       setInviteForm({ fullName: "", email: "", role: "agent", allowedSections: ["Dashboard"] });
@@ -479,31 +493,43 @@ export default function Team() {
           )}
 
           {/* Pending invitations */}
-          {invitations.filter(i => i.status === "pending").length > 0 && (
+          {invitations.length > 0 && (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 divide-y divide-amber-500/10">
               <div className="px-4 py-3 flex items-center gap-2 text-[13px] font-semibold text-amber-400">
-                <Clock size={14} /> Pending Invitations ({invitations.filter(i => i.status === "pending").length})
+                <Clock size={14} /> Team Invitations ({invitations.length})
               </div>
-              {invitations.filter(i => i.status === "pending").map((inv: any) => (
+              {invitations.map((inv: any) => (
                 <div key={inv.id} className="flex items-center justify-between px-4 py-3">
                   <div>
-                    <div className="text-[13px] text-ink font-medium">{inv.email}</div>
-                    <div className="text-[11px] text-ink-muted">{inv.role} · Sent {new Date(inv.created_at).toLocaleDateString()}</div>
+                    <div className="text-[13px] text-ink font-medium">{inv.full_name || inv.email}</div>
+                    <div className="text-[11px] text-ink-muted">{inv.email} · {inv.role} · {Array.isArray(inv.allowed_sections) ? `${inv.allowed_sections.length} sections` : "Configured permissions"}</div>
+                    <div className="text-[10px] text-ink-faint">Sent {new Date(inv.last_sent_at || inv.created_at).toLocaleDateString()} · {inv.status === "pending" && inv.expires_at ? `Expires ${new Date(inv.expires_at).toLocaleDateString()}` : inv.status}</div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${inv.status === "accepted" ? "bg-emerald-500/15 text-emerald-500" : inv.status === "pending" ? "bg-amber-500/15 text-amber-400" : "bg-base-raised text-ink-muted"}`}>{inv.status}</span>
+                  {inv.status !== "accepted" && inv.status !== "revoked" && <>
                     <button
                       onClick={async () => {
-                        await supabase.from("workspace_invitations").delete().eq("id", inv.id);
+                        const { data, error } = await invokeInvitationFunction({ action: "revoke", workspace_id: workspace?.id, invitation_id: inv.id });
+                        if (error || data?.error) { toast.error(await invitationFunctionError(error, data)); return; }
                         reload();
-                        toast.success("Invitation cancelled.");
+                        toast.success("Invitation revoked.");
                       }}
                       className="rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5 text-[11.5px] text-danger hover:bg-danger/20"
                     >
                       <X size={12} />
                     </button>
-                    <button className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:text-ink">
+                    <button
+                      onClick={async () => {
+                        const { data, error } = await invokeInvitationFunction({ action: "create", workspace_id: workspace?.id, email: inv.email, full_name: inv.full_name || "", role: inv.role, allowed_sections: inv.allowed_sections });
+                        if (error || data?.error) toast.error(await invitationFunctionError(error, data));
+                        else { toast.success("Invitation resent."); reload(); }
+                      }}
+                      className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:text-ink"
+                    >
                       <Send size={12} />
                     </button>
+                  </>}
                   </div>
                 </div>
               ))}

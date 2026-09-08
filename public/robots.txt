@@ -1,4 +1,15 @@
 User-agent: *
 Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /orders
+Disallow: /customers
+Disallow: /products
+Disallow: /inventory
+Disallow: /finance
+Disallow: /team
+Disallow: /settings
+Disallow: /setup
 
 Sitemap: https://www.ecomos.ma/sitemap.xml

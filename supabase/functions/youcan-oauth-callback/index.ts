@@ -19,6 +19,13 @@ function required(name: string): string {
   return value;
 }
 
+function settingsRedirect(status: "success" | "error", reason?: string): string {
+  const target = new URL("/settings", `${frontendAppUrl()}/`);
+  target.searchParams.set("youcan", status);
+  if (reason) target.searchParams.set("reason", reason);
+  return target.toString();
+}
+
 async function hmac(payload: string, secret: string): Promise<Uint8Array> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -115,19 +122,35 @@ Deno.serve(async (req) => {
       throw new Error("workspace_access_denied");
     }
 
+    const clientId = required("YOUCAN_CLIENT_ID");
+    const clientSecret = required("YOUCAN_CLIENT_SECRET");
+    const redirectUri = required("YOUCAN_REDIRECT_URI");
+    
+    console.log("[YouCan OAuth] Token exchange parameters:");
+    console.log("[YouCan OAuth] - client_id length:", clientId.length);
+    console.log("[YouCan OAuth] - client_secret length:", clientSecret.length);
+    console.log("[YouCan OAuth] - redirect_uri:", redirectUri);
+    console.log("[YouCan OAuth] - code length:", code.length);
+    
     const tokenResponse = await fetch("https://api.youcan.shop/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        client_id: required("YOUCAN_CLIENT_ID"),
-        client_secret: required("YOUCAN_CLIENT_SECRET"),
-        redirect_uri: required("YOUCAN_REDIRECT_URI"),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
         code,
       }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (!tokenResponse.ok) throw new Error("provider_token_exchange_failed");
+    
+    console.log("[YouCan OAuth] Token exchange response status:", tokenResponse.status);
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error("[YouCan OAuth] Token exchange error response:", errorText);
+      throw new Error("provider_token_exchange_failed");
+    }
     const token = await tokenResponse.json();
     if (!token?.access_token) throw new Error("provider_token_response_invalid");
 
@@ -214,20 +237,20 @@ Deno.serve(async (req) => {
         ]);
       }
     } else {
-      console.error("[YouCan OAuth] webhook_registration_failed", hookResponse.status);
+      const errorText = await hookResponse.text().catch(() => "");
+      console.error("[YouCan OAuth] webhook_registration_failed", hookResponse.status, errorText);
     }
 
     if (isBrowserRedirect) {
-      const frontend = frontendAppUrl();
-      return Response.redirect(`${frontend}/settings?youcan=success`, 302);
+      const redirectState = webhookId ? "success" : "webhook_failed";
+      return Response.redirect(settingsRedirect("success", webhookId ? undefined : "webhook_failed"), 302);
     }
     return new Response(JSON.stringify({ success: true, webhook_registered: Boolean(webhookId) }), { headers: headers(req) });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "connection_failed";
     console.error("[YouCan OAuth]", reason);
     if (isBrowserRedirect) {
-      const frontend = frontendAppUrl();
-      return Response.redirect(`${frontend}/settings?youcan=error&details=connection_failed`, 302);
+      return Response.redirect(settingsRedirect("error", "connection_failed"), 302);
     }
     return new Response(JSON.stringify({ error: "YouCan connection failed" }), { status: 400, headers: headers(req) });
   }

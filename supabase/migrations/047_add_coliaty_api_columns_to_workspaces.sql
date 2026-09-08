@@ -6,7 +6,7 @@
 ALTER TABLE public.workspaces 
   ADD COLUMN IF NOT EXISTS coliaty_enabled boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS coliaty_api_key text,
-  ADD COLUMN IF NOT EXISTS coliaty_api_url text DEFAULT 'https://api.coliaty.ma';
+  ADD COLUMN IF NOT EXISTS coliaty_api_url text DEFAULT 'https://customer-api-v1.coliaty.com';
 
 -- Add comments
 COMMENT ON COLUMN public.workspaces.coliaty_enabled IS 'Whether Coliaty integration is enabled for this workspace';

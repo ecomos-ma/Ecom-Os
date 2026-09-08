@@ -111,7 +111,7 @@ export function createRoutes({ sessionManager, repository, aiProcessor, logger }
     const message = String(req.body?.message || "").trim().slice(0, 4000);
     if (!message) throw new WorkerError(ErrorCode.INVALID_REQUEST, "Test message is required", { httpStatus: 400 });
     if (!repository.configured) throw new WorkerError(ErrorCode.DATABASE_ERROR, "WhatsApp AI requires Supabase", { httpStatus: 503 });
-    const decision = await aiProcessor.test(workspaceId, message);
+    const decision = await aiProcessor.test(workspaceId, message, req.signal);
     res.status(200).json({ ok: true, workspace_id: workspaceId, test_only: true, decision });
   });
 

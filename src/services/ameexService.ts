@@ -61,6 +61,16 @@ export class AmeexApiError extends Error {
 type AmeexResponse<T> = { success: boolean; message?: string; code?: string; status?: AmeexShipmentStatus } & T;
 
 async function invoke<T>(body: Record<string, unknown>): Promise<AmeexResponse<T>> {
+  // Force a session refresh so the edge function always receives a valid, non-expired token.
+  // supabase.functions.invoke() uses the current in-memory session; if the user has been idle
+  // for more than 1 h the stored JWT may be expired. refreshSession() picks up the refresh
+  // token from localStorage and obtains a new access token without requiring a re-login.
+  const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
+  if (sessionError || !sessionData?.session) {
+    // If refresh fails the user's session is truly gone — surface a clear message.
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
   const { data, error } = await supabase.functions.invoke("ameex-api", { body });
   if (error) {
     const response = (error as { context?: Response }).context;

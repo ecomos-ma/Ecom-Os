@@ -8,11 +8,12 @@ function reply(body: unknown, status = 200): Response {
 }
 
 async function validHmac(body: string, signature: string, secret: string): Promise<boolean> {
-  if (!/^[0-9a-f]{64}$/i.test(signature)) return false;
+  const trimmed = signature.trim();
+  if (!/^[0-9a-f]{64}$/i.test(trimmed)) return false;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const actual = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(body)));
-  const expected = new Uint8Array(signature.match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)));
+  const expected = new Uint8Array(trimmed.match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)));
   let difference = actual.length ^ expected.length;
   for (let index = 0; index < Math.min(actual.length, expected.length); index += 1) difference |= actual[index] ^ expected[index];
   return difference === 0;
@@ -86,14 +87,18 @@ Deno.serve(async (req) => {
       return reply({ received: true, accepted: false });
     }
 
-    const providerSignature = req.headers.get("x-youcan-hmac-sha256");
+    // YouCan signature validation: x-youcan-signature header with YOUCAN_CLIENT_SECRET
+    const providerSignature = req.headers.get("x-youcan-signature") ?? "";
     const providerSecret = Deno.env.get("YOUCAN_CLIENT_SECRET")?.trim();
     if (providerSignature && providerSecret && !await validHmac(rawBody, providerSignature, providerSecret)) {
+      console.warn("[YouCan webhook] invalid_signature");
       return reply({ error: "Invalid signature" }, 401);
     }
 
-    const eventType = String(payload.event ?? payload.type ?? "unknown");
-    const order = (payload.order ?? payload.data ?? payload) as Record<string, any>;
+    // YouCan payload structure: event_name field and data contains order
+    let eventType = String(payload.event_name ?? payload.event ?? payload.eventName ?? "order.create");
+    if (eventType === "order.created" || eventType === "unknown") eventType = "order.create";
+    const order = (payload.data ?? payload.order ?? payload) as Record<string, any>;
     if (!order?.id) return reply({ received: true, accepted: true, ignored: "not_an_order" });
     const mapped = orderRow(order, integration.workspace_id, integration.id);
 

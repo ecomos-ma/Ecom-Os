@@ -40,6 +40,7 @@ export interface BillingUsage {
 export interface EffectiveSubscriptionView {
   owner_user_id: string;
   subscription_id: string;
+  paypal_subscription_id?: string | null;
   plan: { id: string; code: string; name: string } | null;
   billing_cycle: "monthly" | "annual" | null;
   status: string;
@@ -138,7 +139,7 @@ function mapPlan(raw: Record<string, any> | null | undefined): BillingPlanDetail
     console.warn("[billingService] mapPlan: Missing plan id, returning null");
     return null;
   }
-  
+
   const result = {
     id: String(raw.id),
     code: raw.code ?? null,
@@ -154,7 +155,7 @@ function mapPlan(raw: Record<string, any> | null | undefined): BillingPlanDetail
     monthlyBillingEnabled: raw.monthly_billing_enabled !== false,
     annualBillingEnabled: raw.annual_billing_enabled !== false,
   };
-  
+
   console.log("[billingService] Mapped plan:", result);
   return result;
 }
@@ -164,13 +165,14 @@ function mapSubscription(raw: Record<string, any> | null | undefined): Effective
     console.warn("[billingService] mapSubscription: Missing subscription_id, returning null");
     return null;
   }
-  
+
   const limits = (raw.limits && typeof raw.limits === "object" ? raw.limits : {}) as Record<string, any>;
   const usage = (raw.usage && typeof raw.usage === "object" ? raw.usage : {}) as Record<string, any>;
-  
+
   const result = {
     owner_user_id: String(raw.owner_user_id ?? ""),
     subscription_id: String(raw.subscription_id),
+    paypal_subscription_id: raw.paypal_subscription_id ?? null,
     plan: raw.plan && raw.plan.id ? { id: String(raw.plan.id), code: String(raw.plan.code ?? ""), name: String(raw.plan.name ?? "") } : null,
     billing_cycle: raw.billing_cycle === "annual" ? "annual" : raw.billing_cycle === "monthly" ? "monthly" : null as "monthly" | "annual" | null,
     status: String(raw.status ?? "unknown"),
@@ -199,7 +201,7 @@ function mapSubscription(raw: Record<string, any> | null | undefined): Effective
       integrations: num(usage.integrations) ?? 0,
     },
   };
-  
+
   console.log("[billingService] Mapped subscription:", result);
   return result;
 }
@@ -209,7 +211,7 @@ function mapRequest(raw: Record<string, any> | null | undefined): OpenPaymentReq
     console.warn("[billingService] mapRequest: Missing request id, returning null");
     return null;
   }
-  
+
   const result = {
     id: String(raw.id),
     reference: String(raw.reference ?? ""),
@@ -227,7 +229,7 @@ function mapRequest(raw: Record<string, any> | null | undefined): OpenPaymentReq
     requested_plan_code: raw.requested_plan_code ?? null,
     requested_plan_name: raw.requested_plan_name ?? null,
   };
-  
+
   console.log("[billingService] Mapped request:", result);
   return result;
 }
@@ -236,7 +238,7 @@ function mapRequest(raw: Record<string, any> | null | undefined): OpenPaymentReq
 export async function fetchBillingOverview(): Promise<BillingOverview> {
   console.log("[billingService] Calling get_my_billing_overview_v1 RPC");
   const { data, error } = await supabase.rpc("get_my_billing_overview_v1");
-  
+
   if (error) {
     console.error("[billingService] RPC call failed:", {
       code: error.code,
@@ -246,14 +248,14 @@ export async function fetchBillingOverview(): Promise<BillingOverview> {
     });
     throw error;
   }
-  
+
   console.log("[billingService] RPC response data:", data);
   const raw = (data && typeof data === "object" ? data : {}) as Record<string, any>;
-  
+
   console.log("[billingService] Mapping subscription:", raw.subscription);
   console.log("[billingService] Mapping plan:", raw.plan);
   console.log("[billingService] Mapping open request:", raw.open_payment_request);
-  
+
   return {
     subscription: mapSubscription(raw.subscription),
     plan: mapPlan(raw.plan),

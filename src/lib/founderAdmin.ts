@@ -264,6 +264,7 @@ export type PlatformPaymentRequest = {
 export type EffectiveSubscription = {
   owner_user_id: string;
   subscription_id: string | null;
+  paypal_subscription_id?: string | null;
   plan: { id: string; code: string; name: string } | null;
   billing_cycle?: string | null;
   status: string;

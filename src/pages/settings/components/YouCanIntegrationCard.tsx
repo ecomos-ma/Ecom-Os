@@ -14,6 +14,35 @@ type SyncResult = {
   errors?: string[];
 };
 
+/** Extract real error message from a supabase.functions.invoke response */
+async function extractEdgeFunctionError(error: unknown, data: unknown): Promise<string> {
+  // If data contains a server-returned error field, use it
+  if (data && typeof data === "object" && "error" in data) {
+    return String((data as Record<string, unknown>).error);
+  }
+
+  // Rip out real backend message from Supabase's FunctionsHttpError
+  if (error && typeof error === "object" && "context" in error) {
+    try {
+      const res = (error as any).context as Response;
+      if (res && typeof res.clone === "function") {
+        const body = await res.clone().json();
+        if (body?.error) return body.error;
+      }
+    } catch {
+      // Fall through to generic message
+    }
+  }
+
+  if (!error) return "Unknown error";
+  const msg = error instanceof Error ? error.message : String(error);
+  // Supabase JS wraps CORS/network errors
+  if (msg.includes("Failed to send a request") || msg.includes("fetch")) {
+    return "Edge Function unreachable — check Supabase deployment and CORS config";
+  }
+  return msg;
+}
+
 function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void }) {
   const { workspace, refreshProfile } = useAuth();
   const [connecting, setConnecting] = useState(false);
@@ -22,6 +51,7 @@ function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (c
 
   // Webhook registration state
   const [registeringWebhook, setRegisteringWebhook] = useState(false);
+  const [webhookActive, setWebhookActive] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,16 +69,21 @@ function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (c
   useEffect(() => {
     const youcanStatus = searchParams.get("youcan");
     if (youcanStatus === "success") {
-      toast.success("YouCan connecté avec succès !");
+      const reason = searchParams.get("reason");
+      if (reason === "webhook_failed") {
+        toast.success("YouCan connecté, mais le webhook a échoué. Veuillez l'activer manuellement.");
+      } else {
+        toast.success("YouCan connecté avec succès !");
+      }
       void refreshProfile();
-      // Remove query params to prevent toast on refresh
       searchParams.delete("youcan");
+      searchParams.delete("reason");
       setSearchParams(searchParams, { replace: true });
     } else if (youcanStatus === "error") {
-      const details = searchParams.get("details");
-      toast.error(`Erreur de connexion YouCan: ${details || "Inconnue"}`);
+      const reason = searchParams.get("reason");
+      toast.error(`Erreur de connexion YouCan: ${reason || "connection_failed"}`);
       searchParams.delete("youcan");
-      searchParams.delete("details");
+      searchParams.delete("reason");
       setSearchParams(searchParams, { replace: true });
     }
   }, [refreshProfile, searchParams, setSearchParams]);
@@ -87,21 +122,23 @@ function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (c
         body: { workspace_id: workspace.id },
       });
 
-      if (error) throw new Error(error.message || "Sync failed");
-      if (data?.error) throw new Error(data.error);
+      if (error || data?.error) {
+        throw new Error(await extractEdgeFunctionError(error, data));
+      }
 
       setSyncResult(data as SyncResult);
-      if (data.synced_count > 0) {
+      if ((data as SyncResult).synced_count > 0) {
         toast.success(`✅ ${data.synced_count} commande${data.synced_count > 1 ? "s" : ""} synchronisée${data.synced_count > 1 ? "s" : ""} depuis YouCan`);
       } else {
-        toast.success("Sync terminé — aucune nouvelle commande");
+        toast.success(`Sync terminé — ${data.total_fetched} commandes vérifiées, aucune nouvelle`);
       }
 
       // Trigger orders list reload across the app
       window.dispatchEvent(new Event("trigger-order-reload"));
     } catch (err: any) {
-      setSyncError(err.message);
-      toast.error(`Erreur sync: ${err.message}`);
+      const msg = err.message || "Sync failed";
+      setSyncError(msg);
+      toast.error(`Erreur sync YouCan: ${msg}`);
     } finally {
       setSyncing(false);
     }
@@ -116,13 +153,16 @@ function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (c
         body: { workspace_id: workspace.id },
       });
 
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(data.error);
+      if (error || data?.error) {
+        throw new Error(await extractEdgeFunctionError(error, data));
+      }
 
-      toast.success(`🔗 Webhook enregistré — futures commandes en temps réel`);
+      setWebhookActive(true);
+      toast.success(`🔗 Webhook enregistré (ID: ${data?.webhook_id ?? "ok"}) — nouvelles commandes en temps réel`);
       await refreshProfile();
     } catch (err: any) {
-      toast.error(`Erreur webhook: ${err.message}`);
+      const msg = err.message || "Webhook registration failed";
+      toast.error(`Erreur webhook YouCan: ${msg}`);
     } finally {
       setRegisteringWebhook(false);
     }
@@ -248,10 +288,15 @@ function YouCanIntegrationCard({ onConnectionChange }: { onConnectionChange?: (c
                 <button
                   id="youcan-register-webhook-btn"
                   onClick={handleRegisterWebhook}
-                  disabled={registeringWebhook}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-base-border bg-base-raised py-3 text-[13px] font-semibold text-ink hover:bg-base-border transition-colors disabled:opacity-60"
+                  disabled={registeringWebhook || webhookActive}
+                  className={`flex items-center justify-center gap-2 rounded-xl border py-3 text-[13px] font-semibold transition-colors disabled:opacity-60 ${webhookActive
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                    : "border-base-border bg-base-raised text-ink hover:bg-base-border"
+                    }`}
                 >
-                  {registeringWebhook ? <><Loader2 size={14} className="animate-spin" /> Webhook…</> : <><Zap size={14} /> Activate Webhook</>}
+                  {registeringWebhook ? <><Loader2 size={14} className="animate-spin" /> Webhook…</> :
+                    webhookActive ? <><CheckCircle2 size={14} /> Webhook Active</> :
+                      <><Zap size={14} /> Activate Webhook</>}
                 </button>
               </div>
 

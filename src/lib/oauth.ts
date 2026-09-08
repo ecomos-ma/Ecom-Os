@@ -11,16 +11,16 @@ export async function youcanAuthorizeUrl(workspaceId: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke('youcan-generate-state', {
     body: { workspace_id: workspaceId }
   });
-  
+
   if (error) throw error;
-  
+
   const state = data.state;
   const clientId = data.client_id;
-  
+
   if (!clientId) {
     throw new Error("Missing client_id from generate-state response");
   }
-  
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: YOUCAN_REDIRECT_URI,
@@ -29,14 +29,12 @@ export async function youcanAuthorizeUrl(workspaceId: string): Promise<string> {
   });
   const scopes = [
     "read-orders",
-    "read-customers",
-    "read-products",
     "view-store-info",
     "read-rest-hooks",
     "edit-rest-hooks",
     "delete-rest-hooks",
   ];
-  params.append("scope", scopes.join(" "));
+  scopes.forEach(scope => params.append("scope[]", scope));
   return `https://seller-area.youcan.shop/admin/oauth/authorize?${params.toString()}`;
 }
 
@@ -44,14 +42,14 @@ export async function shopifyAuthorizeUrl(workspaceId: string, shopDomain: strin
   const { data, error } = await supabase.functions.invoke('shopify-generate-state', {
     body: { workspace_id: workspaceId, shop_domain: shopDomain }
   });
-  
+
   if (error) throw error;
-  
+
   const authorizeUrl = data.authorize_url;
-  
+
   if (!authorizeUrl) {
     throw new Error("Missing authorize_url from generate-state response");
   }
-  
+
   return authorizeUrl;
 }

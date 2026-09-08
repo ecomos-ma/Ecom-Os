@@ -71,8 +71,10 @@ clearLegacySupabaseAuthState();
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
+    flowType: "pkce",
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: false,
   },
   realtime: {
     params: {

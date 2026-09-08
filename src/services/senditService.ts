@@ -54,6 +54,11 @@ export class SenditApiError extends Error {
 type ApiResponse<T> = { success: boolean; message?: string; code?: string; status?: string; provider?: "sendit" } & T;
 
 async function invoke<T>(body: Record<string, unknown>): Promise<ApiResponse<T>> {
+  // Ensure the JWT is fresh before calling the Edge Function to avoid "Invalid or expired session" errors.
+  const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
+  if (sessionError || !sessionData?.session) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
   const { data, error } = await supabase.functions.invoke("sendit-api", { body });
   if (error) {
     const response = (error as { context?: Response }).context;

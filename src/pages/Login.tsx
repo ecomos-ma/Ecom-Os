@@ -12,6 +12,7 @@ import {
   Loader2,
   LockKeyhole,
   Mail,
+  SendHorizonal,
   ShieldCheck,
   UserRound,
   X,
@@ -56,6 +57,7 @@ export default function Login() {
   const requestedBilling = searchParams.get("billing");
   const validRequestedPlan = isPlanTier(requestedPlan, plans) ? requestedPlan : null;
   const startsInSignup = searchParams.get("mode") === "signup" || Boolean(validRequestedPlan);
+  const resetSuccess = searchParams.get("reset") === "success";
 
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">(startsInSignup ? "sign-up" : "sign-in");
   const [selectedPlan, setSelectedPlan] = useState<PlanTier>(validRequestedPlan || "growth");
@@ -71,6 +73,44 @@ export default function Login() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  // ── Forgot password ────────────────────────────────────────────────────────
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+
+  const openForgot = () => {
+    setForgotEmail(email); // pre-fill with whatever the user typed
+    setForgotSent(false);
+    setForgotError(null);
+    setForgotOpen(true);
+  };
+
+  const sendResetLink = async () => {
+    if (!forgotEmail.trim() || !forgotEmail.includes("@")) {
+      return setForgotError("Entrez une adresse e-mail valide.");
+    }
+    setForgotBusy(true);
+    setForgotError(null);
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        forgotEmail.trim(),
+        { redirectTo: getAppUrlForPath("/reset-password") }
+      );
+      if (resetError) {
+        setForgotError(resetError.message || "Impossible d'envoyer le lien.");
+      } else {
+        setForgotSent(true);
+      }
+    } catch (caught) {
+      setForgotError(caught instanceof Error ? caught.message : "Une erreur est survenue.");
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMounted(true));
@@ -158,8 +198,15 @@ export default function Login() {
   const startGoogleOAuth = async () => {
     setGoogleBusy(true);
     const safeReturnTo = getSafeReturnPath(searchParams.get("returnTo"), "");
-    const callbackPath = safeReturnTo ? `/auth/callback?returnTo=${encodeURIComponent(safeReturnTo)}` : "/auth/callback";
-    const { error: authError } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: getAppUrlForPath(callbackPath) } });
+    if (safeReturnTo) {
+      window.sessionStorage.setItem("ecomos:oauth-return-to", safeReturnTo);
+    } else {
+      window.sessionStorage.removeItem("ecomos:oauth-return-to");
+    }
+    const { error: authError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: getAppUrlForPath("/auth/callback") },
+    });
     if (authError) {
       setGoogleBusy(false);
       setError(friendlyAuthError(authError.message));
@@ -283,6 +330,16 @@ export default function Login() {
             <p className="mt-2 text-base leading-7 text-slate-600">{authMode === "sign-in" ? "Enter your details to access your workspace." : "Enter your details first. You will choose your plan after email confirmation."}</p>
           </div>
 
+          {/* Reset password success banner */}
+          {resetSuccess && authMode === "sign-in" && (
+            <div className="mt-5 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              <p className="text-sm font-semibold text-emerald-800">
+                Mot de passe mis à jour avec succès. Connectez-vous avec votre nouveau mot de passe.
+              </p>
+            </div>
+          )}
+
           <button type="button" onClick={onGoogleSignIn} disabled={isProcessing} className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-base font-bold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
             {googleBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}{googleBusy ? "Connecting securely…" : "Continue with Google"}
           </button>
@@ -309,9 +366,120 @@ export default function Login() {
             <button type="submit" disabled={isProcessing} className="mt-6 flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#cf3167] to-[#f13f75] px-5 text-base font-bold text-white shadow-[0_12px_30px_rgba(219,63,115,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(219,63,115,0.3)] disabled:cursor-not-allowed disabled:opacity-60">
               {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : authMode === "sign-in" ? <LockKeyhole className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}{busy ? "Please wait…" : authMode === "sign-in" ? "Sign in" : "Create account"}
             </button>
+
+            {/* Forgot password link — only shown in sign-in mode */}
+            {authMode === "sign-in" && (
+              <div className="mt-4 text-center">
+                <button
+                  type="button"
+                  onClick={openForgot}
+                  className="text-sm font-semibold text-slate-500 transition hover:text-[#c53265]"
+                >
+                  Mot de passe oublié ?
+                </button>
+              </div>
+            )}
           </form>
         </div>
       </section>
+
+      {/* ── Forgot password modal ──────────────────────────────────────────── */}
+      {forgotOpen && (
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center p-4"
+          onClick={() => !forgotBusy && setForgotOpen(false)}
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-7 py-5">
+              <div>
+                <h2 className="text-[18px] font-bold text-slate-950">Mot de passe oublié</h2>
+                <p className="mt-0.5 text-[13px] text-slate-500">
+                  Entrez votre e-mail pour recevoir un lien de réinitialisation.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForgotOpen(false)}
+                disabled={forgotBusy}
+                className="ml-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-7 py-6">
+              {forgotSent ? (
+                <div className="text-center" aria-live="polite">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 className="h-7 w-7" />
+                  </div>
+                  <p className="mt-5 text-base font-bold text-slate-950">Lien envoyé !</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Si un compte existe pour{" "}
+                    <span className="font-semibold text-slate-900">{forgotEmail}</span>, vous recevrez un e-mail
+                    dans les prochaines minutes. Vérifiez aussi vos spams.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setForgotOpen(false)}
+                    className="mt-6 h-11 w-full rounded-2xl bg-slate-950 text-sm font-bold text-white transition hover:bg-slate-800"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label className="block text-sm font-bold text-slate-700">
+                    Adresse e-mail
+                    <span className="relative mt-2 block">
+                      <Mail className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="email"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && sendResetLink()}
+                        autoComplete="email"
+                        autoFocus
+                        placeholder="vous@exemple.com"
+                        className="h-14 w-full rounded-2xl border border-slate-200 bg-white pl-12 pr-4 text-base font-medium text-slate-950 outline-none transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-[#DB3F73] focus:ring-4 focus:ring-[#DB3F73]/10"
+                      />
+                    </span>
+                  </label>
+
+                  {forgotError && (
+                    <div
+                      className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 text-xs font-semibold leading-5 text-rose-700"
+                      role="alert"
+                    >
+                      {forgotError}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={sendResetLink}
+                    disabled={forgotBusy}
+                    className="mt-5 flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#cf3167] to-[#f13f75] text-base font-bold text-white shadow-[0_12px_30px_rgba(219,63,115,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(219,63,115,0.3)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {forgotBusy ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <SendHorizonal className="h-5 w-5" />
+                    )}
+                    {forgotBusy ? "Envoi en cours…" : "Envoyer le lien de réinitialisation"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <aside className="relative hidden min-h-screen items-center justify-center overflow-hidden border-l border-[#efdbe2] bg-[linear-gradient(145deg,#fff4f8_0%,#f9f4ff_50%,#f5fbff_100%)] p-5 lg:flex lg:max-h-screen">
         <div className="pointer-events-none absolute -left-24 top-16 h-72 w-72 rounded-full bg-[#ff7aa8]/15 blur-3xl" />

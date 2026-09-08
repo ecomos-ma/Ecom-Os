@@ -1,5 +1,4 @@
 // deno-lint-ignore-file no-explicit-any
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
   assertOnlyKeys,
   authenticate,
@@ -31,8 +30,9 @@ async function refreshYouCanToken(
     }),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Token refresh failed (${res.status}): ${text}`);
+    const text = await res.text().catch(() => "");
+    console.error("[YouCan Refresh failed]", res.status, text);
+    throw new HttpError("YouCan authentication expired. Please reconnect your store.", 401);
   }
   return res.json();
 }
@@ -48,8 +48,12 @@ async function fetchOrdersPage(accessToken: string, page: number): Promise<any> 
     },
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GET /orders page ${page} failed (${res.status}): ${text}`);
+    const text = await res.text().catch(() => "");
+    console.error(`[YouCan Sync failed page ${page}]`, res.status, text);
+    const safeMsg = res.status === 401 || res.status === 403
+      ? "YouCan authentication failed. Please reconnect your store."
+      : `YouCan orders sync failed (${res.status}): ${text.substring(0, 100)}`;
+    throw new HttpError(safeMsg, res.status === 401 ? 401 : 502);
   }
   return res.json();
 }
@@ -184,11 +188,7 @@ function mapYouCanOrder(order: any, workspaceId: string): Record<string, any> {
     attribution_data: { imported_from: "youcan", tracking_fields_supplied: Boolean(tracked("ttclid") || tracked("utm_source") || tracked("tiktok_campaign_id")) },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Main handler
-// ---------------------------------------------------------------------------
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(req) });
 
   if (req.method !== "POST") {
@@ -224,7 +224,7 @@ serve(async (req) => {
       if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
         const YOUCAN_CLIENT_ID = Deno.env.get("YOUCAN_CLIENT_ID");
         const YOUCAN_CLIENT_SECRET = Deno.env.get("YOUCAN_CLIENT_SECRET");
-        
+
         if (!integration.refresh_token || !YOUCAN_CLIENT_ID || !YOUCAN_CLIENT_SECRET) {
           await supabase.from("integrations").update({ status: "auth_expired" }).eq("id", integration.id);
           throw new HttpError("YouCan authentication expired. Reconnect the store.", 409);
@@ -312,7 +312,7 @@ serve(async (req) => {
 
         // Calculate shipping cost using Smart Pricing Engine logic
         let shippingCost: number | null = null;
-        
+
         // Priority 1: Try provider pricing from ozon_cities
         if (ozon_city_id) {
           const { data: cityData } = await supabase
@@ -324,7 +324,7 @@ serve(async (req) => {
             shippingCost = cityData.delivered_price;
           }
         }
-        
+
         // Priority 2: Fallback to business delivery fee if no provider pricing
         if (shippingCost === null) {
           const { data: workspaceData } = await supabase

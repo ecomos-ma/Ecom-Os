@@ -110,14 +110,14 @@ async function testGemini(endpoint: string | null, apiKey: string, model = "gemi
   }
 }
 
-async function testOpenAiCompatible(endpoint: string, apiKey: string, model: string, provider: string) {
-  const response = await fetch(`${endpoint.replace(/\/+$/, "")}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply with only OK" }], max_tokens: 8, temperature: 0 }) });
+async function testOpenAiCompatible(endpoint: string, apiKey: string, model: string, provider: string, clientSignal?: AbortSignal) {
+  const response = await fetch(`${endpoint.replace(/\/+$/, "")}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, messages: [{ role: "user", content: "Reply with only OK" }], max_tokens: 8, temperature: 0 }), signal: clientSignal });
   if (!response.ok) throw new Error(`${provider} returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
 }
 
-async function testCloudflare(endpoint: string, apiToken: string, model: string) {
+async function testCloudflare(endpoint: string, apiToken: string, model: string, clientSignal?: AbortSignal) {
   const url = endpoint.includes("/ai/run/") ? endpoint.replace(/\/+$/, "") : `${endpoint.replace(/\/+$/, "")}/ai/run/${model}`;
-  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` }, body: JSON.stringify({ messages: [{ role: "user", content: "Reply with only OK" }] }) });
+  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` }, body: JSON.stringify({ messages: [{ role: "user", content: "Reply with only OK" }] }), signal: clientSignal });
   if (!response.ok) throw new Error(`Cloudflare Workers AI returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
 }
 
@@ -200,23 +200,12 @@ serve(async (request) => {
       try {
         const credential = await decryptCredential(provider.credential_ciphertext, provider.credential_iv);
         if (provider.provider === "gemini") await testGemini(provider.endpoint, credential, provider.model && provider.model !== "default" ? provider.model : "gemini-3.6-flash", request.signal);
-        else if (provider.provider === "groq") await testOpenAiCompatible(provider.endpoint || "https://api.groq.com/openai/v1", credential, provider.model || "openai/gpt-oss-20b", "Groq");
-        else if (provider.provider === "cloudflare_workers_ai") await testCloudflare(provider.endpoint || "", credential, provider.model || "@cf/meta/llama-3.1-8b-instruct");
+        else if (provider.provider === "groq") await testOpenAiCompatible(provider.endpoint || "https://api.groq.com/openai/v1", credential, provider.model || "openai/gpt-oss-20b", "Groq", request.signal);
+        else if (provider.provider === "cloudflare_workers_ai") await testCloudflare(provider.endpoint || "", credential, provider.model || "@cf/meta/llama-3.1-8b-instruct", request.signal);
         else throw new Error("Connection testing is not available for this service");
-        await adminClient.from("tool_api_providers").update({ health_status: "healthy", last_error: null, cooldown_until: null, last_success_at: testedAt, failure_count: 0 }).eq("id", provider.id);
         return json({ success: true, health_status: "healthy" });
       } catch (testError) {
         const typed = testError instanceof ProviderTestError ? testError : new ProviderTestError("provider_network_error", "Provider test failed");
-        if (typed.reason !== "client_abort") {
-          const cooldown = typed.reason === "quota_exceeded" ? 300 : typed.reason === "provider_timeout" || typed.reason === "provider_5xx" || typed.reason === "provider_network_error" ? 30 : 0;
-          await adminClient.from("tool_api_providers").update({
-            health_status: cooldown > 0 ? "cooldown" : "unhealthy",
-            last_error: typed.reason,
-            cooldown_until: cooldown > 0 ? new Date(Date.now() + cooldown * 1000).toISOString() : null,
-            last_failure_at: testedAt,
-            failure_count: Number(provider.failure_count || 0) + 1,
-          }).eq("id", provider.id);
-        }
         return json({ success: false, reason: typed.reason, ...(typed.status ? { status: typed.status } : {}) });
       }
     }
@@ -238,6 +227,7 @@ serve(async (request) => {
             .from("tool_api_providers").select("id").eq("id", body.id).not("credential_ciphertext", "is", null).maybeSingle();
           if (!configured) throw new Error("An API key is required for this provider");
         }
+        if (!credential) Object.assign(values, { health_status: "unknown", last_error: null, cooldown_until: null });
         const { data, error } = await adminClient.from("tool_api_providers").update(values).eq("id", body.id)
           .select("id, provider, name, endpoint, tool_scope, model, credential_last4, priority, enabled, failure_count, health_status, last_error, cooldown_until, last_used_at, last_success_at, last_failure_at, created_at, updated_at").single();
         if (error) throw error;

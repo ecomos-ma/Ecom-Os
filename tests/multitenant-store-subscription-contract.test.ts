@@ -7,12 +7,19 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
 test("YouCan imports resolve the canonical active integration", () => {
   const webhook = read("supabase/functions/youcan-webhook/index.ts");
   const sync = read("supabase/functions/youcan-sync-orders/index.ts");
+  const register = read("supabase/functions/youcan-register-webhook/index.ts");
+  const oauth = read("src/lib/oauth.ts");
   assert.match(webhook, /integration_id/);
   assert.match(webhook, /integration\.status !== "active"/);
   assert.match(webhook, /source_integration_id/);
   assert.doesNotMatch(webhook, /searchParams\.get\("workspace_id"\)/);
   assert.match(sync, /eq\("provider", "youcan"\)/);
   assert.match(sync, /integration\.status !== "active"/);
+  assert.match(register, /order\.create/);
+  assert.match(register, /delete-rest-hooks|read-rest-hooks|edit-rest-hooks/);
+  assert.match(oauth, /delete-rest-hooks/);
+  assert.match(webhook, /x-youcan-signature/);
+  assert.match(webhook, /eventType/);
 });
 
 test("disconnect revokes every local import path", () => {

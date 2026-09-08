@@ -42,6 +42,10 @@ verify_jwt = false
 enabled = true
 verify_jwt = true
 
+[functions.send-team-invitation]
+enabled = true
+verify_jwt = true
+
 [functions.whatsapp-webhook]
 enabled = true
 verify_jwt = false
@@ -77,3 +81,36 @@ verify_jwt = true
 [functions.reset-workspace]
 enabled = true
 verify_jwt = true
+
+[functions.paypal-subscription]
+enabled = true
+verify_jwt = false
+
+[functions.youcan-generate-state]
+enabled = true
+verify_jwt = false
+
+[functions.youcan-oauth-callback]
+enabled = true
+verify_jwt = false
+
+[functions.youcan-sync-orders]
+enabled = true
+verify_jwt = false
+
+[functions.youcan-register-webhook]
+enabled = true
+verify_jwt = false
+
+[functions.youcan-webhook]
+enabled = true
+verify_jwt = false
+
+[functions.youcan-disconnect]
+enabled = true
+verify_jwt = false
+
+[functions.save-youcan-credentials]
+enabled = true
+verify_jwt = false
+

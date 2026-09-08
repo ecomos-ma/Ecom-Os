@@ -105,6 +105,49 @@ test("WhatsApp AI sends only the current order product and variants for contextu
   assert.match(prompt, /produit ta3i/);
 });
 
+test("WhatsApp AI reloads the provider pool for every request", async () => {
+  const material = "hot-reload-material";
+  const provider = { id: "dynamic", provider: "groq", tool_scope: "whatsapp_ai", priority: 1, endpoint: "https://groq.test/v1", ...await encryptedCredential("dynamic-key", material) };
+  let listCalls = 0;
+  const repository = {
+    async listAiProviders() { listCalls += 1; return [provider]; },
+    async recordAiProviderResult() {},
+  };
+  const gateway = new WhatsAppAiGateway({
+    repository,
+    config: { toolsEncryptionKey: material, aiTimeoutMs: 1000 },
+    logger: { warn() {} },
+    async fetchImpl() { return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ intent: "question", confidence: 0.9, reply_text: "ok" }) } }] }), { status: 200 }); },
+  });
+
+  await gateway.infer({ workspace: { id: "w1" }, aiSettings: {} }, "one");
+  await gateway.infer({ workspace: { id: "w1" }, aiSettings: {} }, "two");
+  assert.equal(listCalls, 2);
+});
+
+test("Test AI returns a simulated reply and provider metadata without health writes", async () => {
+  const material = "test-output-material";
+  const provider = { id: "test-provider", provider: "groq", tool_scope: "whatsapp_ai", priority: 1, endpoint: "https://groq.test/v1", ...await encryptedCredential("test-key", material) };
+  let healthWrites = 0;
+  const gateway = new WhatsAppAiGateway({
+    repository: { async listAiProviders() { return [provider]; }, async recordAiProviderResult() { healthWrites += 1; } },
+    config: { toolsEncryptionKey: material, aiTimeoutMs: 1000 },
+    logger: { warn() {} },
+    async fetchImpl() {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ confidence: 0.9, actions: [{ type: "question", parameters: {} }] }) } }] }), { status: 200 });
+    },
+  });
+
+  const result = await gateway.infer({ workspace: { id: "w1" }, aiSettings: {} }, "salam", { testOnly: true });
+  assert.equal(result.provider_used, "groq");
+  assert.equal(result.model, "llama-3.3-70b-versatile");
+  assert.equal(result.intent, "multi_action");
+  assert.match(result.simulated_reply, /Simulation/);
+  assert.equal(result.reply_text, result.simulated_reply);
+  assert.equal(typeof result.latency_ms, "number");
+  assert.equal(healthWrites, 0);
+});
+
 test("WhatsApp AI failover keeps the same conversation context across Groq, Cloudflare and Gemini", async () => {
   const material = "failover-test-material";
   const providers = [

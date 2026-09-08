@@ -352,9 +352,9 @@ function CurrentPlanCard({
           </div>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
             {plan ? (
-                plan.code === "founder" ? (
-                  <span className="text-[26px] font-black tracking-tight text-ink">Unlimited</span>
-                ) : isFreePlan ? (
+              plan.code === "founder" ? (
+                <span className="text-[26px] font-black tracking-tight text-ink">Unlimited</span>
+              ) : isFreePlan ? (
                 <span className="text-[26px] font-black tracking-tight text-ink">Free</span>
               ) : (
                 <>
@@ -374,12 +374,30 @@ function CurrentPlanCard({
               <Eye size={14} /> View Payment
             </button>
           ) : plan && !isFreePlan ? (
-            <Link
-              to={renewHref}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-accent px-4 py-2.5 text-[12.5px] font-semibold text-white shadow-sm hover:bg-brand-accentHover sm:flex-none"
-            >
-              <CreditCard size={14} /> {expired ? "Renew Subscription" : "Renew Plan"}
-            </Link>
+            <>
+              {subscription?.paypal_subscription_id ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm("Are you sure you want to cancel your PayPal subscription? You will retain access until the end of your prepaid period.")) return;
+                    try {
+                      const { error: invokeErr } = await supabase.functions.invoke("paypal-subscription/cancel");
+                      if (invokeErr) throw new Error(invokeErr.message || "Failed to cancel");
+                      window.location.reload();
+                    } catch (err: any) { alert(err.message); }
+                  }}
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-danger/30 text-danger px-4 py-2.5 text-[12.5px] font-semibold hover:bg-danger/5 sm:flex-none"
+                >
+                  Cancel PayPal
+                </button>
+              ) : null}
+              <Link
+                to={renewHref}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-accent px-4 py-2.5 text-[12.5px] font-semibold text-white shadow-sm hover:bg-brand-accentHover sm:flex-none"
+              >
+                <CreditCard size={14} /> {expired ? "Renew Subscription" : "Renew Plan"}
+              </Link>
+            </>
           ) : !plan ? (
             <Link
               to="/payment?intent=renew"

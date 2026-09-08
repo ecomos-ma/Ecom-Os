@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, KeyRound, Loader2, RefreshCw, Save, X, MoreHorizontal } from "lucide-react";
 import { getIntegrationLogo } from "../../../lib/integrationLogos";
 import { useAuth } from "../../../hooks/useAuth";
-import { disconnectForceLog, getForceLogStatus, saveForceLogKey, testForceLogConnection, type ForceLogStatus } from "../../../services/forcelogService";
+import { disconnectForceLog, getForceLogStatus, saveForceLogKey, testForceLogConnection, refreshForceLogCities, type ForceLogStatus } from "../../../services/forcelogService";
 
 const EMPTY_STATUS: ForceLogStatus = { connected: false, key_last4: null, last_tested_at: null, last_test_status: null };
 
@@ -33,20 +33,32 @@ export default function ForceLogShippingIntegrationCard({ onConnectionChange }: 
     setLoading(true); setMessage(null);
     try {
       const result = await saveForceLogKey(workspace.id, apiKey.trim());
-      setStatus(previous => ({ ...previous, connected: result.connected, key_last4: result.key_last4 }));
+      setStatus({ ...status, connected: result.connected, key_last4: result.key_last4 });
       setApiKey("");
-      setMessage({ success: true, text: "API key saved securely." });
-    } catch (error: any) { setMessage({ success: false, text: error.message || "Could not save ForceLog." }); }
+      
+      // Automatically test connection / fetch cities when saving a new key
+      try {
+        await testForceLogConnection(workspace.id);
+        await refreshForceLogCities(workspace.id);
+        setStatus(prev => ({ ...prev, last_tested_at: new Date().toISOString(), last_test_status: "connected" }));
+        setMessage({ success: true, text: "ForceLog API key saved and verified successfully." });
+      } catch (testError) {
+        // If testing fails, still report that the key was saved
+        setMessage({ success: true, text: "ForceLog API key saved, but connection test failed." });
+      }
+      
+    } catch (error: any) { setMessage({ success: false, text: error.message || "Failed to save API key." }); }
     finally { setLoading(false); }
   };
 
   const test = async () => {
-    if (!workspace?.id) return;
+    if (!workspace?.id || !status.connected) return;
     setTesting(true); setMessage(null);
     try {
       const result = await testForceLogConnection(workspace.id);
-      setMessage({ success: true, text: result.message || "Connected successfully." });
-      await loadStatus();
+      await refreshForceLogCities(workspace.id);
+      setStatus({ ...status, last_tested_at: new Date().toISOString(), last_test_status: "connected" });
+      setMessage({ success: true, text: result.message || "Connection tested successfully." });
     } catch (error: any) { setMessage({ success: false, text: error.message || "Connection test failed." }); }
     finally { setTesting(false); }
   };

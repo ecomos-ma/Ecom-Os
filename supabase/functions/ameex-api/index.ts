@@ -279,7 +279,10 @@ async function authenticate(req: Request, service: any, workspaceId: string, nee
   if (!anonKey) throw new Error("Function authentication is not configured.");
   const authClient = createClient(Deno.env.get("SUPABASE_URL")!, anonKey, { global: { headers: { Authorization: `Bearer ${token}` } } });
   const { data: { user }, error: authError } = await authClient.auth.getUser();
-  if (authError || !user) throw new Error("Invalid or expired session.");
+  if (authError || !user) {
+    console.error("Auth error:", authError);
+    throw new Error(`Invalid or expired session: ${authError?.message || 'No user found'}`);
+  }
 
   const [{ data: workspace }, { data: membership }, { data: profile }] = await Promise.all([
     service.from("workspaces").select("id, created_by").eq("id", workspaceId).maybeSingle(),

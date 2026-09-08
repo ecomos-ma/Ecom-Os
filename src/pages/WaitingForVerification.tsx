@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Clock3, Headphones, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -37,7 +37,7 @@ const previewReceipt: PaymentReceiptData = {
 };
 
 export default function WaitingForVerification() {
-  const { session, loading, operationalAccess } = useAuth();
+  const { session, loading, operationalAccess, defaultRoute, refreshProfile, workspace } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // Active sellers only see this flow after an explicit renewal or upgrade.
@@ -47,6 +47,62 @@ export default function WaitingForVerification() {
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "receipt";
   const [receipt, setReceipt] = useState<PaymentReceiptData | null>(previewMode ? previewReceipt : null);
   const [error, setError] = useState("");
+  const approvalChangeDetectedRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+  const redirectedRef = useRef(false);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (previewMode || !userId) return;
+
+    let active = true;
+    let pollingTimer: number | null = null;
+    let pollEnabled = false;
+
+    const refreshAuthoritativeAccess = async () => {
+      if (!active || refreshInFlightRef.current) return;
+      refreshInFlightRef.current = true;
+      approvalChangeDetectedRef.current = true;
+      try {
+        await refreshProfile();
+      } catch (refreshError) {
+        console.warn("[WaitingForVerification] Approval refresh failed:", refreshError);
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    };
+
+    const startPolling = () => {
+      if (pollEnabled || !active) return;
+      pollEnabled = true;
+      pollingTimer = window.setInterval(() => void refreshAuthoritativeAccess(), 4000);
+    };
+
+    let channel = supabase
+      .channel(`waiting-verification:${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `id=eq.${userId}` }, () => void refreshAuthoritativeAccess())
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_subscriptions", filter: `owner_user_id=eq.${userId}` }, () => void refreshAuthoritativeAccess())
+      .on("postgres_changes", { event: "*", schema: "public", table: "subscription_payment_requests", filter: `owner_user_id=eq.${userId}` }, () => void refreshAuthoritativeAccess());
+    if (workspace?.id) {
+      channel = channel.on("postgres_changes", { event: "*", schema: "public", table: "workspace_subscriptions", filter: `workspace_id=eq.${workspace.id}` }, () => void refreshAuthoritativeAccess());
+    }
+    channel.subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") startPolling();
+      });
+
+    return () => {
+      active = false;
+      if (pollingTimer !== null) window.clearInterval(pollingTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [previewMode, refreshProfile, session?.user.id, workspace?.id]);
+
+  useEffect(() => {
+    if (!approvalChangeDetectedRef.current || operationalAccess !== true || redirectedRef.current) return;
+    redirectedRef.current = true;
+    approvalChangeDetectedRef.current = false;
+    navigate(defaultRoute || "/dashboard", { replace: true });
+  }, [defaultRoute, navigate, operationalAccess]);
 
   useEffect(() => {
     if (previewMode || !session?.user.id) return;
@@ -63,7 +119,11 @@ export default function WaitingForVerification() {
         .maybeSingle();
       if (!active) return;
       if (requestError) { setError(requestError.message); return; }
-      if (!data) { navigate(paymentIntent ? `/payment?intent=${encodeURIComponent(paymentIntent)}` : "/payment", { replace: true }); return; }
+      if (!data) {
+        if (operationalAccess === true) navigate(defaultRoute || "/dashboard", { replace: true });
+        else navigate(paymentIntent ? `/payment?intent=${encodeURIComponent(paymentIntent)}` : "/payment", { replace: true });
+        return;
+      }
 
       const request = data as PaymentRequest;
       const normalizedStatus = String(request.status || "").toLowerCase();
@@ -89,7 +149,7 @@ export default function WaitingForVerification() {
 
     void load();
     return () => { active = false; };
-  }, [navigate, paymentIntent, previewMode, session]);
+  }, [defaultRoute, navigate, operationalAccess, paymentIntent, previewMode, session]);
 
   if (loading && !previewMode) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;

@@ -7,7 +7,7 @@ export const t = {
             integrations: "Integrations",
             testimonials: "Testimonials",
             login: "Login",
-            startFree: "Start Free Trial",
+            startFree: "Start Now",
             product: "Product",
             solutions: "Solutions",
             pricing: "Pricing"
@@ -282,7 +282,7 @@ export const t = {
             integrations: "الربط",
             testimonials: "آراء العملاء",
             login: "تسجيل الدخول",
-            startFree: "ابدأ مجاناً",
+            startFree: "ابدأ الآن",
             product: "المنتج",
             solutions: "الحلول",
             pricing: "الأسعار"

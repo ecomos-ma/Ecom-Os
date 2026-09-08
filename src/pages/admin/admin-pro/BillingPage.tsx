@@ -417,9 +417,14 @@ function PaymentDrawer({
         )}
         <section className="mt-5">
           <h3 className="font-bold">Private payment proof</h3>
-          <div className="mt-3 grid min-h-56 place-items-center overflow-hidden rounded-xl border border-base-border bg-base-surface">
+          <div className="mt-3 grid min-h-[160px] place-items-center overflow-hidden rounded-xl border border-base-border bg-base-surface">
             {proofError ? (
               <p className="p-4 text-sm text-danger">{proofError}</p>
+            ) : payment.payment_method === "paypal" ? (
+              <div className="text-center p-4">
+                <p className="text-sm font-bold text-[#003087]">Automated PayPal Transaction</p>
+                <p className="mt-1 text-xs text-ink-muted">No manual proof of payment is required for this transaction.</p>
+              </div>
             ) : proofUrl ? (
               payment.proof_mime_type === "application/pdf" ? (
                 <a
@@ -687,6 +692,12 @@ function SubscriptionsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge value={isFounderSubscription(item) ? "founder" : item.payment_status} />
+                        {item.effective?.paypal_subscription_id && (
+                          <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-[#003087]">
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M19.957 7.026a4.85 4.85 0 0 0-1.282-3.328C17.511 2.457 15.656 2 13 2H5C4.448 2 4 2.448 4 3v13c0 .552.448 1 1 1h4c.552 0 1-.448 1-1v-2c0-.552.448-1 1-1h6.643c1.782 0 3.328-1.545 3.328-3.328a3.327 3.327 0 0 0-.014-.646z" /><path d="M6 3c-.552 0-1 .448-1 1v13c0 .552.448 1 1 1h4c.552 0 1-.448 1-1V5c0-.552-.448-1-1-1H6z" opacity=".5" /></svg>
+                            PayPal
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-semibold">
                         {item.workspace_count}
@@ -1370,7 +1381,7 @@ function PlansPage() {
                       ["landing_page_os", "Landing Page.OS"],
                       ["premium_support", "Premium Support"],
                     ].map(([key, label]) => (
-                      <label key={key} className="flex items-center justify-between rounded-lg border border-base-border bg-base-surface px-3 py-2 text-sm"> 
+                      <label key={key} className="flex items-center justify-between rounded-lg border border-base-border bg-base-surface px-3 py-2 text-sm">
                         <span>{label}</span>
                         <input type="checkbox" checked={(draft as any)[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.checked }))} />
                       </label>

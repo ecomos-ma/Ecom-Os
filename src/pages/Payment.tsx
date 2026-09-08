@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import QRCode from "react-qr-code";
 import { ArrowLeft, ArrowRight, BadgeCheck, Building2, Check, ChevronDown, Copy, CreditCard, FileUp, Headphones, Landmark, Loader2, LockKeyhole, QrCode, ShieldCheck, Sparkles } from "lucide-react";
@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 import type { BillingPeriod, PlanTier } from "../config/pricing";
 import { fetchOfficialPlans, getPlanPrice, type PublicPlanRecord } from "../lib/planEngine";
 import { downloadPaymentReceiptPdf } from "../lib/paymentReceipt";
+import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 
 type PaymentRequest = {
@@ -58,9 +59,10 @@ const previewMethod: PaymentMethod = {
 };
 
 const inputClass = "h-12 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10";
+const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID?.trim() || "";
 
 export default function Payment() {
-  const { session, loading, operationalAccess, subscriptionStatus } = useAuth();
+  const { session, loading, operationalAccess, subscriptionStatus, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "checkout";
   const [searchParams] = useSearchParams();
@@ -90,6 +92,7 @@ export default function Payment() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [referralDiscountPct, setReferralDiscountPct] = useState(0);
+  const paypalActionInFlightRef = useRef(false);
 
   const normalizedBlockReason = subscriptionStatus === "pending_payment" ? "subscription_pending_payment" : subscriptionStatus === "expired" ? "subscription_expired" : subscriptionStatus === "grace" ? "grace_period" : subscriptionStatus;
   const blockMessage = normalizedBlockReason === "order_limit_reached" ? "Your current plan reached its monthly order limit. Complete a new payment to regain access." : normalizedBlockReason === "subscription_expired" ? "Your subscription expired. Complete a new payment to reactivate access." : normalizedBlockReason === "grace_period" ? "Your subscription is in its grace period until payment is resolved." : normalizedBlockReason === "subscription_suspended" ? "Your subscription is suspended. Complete a payment to restore access." : "Your workspace will activate after the payment is verified.";
@@ -221,12 +224,13 @@ export default function Payment() {
   const submitCheckout = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (previewMode) { setError(""); setNotice("Interactive checkout preview — no payment or account change was submitted."); return; }
-    if (paymentMode !== "bank_transfer") { setError(""); setNotice(paymentMode === "paypal" ? "PayPal is a preview option and is not connected to a live processor yet." : "Credit card is a preview option and is not connected to a live processor yet."); return; }
+    if (paymentMode === "paypal") return;
+    if (paymentMode !== "bank_transfer") { setError(""); setNotice("Credit card is a preview option and is not connected to a live processor yet."); return; }
     if (!request) await createRequest(); else await uploadProof();
   };
 
   const copyValue = async (label: string, value: string | null) => { if (!value) return; await navigator.clipboard.writeText(value); setCopied(label); window.setTimeout(() => setCopied(""), 1400); };
-  const actionLabel = paymentMode !== "bank_transfer" ? paymentMode === "paypal" ? "Preview PayPal checkout" : "Preview card checkout" : request ? "Submit payment proof" : checkout.button_label;
+  const actionLabel = paymentMode !== "bank_transfer" ? "Preview card checkout" : request ? "Submit payment proof" : checkout.button_label;
 
   return <Screen><main className="min-h-screen w-full bg-white"><form onSubmit={(event) => void submitCheckout(event)} className="grid min-h-screen lg:grid-cols-[0.96fr_1.04fr]">
     <section className="relative overflow-hidden border-b border-slate-200 bg-[#fff9fc] lg:border-b-0 lg:border-e">
@@ -260,12 +264,68 @@ export default function Payment() {
           </div> : <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800">No bank account is active yet. Please contact EcomOS support.</div>}
           <div className="grid gap-3 sm:grid-cols-[0.82fr_1.18fr]"><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bank transfer reference (optional)" aria-label="Bank transfer reference (optional)" className={inputClass} /><label className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#e73773]/35 bg-[#e73773]/[0.05] px-4 text-xs font-black text-[#cf2964] transition hover:bg-[#e73773]/10"><FileUp className="h-4 w-4" /><span className="max-w-64 truncate">{file ? file.name : "Upload payment receipt"}</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div>
           <p className="rounded-xl bg-slate-50 px-3.5 py-3 text-[10px] leading-4 text-slate-500">{selectedMethodData?.instructions || "Upload JPG, PNG, WebP or PDF proof up to 10 MB."} <strong className="font-bold text-slate-700">Your transfer reference is optional.</strong></p>
-        </div> : paymentMode === "credit_card" ? <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5"><div className="grid grid-cols-2 gap-3"><PaymentTypeCard icon={Building2} title="Bank transfer" onClick={() => setPaymentMode("bank_transfer")} /><PaymentTypeCard icon={CreditCard} title="Credit card" active accent={checkout.accent_color} /></div><div className="relative"><input inputMode="numeric" autoComplete="cc-number" placeholder="1234 5678 9012 3456" className={`${inputClass} pe-20`} /><span className="absolute inset-y-0 end-3 flex items-center text-[9px] font-black italic text-blue-800">VISA</span></div><div className="grid grid-cols-2 gap-3"><input inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" className={inputClass} /><input inputMode="numeric" autoComplete="cc-csc" placeholder="CVV" className={inputClass} /></div><div className="relative"><select defaultValue="" className={`${inputClass} appearance-none pe-10`}><option value="" disabled>Choose country</option><option>Morocco</option><option>France</option><option>Spain</option></select><ChevronDown className="pointer-events-none absolute end-3 top-4 h-4 w-4 text-slate-400" /></div><div className="grid grid-cols-3 gap-3"><input placeholder="Enter city" className={inputClass} /><input placeholder="Enter state" className={inputClass} /><input placeholder="ZIP code" className={inputClass} /></div></div> : <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5"><div className="rounded-xl bg-[#ffc439] px-6 py-3.5 text-center text-sm font-black italic text-[#003087]">PayPal</div><p className="mt-4 text-center text-xs leading-5 text-slate-500">Continue securely with PayPal to activate the {selectedPlanData.name} plan.</p></div>}
+        </div> : paymentMode === "credit_card" ? <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5"><div className="grid grid-cols-2 gap-3"><PaymentTypeCard icon={Building2} title="Bank transfer" onClick={() => setPaymentMode("bank_transfer")} /><PaymentTypeCard icon={CreditCard} title="Credit card" active accent={checkout.accent_color} /></div><div className="relative"><input inputMode="numeric" autoComplete="cc-number" placeholder="1234 5678 9012 3456" className={`${inputClass} pe-20`} /><span className="absolute inset-y-0 end-3 flex items-center text-[9px] font-black italic text-blue-800">VISA</span></div><div className="grid grid-cols-2 gap-3"><input inputMode="numeric" autoComplete="cc-exp" placeholder="MM / YY" className={inputClass} /><input inputMode="numeric" autoComplete="cc-csc" placeholder="CVV" className={inputClass} /></div><div className="relative"><select defaultValue="" className={`${inputClass} appearance-none pe-10`}><option value="" disabled>Choose country</option><option>Morocco</option><option>France</option><option>Spain</option></select><ChevronDown className="pointer-events-none absolute end-3 top-4 h-4 w-4 text-slate-400" /></div><div className="grid grid-cols-3 gap-3"><input placeholder="Enter city" className={inputClass} /><input placeholder="Enter state" className={inputClass} /><input placeholder="ZIP code" className={inputClass} /></div></div> : <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+          {paypalClientId ? <PayPalScriptProvider options={{ clientId: paypalClientId, components: "buttons", intent: "subscription", vault: true }}>
+            <PayPalButtons
+              disabled={saving}
+              style={{ label: "subscribe", shape: "pill", color: "gold" }}
+              createSubscription={async () => {
+                if (paypalActionInFlightRef.current) throw new Error("A PayPal checkout is already in progress.");
+                paypalActionInFlightRef.current = true;
+                setSaving(true);
+                setError("");
+                setNotice("");
+                try {
+                  const res = await supabase.functions.invoke("paypal-subscription/create", {
+                    body: { planCode: selectedPlan, billingCycle: billing === "yearly" ? "annual" : "monthly" },
+                  });
+                  if (res.error) throw new Error(res.error.message || "Failed to initiate PayPal checkout");
+                  const subscriptionId = (res.data as { subscriptionID?: string } | null)?.subscriptionID;
+                  if (!subscriptionId) throw new Error("PayPal did not return a subscription");
+                  return subscriptionId;
+                } catch (err) {
+                  paypalActionInFlightRef.current = false;
+                  setSaving(false);
+                  setError(err instanceof Error ? err.message : "Unable to start PayPal checkout. Please try again.");
+                  throw err;
+                }
+              }}
+              onApprove={async (data) => {
+                setError("");
+                setNotice("Verifying PayPal payment...");
+                try {
+                  const res = await supabase.functions.invoke("paypal-subscription/verify", {
+                    body: { subscriptionID: data.subscriptionID, expectedPlanCode: selectedPlan, billingCycle: billing === "yearly" ? "annual" : "monthly" },
+                  });
+                  if (res.error) throw new Error(res.error.message || "PayPal verification failed");
+                  await refreshProfile();
+                  setNotice("Subscription verified successfully. Redirecting...");
+                  navigate("/dashboard", { replace: true });
+                } catch (err) {
+                  paypalActionInFlightRef.current = false;
+                  setSaving(false);
+                  setError(err instanceof Error ? err.message : "PayPal verification failed. Please try again.");
+                }
+              }}
+              onCancel={() => {
+                paypalActionInFlightRef.current = false;
+                setSaving(false);
+                setNotice("PayPal checkout was cancelled.");
+              }}
+              onError={() => {
+                paypalActionInFlightRef.current = false;
+                setSaving(false);
+                setError("PayPal checkout encountered a network or processor error. Please try again.");
+              }}
+            />
+          </PayPalScriptProvider> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800">PayPal is temporarily unavailable. Please choose another payment method.</p>}
+          <p className="mt-4 text-center text-xs leading-5 text-slate-500">Continue securely with PayPal to activate the {selectedPlanData.name} plan.</p>
+        </div>}
       </div>
       {request && <div className="mt-3 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 text-[9px] text-slate-500"><span>Payment reference</span><strong className="font-mono text-slate-800">{request.reference}</strong></div>}
       {showBlockingMessage && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-800">{blockMessage}</p>}{error && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-[10px] text-rose-700">{error}</p>}{notice && <p className="mt-3 rounded-lg border border-pink-200 bg-pink-50 p-3 text-[10px] text-pink-700">{notice}</p>}
       <div className="mt-6 border-t border-slate-100 pt-5 text-sm"><div className="flex items-center justify-between text-slate-500"><span>Original price</span><span>{totalAmount.toLocaleString()} MAD</span></div>{referralDiscountPct > 0 && <div className="mt-1 flex items-center justify-between font-bold text-emerald-600"><span>{isRenewalIntent ? "Referral Reward: -25%" : "Referral discount: -25%"}</span><span>-{referralDiscount.toLocaleString()} MAD</span></div>}<div className="mt-2 flex items-end justify-between gap-4"><span className="text-lg font-black text-slate-950">Final amount</span><span className="text-end"><strong className="text-2xl font-black tracking-[-0.04em] text-slate-950">{finalAmount.toLocaleString()} MAD</strong><small className="block text-[9px] font-semibold text-slate-400">{monthlyEquivalent.toLocaleString()} MAD / month{billing === "yearly" ? " · billed annually" : ""}</small></span></div></div>
-      <button type="submit" disabled={saving || (paymentMode === "bank_transfer" && !selectedMethodData)} className="mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl text-sm font-black text-white shadow-[0_16px_32px_rgba(231,55,115,0.24)] transition hover:-translate-y-0.5 hover:brightness-105 disabled:opacity-50" style={{ background: `linear-gradient(105deg, ${checkout.accent_color}, #c92561)` }}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Processing…" : actionLabel}<ArrowRight className="h-4 w-4" /></button>
+      {paymentMode === "bank_transfer" && <button type="submit" disabled={saving || !selectedMethodData} className="mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl text-sm font-black text-white shadow-[0_16px_32px_rgba(231,55,115,0.24)] transition hover:-translate-y-0.5 hover:brightness-105 disabled:opacity-50" style={{ background: `linear-gradient(105deg, ${checkout.accent_color}, #c92561)` }}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? "Processing…" : actionLabel}<ArrowRight className="h-4 w-4" /></button>}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400"><span className="flex items-center gap-1.5"><ShieldCheck size={12} />{checkout.trust_note}</span>{checkout.support_whatsapp && <a href={`https://wa.me/${checkout.support_whatsapp.replace(/\D/g, "")}`} className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-[#d52d69]"><Headphones size={12} />Need help? {checkout.support_whatsapp}</a>}</div>
     </div></section>
   </form></main></Screen>;

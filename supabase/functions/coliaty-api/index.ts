@@ -72,6 +72,7 @@ serve(async (req) => {
 
       authHeader = `Bearer ${workspaceData.coliaty_public_key}:${workspaceData.coliaty_secret_key}`;
       COLIATY_BASE_URL = workspaceData.coliaty_api_url || COLIATY_BASE_URL;
+      if (COLIATY_BASE_URL === "https://api.coliaty.ma") COLIATY_BASE_URL = "https://customer-api-v1.coliaty.com";
       console.log(`[Coliaty API] Using key from workspace ${workspace_id} (first 8 chars): ${authHeader.substring(0, 15)}...`);
     }
 

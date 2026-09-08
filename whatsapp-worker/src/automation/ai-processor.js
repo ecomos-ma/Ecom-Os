@@ -89,6 +89,11 @@ export class WhatsAppAiProcessor {
 
     try {
       const decision = await this.gateway.infer(context, inbound.text);
+      if (Array.isArray(decision.actions) && decision.actions.length === 0) {
+        const reply = String(decision.customer_reply || decision.reply_text || "").trim();
+        if (!reply) return null;
+        return { ...normalResult, action: "ai_reply", reply_text: reply };
+      }
       const result = await (this.repository.executeAiActions || this.repository.executeAiAction).call(this.repository, {
         workspaceId,
         orderId: normalResult.order_id,
@@ -148,9 +153,9 @@ export class WhatsAppAiProcessor {
     }
   }
 
-  async test(workspaceId, message) {
+  async test(workspaceId, message, signal) {
     const context = await this.repository.loadAiContext(workspaceId, null, null);
     if (!context.aiSettings?.enabled) throw new Error("Enable WhatsApp AI before testing it");
-    return this.gateway.infer(context, message, { testOnly: true });
+    return this.gateway.infer(context, message, { testOnly: true, signal });
   }
 }
