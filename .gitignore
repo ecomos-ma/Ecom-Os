@@ -21,3 +21,6 @@ fake_dashboard_data.json
 .tmp-mobile-qa.cjs
 
 .vercel
+
+.vercel
+.env*

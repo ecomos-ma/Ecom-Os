@@ -28,7 +28,7 @@ import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
 
 type Contact = {
   id: string;
-  phone_number: string;
+  phone_number: string | null;
   display_name: string | null;
   remote_jid: string | null;
   customer_id: string | null;
@@ -61,10 +61,22 @@ const dayFormatter = new Intl.DateTimeFormat(undefined, {
   day: "2-digit",
   month: "short",
 });
-const formatTime = (value?: string | null) =>
-  value ? timeFormatter.format(new Date(value)) : "";
-const formatDay = (value?: string | null) =>
-  value ? dayFormatter.format(new Date(value)) : "";
+const safeDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+const formatTime = (value?: string | null) => {
+  const date = safeDate(value);
+  return date ? timeFormatter.format(date) : "";
+};
+const formatDay = (value?: string | null) => {
+  const date = safeDate(value);
+  return date ? dayFormatter.format(date) : "";
+};
+
+const contactName = (contact: Contact) =>
+  contact.display_name?.trim() || contact.phone_number?.trim() || "Unknown contact";
 
 function RoundIconButton({
   label,
@@ -88,8 +100,9 @@ function RoundIconButton({
   );
 }
 
-function Avatar({ name, large = false }: { name: string; large?: boolean }) {
-  const initials = name
+function Avatar({ name, large = false }: { name?: string | null; large?: boolean }) {
+  const safeName = name?.trim() || "Unknown contact";
+  const initials = safeName
     .split(/\s+/)
     .slice(0, 2)
     .map((part) => part[0])
@@ -250,6 +263,10 @@ export default function WhatsApp() {
 
   const sendMessage = async () => {
     if (!selected || !draft.trim() || !workspaceId || sending) return;
+    if (!selected.phone_number) {
+      toast.error("This conversation has no valid WhatsApp number");
+      return;
+    }
     setSending(true);
     try {
       await callWhatsAppWorker({
@@ -281,7 +298,7 @@ export default function WhatsApp() {
   };
 
   return (
-    <section className="h-full min-h-0 w-full overflow-hidden bg-[#f0f2f5] text-[#111b21] dark:bg-[#111b21] dark:text-[#e9edef]">
+    <section className="relative h-full min-h-0 w-full overflow-hidden bg-[#f0f2f5] text-[#111b21] dark:bg-[#111b21] dark:text-[#e9edef]">
       <div
         className={`grid h-full min-h-0 w-full grid-cols-1 overflow-hidden bg-white dark:bg-[#111b21] ${detailsOpen && selected ? "md:grid-cols-[minmax(310px,34%)_minmax(0,1fr)] xl:grid-cols-[360px_minmax(420px,1fr)_340px]" : "md:grid-cols-[minmax(320px,38%)_minmax(0,1fr)] lg:grid-cols-[400px_minmax(0,1fr)]"}`}
       >
@@ -302,13 +319,13 @@ export default function WhatsApp() {
             </div>
             <RoundIconButton
               label="Automations"
-              onClick={() => navigate("/settings?tab=Integrations")}
+              onClick={() => navigate("/settings?tab=integrations")}
             >
               <Bot size={20} />
             </RoundIconButton>
             <RoundIconButton
               label="WhatsApp settings"
-              onClick={() => navigate("/settings?tab=Integrations")}
+              onClick={() => navigate("/settings?tab=integrations")}
             >
               <MoreVertical size={20} />
             </RoundIconButton>
@@ -345,7 +362,7 @@ export default function WhatsApp() {
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {visibleContacts.map((contact) => {
-              const name = contact.display_name || contact.phone_number;
+              const name = contactName(contact);
               return (
                 <button
                   type="button"
@@ -429,11 +446,11 @@ export default function WhatsApp() {
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
                   <Avatar
-                    name={selected.display_name || selected.phone_number}
+                    name={contactName(selected)}
                   />
                   <span className="min-w-0">
                     <strong className="block truncate text-[15px] font-normal">
-                      {selected.display_name || selected.phone_number}
+                      {contactName(selected)}
                     </strong>
                     <span className="block truncate text-xs text-[#667781] dark:text-[#8696a0]">
                       {selected.phone_number}
@@ -460,17 +477,16 @@ export default function WhatsApp() {
               >
                 {messages.map((message, index) => {
                   const previous = messages[index - 1];
-                  const showDay =
-                    !previous ||
-                    formatDay(previous.created_at) !==
-                      formatDay(message.created_at);
+                  const currentDay = formatDay(message.created_at);
+                  const showDay = Boolean(currentDay) &&
+                    (!previous || formatDay(previous.created_at) !== currentDay);
                   const outbound = message.direction === "outbound";
                   return (
                     <div key={message.id}>
                       {showDay && (
                         <div className="my-4 flex justify-center">
                           <span className="rounded-lg bg-white px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-[#54656f] shadow-sm dark:bg-[#182229] dark:text-[#8696a0]">
-                            {formatDay(message.created_at)}
+                            {currentDay}
                           </span>
                         </div>
                       )}
@@ -591,7 +607,7 @@ export default function WhatsApp() {
             <div className="border-b border-[#e9edef] bg-white px-5 py-7 text-center shadow-sm dark:border-[#222d34] dark:bg-[#111b21]">
               <div className="flex justify-center">
                 <Avatar
-                  name={selected.display_name || selected.phone_number}
+                  name={contactName(selected)}
                   large
                 />
               </div>
@@ -662,7 +678,7 @@ export default function WhatsApp() {
               </button>
               <button
                 type="button"
-                onClick={() => navigate("/settings?tab=Integrations")}
+                onClick={() => navigate("/settings?tab=integrations")}
                 className="flex items-center gap-5 border-b border-[#e9edef] px-5 py-4 text-left text-sm hover:bg-[#f5f6f6] dark:border-[#222d34] dark:hover:bg-[#202c33]"
               >
                 <Settings size={20} /> Automation settings

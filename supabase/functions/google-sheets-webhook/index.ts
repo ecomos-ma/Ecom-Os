@@ -94,6 +94,7 @@ function mapSheetRow(row: any, workspaceId: string, sheetId: string): Record<str
   const total = rowKeys['total'] || rowKeys['amount'] || null;
   const orderNumber = rowKeys['order_number'] || rowKeys['ref'] || rowKeys['reference'] || null;
   const status = rowKeys['status'] || 'pending';
+  const customerIp = rowKeys['customer_ip'] || rowKeys['customer ip'] || rowKeys['ip address'] || rowKeys['ip'] || null;
 
   return {
     workspace_id: workspaceId,
@@ -108,6 +109,7 @@ function mapSheetRow(row: any, workspaceId: string, sheetId: string): Record<str
     unit_price: unitPrice ? Number(unitPrice) : null,
     total: total ? Number(total) : null,
     status: String(status).toLowerCase(),
+    customer_ip: customerIp ? String(customerIp).trim() : null,
     source: "sheets",
     created_at: new Date().toISOString(),
     source_platform: rowKeys['source_platform'] || null,
@@ -193,7 +195,7 @@ serve(async (req) => {
     const { data: logEntry } = await supabase.from("webhook_logs").insert({
       provider: "sheets",
       event_type: "row_change",
-      payload: body,
+      payload: { sheet_id: sheetId, field_count: Object.keys(row).length },
       status: "received",
       created_at: new Date().toISOString(),
     }).select("id").single();
@@ -271,6 +273,7 @@ serve(async (req) => {
       sku: mapped.sku || null,
       product_variant: null,
       customer_name: mapped.customer_name || null,
+      customer_ip: mapped.customer_ip || null,
       source_platform: mapped.source_platform, utm_source: mapped.utm_source, utm_medium: mapped.utm_medium,
       utm_campaign: mapped.utm_campaign, utm_content: mapped.utm_content, utm_term: mapped.utm_term,
       ttclid: mapped.ttclid, landing_page: mapped.landing_page, referrer: mapped.referrer,

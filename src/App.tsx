@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from "react-router-dom";
 import {
   lazy,
   Suspense,
@@ -17,6 +17,7 @@ import { supabaseConfigurationError } from "./lib/supabase";
 import { LanguageProvider } from "./i18n";
 import { SupportModeProvider } from "./contexts/SupportModeContext";
 import { SEOManager } from "./components/SEOManager";
+import WhatsApp from "./pages/WhatsApp";
 
 const Login = lazy(() => import("./pages/Login"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -46,8 +47,8 @@ const EcomOSLanding = lazy(() => import("./pages/LandingV3"));
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Orders = lazy(() => import("./pages/Orders"));
+const LiveView = lazy(() => import("./pages/LiveView"));
 const Confirmation = lazy(() => import("./pages/Confirmation"));
-const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 const Delivering = lazy(() => import("./pages/Delivering"));
 const Shipping = lazy(() => import("./pages/Shipping"));
 const Customers = lazy(() => import("./pages/Customers"));
@@ -62,9 +63,6 @@ const Team = lazy(() => import("./pages/Team"));
 const Settings = lazy(() => import("./pages/Settings"));
 const SetupWorkspace = lazy(() => import("./pages/SetupWorkspace"));
 const Notifications = lazy(() => import("./pages/Notifications"));
-const NotificationPreferences = lazy(
-  () => import("./pages/NotificationPreferences"),
-);
 const Amine = lazy(() => import("./pages/AmineTools"));
 const Invite = lazy(() => import("./pages/Invite"));
 
@@ -73,14 +71,22 @@ const PublicLandingPage = lazy(() => import("./pages/public/LandingPage"));
 
 function LoadablePage({ children }: { children: ReactNode }) {
   return (
-    <RouteErrorBoundary fallback={<PageSpinner />}>
+    <RouteErrorBoundary>
       <Suspense fallback={<PageSpinner />}>{children}</Suspense>
     </RouteErrorBoundary>
   );
 }
 
+function LegacySettingsTabRedirect({ tab }: { tab: string }) {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  params.set("tab", tab);
+
+  return <Navigate to={`/settings?${params.toString()}`} replace />;
+}
+
 class RouteErrorBoundary extends Component<
-  { children: ReactNode; fallback: ReactNode },
+  { children: ReactNode },
   { hasError: boolean }
 > {
   state = { hasError: false };
@@ -95,7 +101,23 @@ class RouteErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
-      return this.props.fallback;
+      return (
+        <div className="grid min-h-64 w-full place-items-center px-4 py-10">
+          <section className="w-full max-w-md rounded-2xl border border-base-border bg-base-surface p-6 text-center shadow-card">
+            <h1 className="text-lg font-bold text-ink">Unable to open this page</h1>
+            <p className="mt-2 text-sm leading-6 text-ink-muted">
+              The page did not load correctly. Refresh it to restore the latest app version.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 min-h-11 rounded-xl bg-brand-accent px-5 text-sm font-bold text-white"
+            >
+              Refresh page
+            </button>
+          </section>
+        </div>
+      );
     }
 
     return this.props.children;
@@ -404,6 +426,16 @@ export default function App() {
                     }
                   />
                   <Route
+                    path="/live-view"
+                    element={
+                      <LoadablePage>
+                        <PermissionGuard permission="orders">
+                          <LiveView />
+                        </PermissionGuard>
+                      </LoadablePage>
+                    }
+                  />
+                  <Route
                     path="/confirmation"
                     element={
                       <LoadablePage>
@@ -548,24 +580,16 @@ export default function App() {
                     }
                   />
                   <Route
-                    path="/settings/integrations"
-                    element={
-                      <LoadablePage>
-                        <PermissionGuard permission="settings">
-                          <Settings />
-                        </PermissionGuard>
-                      </LoadablePage>
-                    }
+                    path="/settings/integrations/*"
+                    element={<LegacySettingsTabRedirect tab="integrations" />}
+                  />
+                  <Route
+                    path="/settings/integration/*"
+                    element={<LegacySettingsTabRedirect tab="integrations" />}
                   />
                   <Route
                     path="/settings/billing"
-                    element={
-                      <LoadablePage>
-                        <PermissionGuard permission="settings">
-                          <Settings />
-                        </PermissionGuard>
-                      </LoadablePage>
-                    }
+                    element={<LegacySettingsTabRedirect tab="billing" />}
                   />
                   <Route
                     path="/notifications"
@@ -577,11 +601,7 @@ export default function App() {
                   />
                   <Route
                     path="/settings/notifications"
-                    element={
-                      <LoadablePage>
-                        <NotificationPreferences />
-                      </LoadablePage>
-                    }
+                    element={<LegacySettingsTabRedirect tab="notifications" />}
                   />
                   <Route
                     path="/tools"

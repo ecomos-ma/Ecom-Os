@@ -75,7 +75,7 @@ export default function Payment() {
   const requestType = intentParam === "renew" ? "renewal" : intentParam === "upgrade" ? "upgrade" : "initial_activation";
   const isRenewalIntent = requestType !== "initial_activation";
   const showBackButton = sourceParam === "landing" || sourceParam === "upgrade" || isRenewalIntent;
-  const backPath = sourceParam === "landing" ? "/" : "/settings/billing";
+  const backPath = sourceParam === "landing" ? "/" : "/settings?tab=billing";
   const [request, setRequest] = useState<PaymentRequest | null>(null);
   const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
   const [checkout, setCheckout] = useState<CheckoutSettings>(checkoutDefaults);

@@ -12,7 +12,10 @@ interface WorkspaceRow extends Workspace {
   owner?: Profile | null;
   memberCount?: number;
   orderCount?: number;
+  youcan?: { connected: boolean; status?: string | null; store_name?: string | null; external_store_id?: string | null; store_domain?: string | null; store_currency?: string | null; webhook_health?: string | null; webhook_last_received_at?: string | null; last_full_sync_at?: string | null; needs_reconnect?: boolean; balance?: number | null; due_amount?: number | null; unpaid_invoices_amount?: number | null; last_finance_sync_at?: string | null } | null;
 }
+
+type YouCanAdminHealth = NonNullable<WorkspaceRow["youcan"]> & { workspace_id: string };
 
 async function auditLog(action: string, targetId: string) {
   await supabase.from("platform_audit_logs").insert({
@@ -67,7 +70,10 @@ export default function AdminWorkspaces() {
       return; 
     }
 
-    // Enrich: member counts, order counts, owner
+    const { data: youcanRows } = await supabase.rpc("admin_get_youcan_integrations_v2");
+    const youcanByWorkspace = new Map<string, YouCanAdminHealth>((youcanRows ?? []).map((row: any) => [String(row.workspace_id), row as YouCanAdminHealth]));
+
+    // Enrich: member counts, order counts, owner, and safe YouCan health projection
     const wsRows = (data ?? []) as WorkspaceRow[];
     const enriched = await Promise.all(wsRows.map(async (ws) => {
       const [membersRes, ordersRes, ownerRes] = await Promise.all([
@@ -82,6 +88,7 @@ export default function AdminWorkspaces() {
         memberCount: membersRes.count ?? 0,
         orderCount: ordersRes.count ?? 0,
         owner: (ownerRes.data as Profile | null) ?? null,
+        youcan: youcanByWorkspace.get(ws.id) ?? null,
       };
     }));
 
@@ -210,9 +217,21 @@ export default function AdminWorkspaces() {
                     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11.5px] font-medium ${active ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
                       {active ? "Active" : "Suspended"}
                     </span>
+                    {ws.youcan && <span title={`${ws.youcan.store_name || "YouCan"}${ws.youcan.store_domain ? ` · ${ws.youcan.store_domain}` : ""}`} className={`inline-flex rounded-full px-2.5 py-0.5 text-[11.5px] font-medium ${ws.youcan.connected && ws.youcan.webhook_health === "healthy" ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"}`}>
+                      YouCan · {ws.youcan.connected ? (ws.youcan.webhook_health === "healthy" ? "healthy" : "attention") : "disconnected"}
+                    </span>}
                     <div className="text-[11.5px] text-ink-faint">{new Date(ws.created_at).toLocaleDateString()}</div>
                   </div>
                 </div>
+
+                {ws.youcan && <div className="mt-3 grid gap-2 rounded-lg border border-base-border/60 bg-base-raised/40 p-3 text-[11.5px] sm:grid-cols-2 xl:grid-cols-6">
+                  <div><span className="block text-ink-faint">YouCan store</span><span className="font-medium text-ink">{ws.youcan.store_name || "—"}</span></div>
+                  <div><span className="block text-ink-faint">Domain / external ID</span><span className="block truncate font-mono text-ink" title={ws.youcan.external_store_id || undefined}>{ws.youcan.store_domain || ws.youcan.external_store_id || "—"}</span></div>
+                  <div><span className="block text-ink-faint">Currency / balance</span><span className="font-medium text-ink">{ws.youcan.store_currency || "—"} · {ws.youcan.balance == null ? "—" : Number(ws.youcan.balance).toLocaleString()}</span></div>
+                  <div><span className="block text-ink-faint">Due / unpaid</span><span className="font-medium text-ink">{ws.youcan.due_amount == null ? "—" : Number(ws.youcan.due_amount).toLocaleString()} / {ws.youcan.unpaid_invoices_amount == null ? "—" : Number(ws.youcan.unpaid_invoices_amount).toLocaleString()}</span></div>
+                  <div><span className="block text-ink-faint">Webhook</span><span className="font-medium text-ink">{ws.youcan.webhook_health || "—"}{ws.youcan.webhook_last_received_at ? ` · ${new Date(ws.youcan.webhook_last_received_at).toLocaleString()}` : ""}</span></div>
+                  <div><span className="block text-ink-faint">Last sync</span><span className="font-medium text-ink">{ws.youcan.last_full_sync_at ? new Date(ws.youcan.last_full_sync_at).toLocaleString() : "—"}</span></div>
+                </div>}
 
                 {/* Actions */}
                 <div className="mt-3 flex flex-wrap gap-2 pt-3 border-t border-base-border/60">

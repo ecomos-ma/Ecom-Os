@@ -321,6 +321,9 @@ export function suggestDestinationField(sheetHeader: string): string | null {
   }
   
   // Check partial match for common patterns
+  if (lowerKey === 'ip' || lowerKey.includes('ip address') || lowerKey.includes('customer ip')) {
+    return 'customer_ip';
+  }
   if (lowerKey.includes('customer') && !lowerKey.includes('email') && !lowerKey.includes('phone')) {
     return 'customer_name';
   }

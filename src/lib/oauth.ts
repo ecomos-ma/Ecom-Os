@@ -5,8 +5,6 @@
 
 import { supabase } from "./supabase";
 
-const YOUCAN_REDIRECT_URI = import.meta.env.VITE_YOUCAN_REDIRECT_URI?.trim() as string;
-
 export async function youcanAuthorizeUrl(workspaceId: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke('youcan-generate-state', {
     body: { workspace_id: workspaceId }
@@ -14,28 +12,22 @@ export async function youcanAuthorizeUrl(workspaceId: string): Promise<string> {
 
   if (error) throw error;
 
-  const state = data.state;
-  const clientId = data.client_id;
-
-  if (!clientId) {
-    throw new Error("Missing client_id from generate-state response");
+  const authorizeUrl = typeof data?.authorization_url === "string" ? data.authorization_url : "";
+  let parsed: URL;
+  try {
+    parsed = new URL(authorizeUrl);
+  } catch {
+    throw new Error("YouCan returned an invalid authorization URL");
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "seller-area.youcan.shop" ||
+    parsed.pathname !== "/admin/oauth/authorize"
+  ) {
+    throw new Error("YouCan returned an invalid authorization URL");
   }
 
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: YOUCAN_REDIRECT_URI,
-    response_type: "code",
-    state: state,
-  });
-  const scopes = [
-    "read-orders",
-    "view-store-info",
-    "read-rest-hooks",
-    "edit-rest-hooks",
-    "delete-rest-hooks",
-  ];
-  scopes.forEach(scope => params.append("scope[]", scope));
-  return `https://seller-area.youcan.shop/admin/oauth/authorize?${params.toString()}`;
+  return parsed.toString();
 }
 
 export async function shopifyAuthorizeUrl(workspaceId: string, shopDomain: string): Promise<string> {

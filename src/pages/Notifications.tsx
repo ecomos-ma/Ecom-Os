@@ -130,7 +130,7 @@ export default function Notifications() {
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         {!online ? <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700">You are offline. Showing the last loaded notification state.</p> : <span />}
-        <div className="flex gap-2"><button onClick={() => navigate("/settings/notifications")} className="rounded-lg border border-base-border bg-base-surface px-3 py-2 text-xs font-semibold text-brand hover:bg-base-raised">Notification settings</button>{notificationContext.unreadCount > 0 && <button onClick={() => void notificationContext.markAllAsRead().then(() => load(false))} className="inline-flex items-center gap-2 rounded-lg border border-base-border bg-base-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-base-raised"><CheckCheck size={14} /> Mark all as read</button>}</div>
+        <div className="flex gap-2"><button onClick={() => navigate("/settings?tab=notifications")} className="rounded-lg border border-base-border bg-base-surface px-3 py-2 text-xs font-semibold text-brand hover:bg-base-raised">Notification settings</button>{notificationContext.unreadCount > 0 && <button onClick={() => void notificationContext.markAllAsRead().then(() => load(false))} className="inline-flex items-center gap-2 rounded-lg border border-base-border bg-base-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-base-raised"><CheckCheck size={14} /> Mark all as read</button>}</div>
       </div>
 
       <div className="mb-4 grid gap-2 rounded-xl border border-base-border bg-base-surface p-3 shadow-card sm:grid-cols-2 lg:grid-cols-6">

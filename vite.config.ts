@@ -70,7 +70,8 @@ export default defineConfig(({ mode }) => {
           if (moduleId.includes('/node_modules/lucide-react/')) return 'vendor-icons';
           if (
             moduleId.includes('/node_modules/write-excel-file/') ||
-            moduleId.includes('/node_modules/jszip/')
+            moduleId.includes('/node_modules/jszip/') ||
+            moduleId.includes('/node_modules/jspdf/')
           ) return 'vendor-utils';
           return undefined;
         },

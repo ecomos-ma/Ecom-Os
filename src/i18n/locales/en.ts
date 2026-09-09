@@ -24,6 +24,7 @@ const en = {
   "navigation.founder": "Founder",
   "navigation.dashboard": "Dashboard",
   "navigation.orders": "Orders",
+  "navigation.liveView": "Live View",
   "navigation.confirmation": "Confirmation",
   "navigation.whatsapp": "WhatsApp",
   "navigation.delivering": "Delivering",

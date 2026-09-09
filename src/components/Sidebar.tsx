@@ -29,6 +29,7 @@ import {
   Sparkles,
   Wand2,
   MessageCircle,
+  Globe2,
   LogOut,
   Menu,
   X,
@@ -68,6 +69,12 @@ const mainGroups: NavGroup[] = [
         to: "/orders",
         labelKey: "navigation.orders",
         icon: Package,
+        permission: "orders",
+      },
+      {
+        to: "/live-view",
+        labelKey: "navigation.liveView",
+        icon: Globe2,
         permission: "orders",
       },
       {

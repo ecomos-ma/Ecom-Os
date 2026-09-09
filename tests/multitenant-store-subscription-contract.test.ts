@@ -8,6 +8,8 @@ test("YouCan imports resolve the canonical active integration", () => {
   const webhook = read("supabase/functions/youcan-webhook/index.ts");
   const sync = read("supabase/functions/youcan-sync-orders/index.ts");
   const register = read("supabase/functions/youcan-register-webhook/index.ts");
+  const state = read("supabase/functions/youcan-generate-state/index.ts");
+  const shared = read("supabase/functions/_shared/youcan.ts");
   const oauth = read("src/lib/oauth.ts");
   assert.match(webhook, /integration_id/);
   assert.match(webhook, /integration\.status !== "active"/);
@@ -15,9 +17,10 @@ test("YouCan imports resolve the canonical active integration", () => {
   assert.doesNotMatch(webhook, /searchParams\.get\("workspace_id"\)/);
   assert.match(sync, /eq\("provider", "youcan"\)/);
   assert.match(sync, /integration\.status !== "active"/);
-  assert.match(register, /order\.create/);
-  assert.match(register, /delete-rest-hooks|read-rest-hooks|edit-rest-hooks/);
-  assert.match(oauth, /delete-rest-hooks/);
+  assert.match(register, /ensureYouCanWebhooks/);
+  assert.doesNotMatch(register, /"order\.create"/);
+  assert.match(shared, /delete-rest-hooks|read-rest-hooks|edit-rest-hooks/);
+  assert.match(oauth, /authorization_url/);
   assert.match(webhook, /x-youcan-signature/);
   assert.match(webhook, /eventType/);
 });
@@ -51,14 +54,28 @@ test("tenant writes and owner-wide limits are database enforced", () => {
   assert.match(capacityMigration, /returning counter\.order_count into v_new_count/);
 });
 
-test("OAuth state is authenticated, signed, expiring, and store-bound", () => {
+test("OAuth state is authenticated, opaque, expiring, single-use, and store-bound", () => {
   const state = read("supabase/functions/youcan-generate-state/index.ts");
+  const shared = read("supabase/functions/_shared/youcan.ts");
   const callback = read("supabase/functions/youcan-oauth-callback/index.ts");
   const oauth = read("src/lib/oauth.ts");
   assert.match(state, /authenticate\(req, client\)/);
   assert.match(state, /authorizeOperationalWorkspace/);
-  assert.match(callback, /constantTimeEqual/);
-  assert.match(callback, /10 \* 60 \* 1000/);
-  assert.match(callback, /https:\/\/api\.youcan\.shop\/me/);
-  assert.match(oauth, /view-store-info/);
+  assert.match(state, /crypto\.getRandomValues\(new Uint8Array\(32\)\)/);
+  assert.match(state, /state_hash: await sha256\(state\)/);
+  assert.match(state, /10 \* 60 \* 1000/);
+  assert.match(callback, /from\("youcan_oauth_states"\)/);
+  assert.match(callback, /\.is\("consumed_at", null\)/);
+  assert.match(callback, /\.gt\("expires_at", new Date\(\)\.toISOString\(\)\)/);
+  assert.match(callback, /select\("workspace_id,user_id"\)/);
+  assert.match(callback, /resolve_workspace_access_v1/);
+  assert.match(callback, /membership\?\.status !== "active" \|\| !access\?\.allowed/);
+  assert.match(callback, /youcanRequest\(String\(token\.access_token\), "\/me"\)/);
+  assert.match(shared, /view-store-info/);
+  assert.match(state, /authorization_url/);
+  assert.match(state, /YOUCAN_REDIRECT_URI/);
+  assert.doesNotMatch(oauth, /VITE_YOUCAN_REDIRECT_URI/);
+  assert.match(oauth, /seller-area\.youcan\.shop/);
+  assert.doesNotMatch(callback, /client_secret length/);
+  assert.doesNotMatch(callback, /Token exchange error response/);
 });

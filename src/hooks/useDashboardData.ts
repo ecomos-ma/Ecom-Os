@@ -515,12 +515,12 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
       if (!cancelledRef.current) setData((d) => ({ ...d, loading: false }));
     });
 
-    // ── Debounced RT reload (1 second) — prevents cascade on rapid events ──
+    // ── Debounced RT reload (5 seconds) — prevents cascade on rapid events ──
     const debouncedLoad = () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
         load(wid, cancelledRef).catch(console.error);
-      }, 1000);
+      }, 5000);
     };
 
     // ── Single RT channel for all dashboard tables ──

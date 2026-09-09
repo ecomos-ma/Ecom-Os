@@ -25,8 +25,10 @@ async function invoke<T>(name: string, body: Record<string, unknown>): Promise<T
 export const metaAdsService = {
   status: () => invoke<MetaConnectionStatus>("meta-assets", { action: "status" }),
   connect: async (returnUrl = window.location.href) => {
-    const data = await invoke<{ authorize_url: string }>("meta-auth-start", { return_url: returnUrl });
-    window.location.assign(data.authorize_url);
+    const data = await invoke<{ authorization_url?: string; authorize_url?: string }>("meta-auth-start", { return_url: returnUrl });
+    const authorizationUrl = data.authorization_url ?? data.authorize_url;
+    if (!authorizationUrl) throw new Error("Meta authorization URL was not returned");
+    window.location.assign(authorizationUrl);
   },
   disconnect: () => invoke<{ success: boolean }>("meta-disconnect", {}),
   refreshAssets: () => invoke("meta-assets", { action: "refresh" }),

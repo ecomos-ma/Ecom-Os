@@ -26,6 +26,7 @@ const fr: Record<keyof typeof en, string> = {
   "navigation.founder": "Fondateur",
   "navigation.dashboard": "Tableau de bord",
   "navigation.orders": "Commandes",
+  "navigation.liveView": "Vue en direct",
   "navigation.confirmation": "Confirmation",
   "navigation.whatsapp": "WhatsApp",
   "navigation.delivering": "Livraison",

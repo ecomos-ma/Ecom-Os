@@ -6,7 +6,6 @@ import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { useIntegrations } from "../hooks/useIntegrations";
 import { useTheme } from "../hooks/useTheme";
-import { youcanAuthorizeUrl } from "../lib/oauth";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import { toast } from "../components/Toast";
@@ -45,18 +44,17 @@ export default function Settings() {
   const navigate = useNavigate();
   const requestedTab = searchParams.get("tab");
   const resolvedTab = TABS.find((value) => value.toLowerCase() === requestedTab?.toLowerCase())
-    ?? (window.location.pathname.toLowerCase().endsWith("/billing") ? "Billing" : window.location.pathname.toLowerCase().endsWith("/integrations") ? "Integrations" : "Profile");
+    ?? (window.location.pathname.toLowerCase().endsWith("/billing") ? "Billing" : window.location.pathname.toLowerCase().startsWith("/settings/integrations") ? "Integrations" : "Profile");
   const [tab, setTab] = useState<Tab>(resolvedTab);
-
-  useEffect(() => {
-    if (window.location.pathname === "/settings" && requestedTab?.toLowerCase() === "integrations") {
-      navigate("/settings/integrations", { replace: true });
-    }
-  }, [navigate, requestedTab]);
 
   useEffect(() => {
     setTab(resolvedTab);
   }, [resolvedTab]);
+
+  const selectTab = (nextTab: Tab) => {
+    setTab(nextTab);
+    navigate(`/settings?tab=${nextTab.toLowerCase()}`);
+  };
 
   return (
     <div>
@@ -67,7 +65,7 @@ export default function Settings() {
           {TABS.map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => selectTab(t)}
               className={`rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors ${tab === t ? "bg-base-raised text-ink" : "text-ink-muted hover:text-ink"
                 }`}
             >

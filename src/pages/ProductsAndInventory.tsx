@@ -89,10 +89,16 @@ export default function ProductsAndInventory() {
 
             const { data: saved, error: pErr } = await supabase
                 .from("products")
-                .select("id, sku, name, cost, price, initial_stock, image_url, low_stock_threshold, inventory_tracking_enabled, category, barcode, warehouse, status")
+                .select("id, sku, name, cost, price, initial_stock, image_url, low_stock_threshold, inventory_tracking_enabled, category, barcode, warehouse, status, source_integration_id, provider_inventory, provider_updated_at")
                 .eq("workspace_id", workspace.id);
 
             if (pErr) throw pErr;
+
+            const sourceIntegrationIds = [...new Set((saved ?? []).map((product: any) => product.source_integration_id).filter(Boolean))];
+            const { data: integrationSources } = sourceIntegrationIds.length
+                ? await supabase.from("integrations").select("id,provider").eq("workspace_id", workspace.id).in("id", sourceIntegrationIds)
+                : { data: [] as Array<{ id: string; provider: string }> };
+            const providerByIntegration = new Map((integrationSources ?? []).map((integration: any) => [integration.id, integration.provider]));
 
             const cleanName = (s: string) =>
                 (s || "")
@@ -161,6 +167,10 @@ export default function ProductsAndInventory() {
                         total_orders: 0,
                         category: s.category,
                         status: s.status,
+                        source_integration_id: s.source_integration_id,
+                        source_provider: s.source_integration_id ? providerByIntegration.get(s.source_integration_id) ?? null : null,
+                        provider_inventory: s.provider_inventory,
+                        provider_updated_at: s.provider_updated_at,
                     });
                 }
             });
@@ -179,6 +189,10 @@ export default function ProductsAndInventory() {
                         inventory_tracking_enabled: s.inventory_tracking_enabled ?? true,
                         category: s.category || dyn.category,
                         status: s.status || dyn.status || "active",
+                        source_integration_id: s.source_integration_id,
+                        source_provider: s.source_integration_id ? providerByIntegration.get(s.source_integration_id) ?? null : null,
+                        provider_inventory: s.provider_inventory,
+                        provider_updated_at: s.provider_updated_at,
                     };
                 }
                 return dyn;
@@ -745,6 +759,12 @@ export default function ProductsAndInventory() {
                                         <div className="text-[11px] font-mono text-sky-500 mt-0.5 truncate">
                                             SKU: {p.sku || "—"}
                                         </div>
+                                        {p.source_provider && (
+                                            <div className="mt-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                                Source: {String(p.source_provider).toLowerCase() === "youcan" ? "YouCan" : p.source_provider}
+                                                {p.provider_updated_at ? ` · Sync ${new Date(p.provider_updated_at).toLocaleDateString()}` : ""}
+                                            </div>
+                                        )}
                                     </button>
 
                                     <div className="grid grid-cols-2 gap-2 my-2.5 p-2 rounded-lg bg-base-raised border border-base-border/50 text-[11.5px]">
@@ -924,6 +944,12 @@ export default function ProductsAndInventory() {
                                                         <div className="text-[10.5px] font-mono text-sky-500 truncate max-w-[140px] sm:max-w-[160px]">
                                                             SKU: {p.sku || "—"}
                                                         </div>
+                                                        {p.source_provider && (
+                                                            <div className="text-[9.5px] font-semibold text-emerald-600 dark:text-emerald-400 truncate max-w-[140px] sm:max-w-[160px]">
+                                                                {String(p.source_provider).toLowerCase() === "youcan" ? "YouCan" : p.source_provider}
+                                                                {p.provider_updated_at ? ` · ${new Date(p.provider_updated_at).toLocaleDateString()}` : ""}
+                                                            </div>
+                                                        )}
                                                     </button>
                                                 </div>
                                             </td>

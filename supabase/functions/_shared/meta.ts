@@ -28,7 +28,6 @@ export const META_REQUIRED_SCOPES = [
   "business_management",
   "pages_show_list",
   "pages_read_engagement",
-  "instagram_basic",
 ];
 
 export class MetaError extends HttpError {
@@ -47,7 +46,7 @@ export function requiredEnv(name: string): string {
   const value = Deno.env.get(name)?.trim();
   if (!value)
     throw new MetaError(
-      "Meta service configuration is incomplete",
+      `Missing environment variable: ${name}`,
       503,
       "configuration",
     );

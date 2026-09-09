@@ -9,18 +9,15 @@ import {
   requireUuid,
   serviceClient,
 } from "../_shared/security.ts";
+import { YOUCAN_REQUIRED_SCOPES } from "../_shared/youcan.ts";
 
-async function sign(payload: string, secret: string): Promise<string> {
-  const bytes = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    bytes.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, bytes.encode(payload));
-  return Array.from(new Uint8Array(signature)).map((part) => part.toString(16).padStart(2, "0")).join("");
+function randomState(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes).map((part) => part.toString(16).padStart(2, "0")).join("");
+}
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((part) => part.toString(16).padStart(2, "0")).join("");
 }
 
 Deno.serve(async (req) => {
@@ -35,13 +32,31 @@ Deno.serve(async (req) => {
     const workspaceId = requireUuid(body.workspace_id, "workspace_id");
     await authorizeOperationalWorkspace(client, user.id, workspaceId);
 
-    const signingSecret = Deno.env.get("STATE_SIGNING_SECRET")?.trim();
     const clientId = Deno.env.get("YOUCAN_CLIENT_ID")?.trim();
-    if (!signingSecret || !clientId) throw new HttpError("YouCan connection is not configured", 503);
+    const redirectUri = Deno.env.get("YOUCAN_REDIRECT_URI")?.trim();
+    if (!clientId || !redirectUri) {
+      throw new HttpError("YouCan connection is not configured", 503);
+    }
 
-    const payload = `${Date.now()}:${workspaceId}:${user.id}`;
-    const state = `${payload}:${await sign(payload, signingSecret)}`;
-    return json(req, { state, client_id: clientId });
+    const state = randomState();
+    await client.from("youcan_oauth_states").delete().eq("user_id", user.id).lt("expires_at", new Date().toISOString());
+    const { error: stateError } = await client.from("youcan_oauth_states").insert({
+      state_hash: await sha256(state),
+      user_id: user.id,
+      workspace_id: workspaceId,
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+    if (stateError) throw new HttpError("YouCan connection could not be initialized", 503);
+    const authorizationUrl = new URL("https://seller-area.youcan.shop/admin/oauth/authorize");
+    authorizationUrl.searchParams.set("client_id", clientId);
+    authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizationUrl.searchParams.set("response_type", "code");
+    authorizationUrl.searchParams.set("state", state);
+    for (const scope of YOUCAN_REQUIRED_SCOPES) {
+      authorizationUrl.searchParams.append("scope[]", scope);
+    }
+
+    return json(req, { authorization_url: authorizationUrl.toString() });
   } catch (error) {
     console.error("[YouCan state] request rejected", error instanceof HttpError ? error.message : "internal_error");
     return errorResponse(req, error);

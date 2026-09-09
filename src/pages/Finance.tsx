@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDollarSign, Loader2, PackageCheck, RefreshCw, TrendingUp, WalletCards } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { FinanceProvider, useFinance } from "../contexts/FinanceContext";
+import { useAuth } from "../hooks/useAuth";
+import { supabase } from "../lib/supabase";
 
 const money = (value: number) => `${Math.round(value || 0).toLocaleString("fr-MA")} DH`;
 const pct = (value: number) => `${Number(value || 0).toFixed(0)}%`;
@@ -12,8 +14,14 @@ function Metric({ label, value, tone = "text-ink", note }: { label: string; valu
 }
 
 function FinanceDashboard() {
+  const { workspace } = useAuth();
   const { revenue, cashFlow, health, forecast, reinvestment, alerts, payouts, transactions, loading, deliveryRate, returnRate, totalShippingCost, averageShippingCost, refetchTransactions, refetchPayouts, updatePayoutStatus } = useFinance();
   const [refreshing, setRefreshing] = useState(false);
+  const [youcanFinance, setYoucanFinance] = useState<{ balance: number | null; due_amount: number | null; unpaid_invoices_amount: number | null; currency: string | null; captured_at: string } | null>(null);
+  useEffect(() => {
+    if (!workspace?.id) return;
+    void supabase.from("youcan_financial_snapshots").select("balance,due_amount,unpaid_invoices_amount,currency,captured_at").eq("workspace_id", workspace.id).order("captured_at", { ascending: false }).limit(1).maybeSingle().then(({ data }) => setYoucanFinance(data));
+  }, [workspace?.id]);
   const refresh = async () => {
     setRefreshing(true);
     try { await Promise.all([refetchTransactions(), refetchPayouts()]); } finally { setRefreshing(false); }
@@ -41,6 +49,13 @@ function FinanceDashboard() {
       <div className="rounded-xl border border-base-border bg-base-surface p-5 shadow-card"><div className="flex items-center gap-2"><PackageCheck size={18} className="text-brand" /><div><h2 className="font-bold text-ink">Shipping costs</h2><p className="text-sm text-ink-muted">Taken from delivered Orders with a shipping cost.</p></div></div><div className="mt-5 grid grid-cols-2 gap-3"><Metric label="Total shipping" value={totalShippingCost} /><Metric label="Average / delivered order" value={averageShippingCost} /></div></div>
       <div className="rounded-xl border border-base-border bg-base-surface p-5 shadow-card"><div className="flex items-center gap-2"><CircleDollarSign size={18} className="text-brand" /><div><h2 className="font-bold text-ink">Safe to reinvest</h2><p className="text-sm text-ink-muted">Keeps a 20% cash buffer and upcoming-expense allowance.</p></div></div><div className="mt-5 grid grid-cols-3 gap-3"><div><p className="text-[11px] text-ink-muted">Available</p><p className="mt-1 font-bold text-ink">{money(reinvestment.availableCash)}</p></div><div><p className="text-[11px] text-ink-muted">Locked</p><p className="mt-1 font-bold text-amber-600">{money(reinvestment.lockedCash)}</p></div><div><p className="text-[11px] text-ink-muted">Safe now</p><p className="mt-1 font-bold text-emerald-600">{money(reinvestment.safeReinvestment)}</p></div></div></div>
     </section>
+
+    {youcanFinance && <section className="mt-5 rounded-xl border border-base-border bg-base-surface p-5 shadow-card">
+      <div className="flex items-center gap-2"><WalletCards size={18} className="text-brand" /><div><h2 className="font-bold text-ink">YouCan store balance</h2><p className="text-sm text-ink-muted">Provider-reported snapshot · {new Date(youcanFinance.captured_at).toLocaleString()}</p></div></div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {[['Balance', youcanFinance.balance], ['Due amount', youcanFinance.due_amount], ['Unpaid invoices', youcanFinance.unpaid_invoices_amount]].map(([label, value]) => <div key={String(label)} className="rounded-lg bg-base-raised p-3"><p className="text-[11px] text-ink-muted">{label}</p><p className="mt-1 font-bold text-ink">{Number(value || 0).toLocaleString('fr-MA')} {youcanFinance.currency || ''}</p></div>)}
+      </div>
+    </section>}
 
     <section className="mt-5 rounded-xl border border-base-border bg-base-surface p-5 shadow-card"><div className="flex items-center gap-2"><CheckCircle2 size={18} className="text-brand" /><div><h2 className="font-bold text-ink">Business health</h2><p className="text-sm text-ink-muted">Score {health.score}/100 · Grade {health.grade}</p></div></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{health.factors.map((factor) => <div key={factor.name} className="rounded-lg bg-base-raised p-3"><p className="text-[11px] text-ink-muted">{factor.name}</p><p className="mt-1 font-bold text-ink">{factor.label}</p></div>)}</div></section>
 

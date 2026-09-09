@@ -124,7 +124,7 @@ verify_jwt = false
 
 [functions.youcan-generate-state]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 
 [functions.youcan-oauth-callback]
 enabled = true
@@ -132,17 +132,21 @@ verify_jwt = false
 
 [functions.youcan-sync-orders]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 
 [functions.youcan-register-webhook]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 
 [functions.youcan-webhook]
 enabled = true
 verify_jwt = false
 
 [functions.youcan-disconnect]
+enabled = true
+verify_jwt = true
+
+[functions.youcan-reconcile]
 enabled = true
 verify_jwt = false
 

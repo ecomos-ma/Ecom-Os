@@ -108,7 +108,7 @@ export function PlanLimitBlockingModal({
             Close
           </button>
           <a
-            href="/settings/billing"
+            href="/settings?tab=billing"
             className="flex-1 rounded-lg bg-brand-accent px-4 py-2 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-accent/90"
           >
             {isOrderLimitReached ? "Upgrade Plan" : "Manage Subscription"}

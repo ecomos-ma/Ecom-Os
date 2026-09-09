@@ -16,10 +16,28 @@ const read = (path: string) =>
 const migration = read(
   "supabase/migrations/20260908010528_meta_ads_manager.sql",
 );
+const reconciliation = read(
+  "supabase/migrations/20260908130000_meta_production_reconciliation.sql",
+);
+const legacyReconnect = read(
+  "supabase/migrations/20260908131500_meta_legacy_reconnect_and_oauth_preservation.sql",
+);
 const meta = read("supabase/functions/_shared/meta.ts");
 const authStart = read("supabase/functions/meta-auth-start/index.ts");
 const authCallback = read("supabase/functions/meta-auth-callback/index.ts");
 const authCompat = read("supabase/functions/meta-oauth-callback/index.ts");
+const signedRequest = read("supabase/functions/_shared/meta-signed-request.ts");
+const deauthorize = read("supabase/functions/meta-deauthorize/index.ts");
+const dataDeletion = read("supabase/functions/meta-data-deletion/index.ts");
+const metaSync = read("supabase/functions/meta-sync/index.ts");
+const legacySync = read("supabase/functions/sync-meta-ads/index.ts");
+const legacyAccounts = read("supabase/functions/list-meta-adaccounts/index.ts");
+const legacySetAccount = read("supabase/functions/set-meta-account/index.ts");
+const securityReconciliation = read(
+  "supabase/migrations/20260908140000_targeted_security_reconciliation.sql",
+);
+const metaService = read("src/services/metaAdsService.ts");
+const metaCard = read("src/pages/settings/components/MetaIntegrationCard.tsx");
 const manage = read("supabase/functions/meta-manage/index.ts");
 const bulk = read("supabase/functions/meta-bulk/index.ts");
 const rules = read("supabase/functions/meta-rules/index.ts");
@@ -30,6 +48,10 @@ test("OAuth state is random, hashed, expiring, single-use, and callback-bound", 
   assert.match(authStart, /Date\.now\(\) \+ 10 \* 60 \* 1000/);
   assert.match(authStart, /META_REDIRECT_URI/);
   assert.match(authStart, /META_LOGIN_CONFIG_ID/);
+  assert.match(
+    authStart,
+    /searchParams\.set\(\s*"config_id",\s*requiredEnv\("META_LOGIN_CONFIG_ID"\)/,
+  );
   assert.match(authCallback, /\.is\("consumed_at", null\)/);
   assert.match(
     authCallback,
@@ -37,6 +59,55 @@ test("OAuth state is random, hashed, expiring, single-use, and callback-bound", 
   );
   assert.match(authCallback, /fb_exchange_token/);
   assert.match(authCompat, /meta-auth-callback\/index\.ts/);
+  assert.match(authCallback, /denied \|\| !code/);
+  assert.match(authCallback, /Meta authorization was cancelled/);
+  assert.match(authCallback, /assets\.accounts\.length \? "connected" : "select_assets"/);
+  assert.match(authCallback, /Missing permissions/);
+  assert.match(authCallback, /returnUrl/);
+});
+
+test("OAuth start reuses stale connecting connections without the v3 query-builder regression", () => {
+  assert.match(authStart, /\.from\("meta_connections"\)\s*\.select\("id,status"\)\s*\.eq\("workspace_id", workspaceId\)/);
+  assert.match(authStart, /\.from\("meta_oauth_states"\)[\s\S]{0,220}\.is\("consumed_at", null\)[\s\S]{0,80}\.lte\("expires_at", now\)/);
+  assert.match(authStart, /activeConnection\.status === "connecting"/);
+  assert.doesNotMatch(authStart, /\.from\("meta_connections"\)\s*\.eq\(/);
+  assert.match(authStart, /request_id: requestId/);
+  assert.match(authStart, /stage,/);
+  assert.match(authStart, /error_code:/);
+  assert.doesNotMatch(authStart, /console\.error\([\s\S]{0,220}(?:token|secret|jwt|authorization_code|state)/i);
+});
+
+test("legacy Meta endpoints are authenticated retirement stubs and V2 remains canonical", () => {
+  for (const source of [legacySync, legacyAccounts, legacySetAccount]) {
+    assert.match(source, /status: 410/);
+    const executableSource = source.replace(/\/\/.*$/gm, "");
+    assert.doesNotMatch(executableSource, /meta_access_token|access_token|workspace_id/);
+  }
+  assert.match(metaSync, /syncWorkspace/);
+  assert.match(metaSync, /isCronRequest/);
+});
+
+test("Connect uses the canonical start function, redirects immediately, and shows a safe failure", () => {
+  assert.match(metaService, /invoke<[^>]+>\("meta-auth-start"/);
+  assert.match(metaService, /authorization_url/);
+  assert.match(metaService, /window\.location\.assign\(authorizationUrl\)/);
+  assert.match(
+    metaCard,
+    /https:\/\/www\.ecomos\.ma\/settings\?tab=integrations/,
+  );
+  assert.match(metaCard, /Connecting…/);
+  assert.match(metaCard, /Unable to start Meta connection\./);
+  assert.match(authCallback, /settings\?tab=integrations/);
+  assert.doesNotMatch(authCallback, /settings\/integrations\/meta/);
+});
+
+test("Meta configuration errors name the missing variable without disclosing values", () => {
+  assert.match(meta, /Missing environment variable: \$\{name\}/);
+  assert.match(authStart, /META_APP_ID/);
+  assert.match(authStart, /META_LOGIN_CONFIG_ID/);
+  assert.match(authStart, /META_REDIRECT_URI/);
+  assert.match(authCallback, /META_APP_SECRET/);
+  assert.match(authCallback, /META_REDIRECT_URI/);
 });
 
 test("Meta operations resolve the active workspace from the authenticated user", () => {
@@ -73,9 +144,72 @@ test("tokens are encrypted and never granted to browser roles", () => {
     /revoke all on public\.meta_connections from anon, authenticated/,
   );
   assert.doesNotMatch(
-    read("src/pages/settings/components/MetaIntegrationCard.tsx"),
+    metaCard,
     /Access Token|meta_access_token|System User/,
   );
+});
+
+test("OAuth callbacks, deauthorization, and deletion trust only signed Meta input", () => {
+  assert.match(signedRequest, /META_APP_SECRET/);
+  assert.match(signedRequest, /HMAC/);
+  assert.match(signedRequest, /timingSafeEqual/);
+  assert.match(deauthorize, /verifyMetaSignedRequest/);
+  assert.match(deauthorize, /\.eq\("meta_user_id", payload\.user_id\)/);
+  assert.match(dataDeletion, /verifyMetaSignedRequest/);
+  assert.match(dataDeletion, /Verified Meta data-deletion callback/);
+  assert.match(dataDeletion, /confirmation_code/);
+});
+
+test("the reconciliation migration installs only additive Meta V2 schema and isolation controls", () => {
+  assert.match(reconciliation, /create table if not exists public\.meta_connections/);
+  assert.match(
+    reconciliation,
+    /execute format\('alter table public\.%I enable row level security'/,
+  );
+  assert.match(reconciliation, /meta_oauth_states_expiry_idx/);
+  assert.match(reconciliation, /meta_bulk_jobs_queue_idx/);
+  assert.match(reconciliation, /create or replace function public\.get_meta_integration_status/);
+  assert.match(reconciliation, /revoke all on public\.meta_connections from anon, authenticated/);
+  assert.doesNotMatch(reconciliation, /drop table/i);
+});
+
+test("legacy sync cannot use browser-supplied workspace IDs", () => {
+  assert.match(metaSync, /resolveActiveWorkspace\(client, user\.id, false\)/);
+  assert.doesNotMatch(metaSync, /body\.workspace_id/);
+  assert.doesNotMatch(metaSync, /workspace_id\?:/);
+  assert.match(metaSync, /body\.scheduled && isCronRequest\(req\)/);
+});
+
+test("reconnect does not erase an existing encrypted connection before OAuth succeeds", () => {
+  assert.match(authStart, /const \{ data: activeConnection/);
+  assert.match(authStart, /\.update\(\{[\s\S]{0,180}connected_by: user\.id/);
+  assert.doesNotMatch(authStart, /access_token_encrypted: null/);
+  assert.match(authCallback, /\.eq\("status", "connecting"\)/);
+  assert.match(legacyReconnect, /'reauth_required'/);
+  assert.match(legacyReconnect, /w\.meta_access_token/);
+  assert.doesNotMatch(legacyReconnect, /select\s+w\.meta_access_token/i);
+});
+
+test("targeted security reconciliation removes browser access and fixes retained definers", () => {
+  assert.match(securityReconciliation, /drop function if exists public\.admin_get_all_workspaces/);
+  assert.doesNotMatch(securityReconciliation, /meta_access_token text/);
+  for (const functionName of [
+    "admin_get_all_profiles",
+    "admin_get_all_workspaces",
+    "reset_workspace",
+    "decrypt_secret",
+    "upsert_shipping_credentials",
+    "create_inventory_movement",
+    "increment_returned_stock",
+    "get_whatsapp_conversation",
+    "get_daily_ad_spend",
+    "can_reset_workspace",
+    "reset_workspace_data_v2",
+  ]) {
+    assert.match(securityReconciliation, new RegExp(`revoke all on function public\\.${functionName}`));
+  }
+  assert.match(securityReconciliation, /alter view public\.agent_leaderboard set \(security_invoker = true\)/);
+  assert.match(securityReconciliation, /alter function public\.decrypt_secret\(text\) set search_path = public/);
 });
 
 test("writes are mirrored only after Meta confirms them", () => {

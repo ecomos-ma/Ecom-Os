@@ -29,6 +29,7 @@ function formatPercent(value: number) {
 export default function MobileDashboard() {
   const { workspace } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState("today");
+  const [customDate, setCustomDate] = useState("");
   
   // Calculate date range based on selected period
   const { start: startDate, end: endDate } = useMemo(() => {
@@ -43,15 +44,17 @@ export default function MobileDashboard() {
     } else if (selectedPeriod === "yesterday") {
       start.setDate(start.getDate() - 1);
       end.setDate(end.getDate() - 1);
-    } else if (selectedPeriod === "thisMonth") {
-      start.setDate(1);
-      end.setMonth(end.getMonth() + 1, 0);
     } else if (selectedPeriod === "all") {
       start.setTime(0);
+    } else if (selectedPeriod === "custom" && customDate) {
+      const d = new Date(customDate);
+      start.setTime(d.getTime());
+      end.setTime(d.getTime());
+      end.setHours(23, 59, 59, 999);
     }
     
     return { start, end };
-  }, [selectedPeriod]);
+  }, [selectedPeriod, customDate]);
   
   const d = useDashboardData(startDate, endDate);
   
@@ -135,14 +138,14 @@ export default function MobileDashboard() {
             <div className="bg-white/20 backdrop-blur-sm rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-2">
                 <DollarSign size={16} className="text-white" />
-                <span className="text-[13px] font-medium text-white/80">Today's Revenue</span>
+                <span className="text-[13px] font-medium text-white/80">Revenue</span>
               </div>
               <p className="text-2xl font-bold text-white">{formatCurrency(d.revenue || 0)}</p>
             </div>
             <div className="bg-white/20 backdrop-blur-sm rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Package size={16} className="text-white" />
-                <span className="text-[13px] font-medium text-white/80">Today's Orders</span>
+                <span className="text-[13px] font-medium text-white/80">Orders</span>
               </div>
               <p className="text-2xl font-bold text-white">{d.orders.length}</p>
             </div>
@@ -151,18 +154,43 @@ export default function MobileDashboard() {
       </div>
 
       {/* Period Selector */}
-      <div className="flex gap-2 mb-6 overflow-x-auto w-full px-4 -mx-4">
-        {["today", "yesterday", "thisMonth", "all"].map((period) => (
+      <div className="flex gap-2.5 mb-6 overflow-x-auto w-full px-4 pb-2 scrollbar-none items-center">
+        <div className="relative flex-shrink-0">
+          <input
+            type="date"
+            aria-label="Custom Date"
+            value={customDate}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            onChange={(e) => {
+              if (e.target.value) {
+                setCustomDate(e.target.value);
+                setSelectedPeriod("custom");
+              }
+            }}
+          />
           <button
-            key={period}
-            onClick={() => setSelectedPeriod(period)}
-            className={`px-4 py-2 rounded-full text-[13px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
-              selectedPeriod === period
-                ? "bg-brand text-white shadow-md"
-                : "bg-base-surface border border-base-border text-ink-muted"
+            type="button"
+            className={`w-11 h-11 flex items-center justify-center rounded-2xl border ${selectedPeriod === 'custom' ? 'bg-[#d96b86]/10 border-[#d96b86]/30 text-[#d96b86]' : 'bg-base-surface border-base-border/70 text-ink-muted'} transition-colors pointer-events-none`}
+          >
+            <Calendar size={18} strokeWidth={2} />
+          </button>
+        </div>
+
+        {[
+          { id: "today", label: "Today" },
+          { id: "yesterday", label: "Yesterday" },
+          { id: "all", label: "All time" }
+        ].map((period) => (
+          <button
+            key={period.id}
+            onClick={() => setSelectedPeriod(period.id)}
+            className={`h-11 px-5 rounded-2xl text-[14px] font-bold whitespace-nowrap transition-all flex-shrink-0 border ${
+              selectedPeriod === period.id
+                ? "bg-[#d96b86] text-white border-[#d96b86] shadow-sm shadow-[#d96b86]/30"
+                : "bg-base-surface text-[#4a5568] border-base-border/70 hover:bg-base-raised"
             }`}
           >
-            {period.charAt(0).toUpperCase() + period.slice(1).replace("thisMonth", "This Month")}
+            {period.label}
           </button>
         ))}
       </div>

@@ -165,6 +165,7 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
 export function Layout() {
   const location = useLocation();
   const isWhatsAppInbox = location.pathname.startsWith("/whatsapp");
+  const isLiveView = location.pathname.startsWith("/live-view");
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
@@ -407,22 +408,13 @@ export function Layout() {
         <AdminPreviewBanner />
         <AnnouncementTray />
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
-          <div className="h-full w-full md:hidden">
-            <PullToRefresh>
-              <PageContent
-                className={`${isWhatsAppInbox ? "!p-0" : "mobile-page-content"} min-h-full`}
-              >
-                <Outlet />
-              </PageContent>
-            </PullToRefresh>
-          </div>
-          <div className="hidden h-full w-full overflow-y-auto overscroll-contain md:block">
+          <PullToRefresh>
             <PageContent
-              className={`h-full min-h-full ${isWhatsAppInbox ? "!p-0" : ""}`}
+              className={`h-full min-h-full ${isWhatsAppInbox || isLiveView ? "!p-0" : "mobile-page-content"}`}
             >
               <Outlet />
             </PageContent>
-          </div>
+          </PullToRefresh>
         </main>
       </div>
       {/* Global toast notifications — mounted once here, used from anywhere */}

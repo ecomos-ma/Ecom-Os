@@ -263,8 +263,8 @@ export default function TikTokAds() {
 
   if (loading && !status) return <div><PageHeader title="TikTok Ads" subtitle="Official TikTok Marketing API reporting and COD profitability." /><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Array.from({ length: 12 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-xl bg-base-raised" />)}</div></div>;
   if (error) return <State title="TikTok reporting unavailable" body={error} action={<button onClick={() => void reload()} className="rounded-xl bg-brand px-4 py-2 text-white">Retry</button>} />;
-  if (!status?.connection || ["not_connected", "disconnected"].includes(status.state)) return <TikTokConnectionEmpty onOpenSettings={() => navigate("/settings?tab=Integrations")} />;
-  if (status.state === "reauth_required") return <TikTokConnectionEmpty expired onOpenSettings={() => navigate("/settings?tab=Integrations")} />;
+  if (!status?.connection || ["not_connected", "disconnected"].includes(status.state)) return <TikTokConnectionEmpty onOpenSettings={() => navigate("/settings?tab=integrations")} />;
+  if (status.state === "reauth_required") return <TikTokConnectionEmpty expired onOpenSettings={() => navigate("/settings?tab=integrations")} />;
   if (!account) return <State title="Select an advertiser account" body="Authorization succeeded, but no advertiser is enabled for reporting yet." action={<button onClick={() => navigate("/settings?tab=integrations&tiktok=select_accounts")} className="rounded-xl bg-brand px-4 py-2 text-white">Choose advertisers</button>} />;
 
   const metricCards: Array<{ label: string; value: string; note?: string; current?: number; previous?: number }> = [

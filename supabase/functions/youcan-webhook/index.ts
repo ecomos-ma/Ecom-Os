@@ -1,143 +1,65 @@
 import { createClient } from "npm:@supabase/supabase-js@2.111.0";
+import { requiredYouCanEnv, YOUCAN_WEBHOOK_EVENTS } from "../_shared/youcan.ts";
 
-const responseHeaders = { "Content-Type": "application/json" };
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function reply(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: responseHeaders });
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
-
-async function validHmac(body: string, signature: string, secret: string): Promise<boolean> {
-  const trimmed = signature.trim();
-  if (!/^[0-9a-f]{64}$/i.test(trimmed)) return false;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const actual = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(body)));
-  const expected = new Uint8Array(trimmed.match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)));
-  let difference = actual.length ^ expected.length;
-  for (let index = 0; index < Math.min(actual.length, expected.length); index += 1) difference |= actual[index] ^ expected[index];
+async function sign(raw: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(requiredYouCanEnv("YOUCAN_CLIENT_SECRET")), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw)));
+}
+function hexBytes(value: string): Uint8Array | null {
+  if (!/^[0-9a-f]{64}$/i.test(value)) return null;
+  return new Uint8Array(value.match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)));
+}
+function equal(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let i = 0; i < left.length; i += 1) difference |= left[i] ^ right[i];
   return difference === 0;
 }
 
-function orderRow(order: Record<string, any>, workspaceId: string, integrationId: string): Record<string, any> {
-  const customer = order.customer ?? {};
-  const firstVariant = Array.isArray(order.variants) ? order.variants[0] : null;
-  const address = Array.isArray(customer.address) ? customer.address[0] : null;
-  const addressText = [address?.first_line, address?.second_line].map((value) => typeof value === "string" ? value.trim() : "").filter(Boolean).join(", ") || null;
-  const rawStatus = String(order.status ?? "pending").toLowerCase();
-  const statusMap: Record<string, string> = {
-    pending: "pending", processing: "confirmed", completed: "delivered",
-    cancelled: "cancelled", canceled: "cancelled", refunded: "returned", "on-hold": "pending",
-  };
-  const tracking = order.attribution ?? order.tracking ?? order.metadata ?? {};
-  const landingPage = order.landing_page ?? order.landing_page_url ?? tracking.landing_page ?? null;
-  let query: URLSearchParams | null = null;
-  try { if (landingPage) query = new URL(String(landingPage)).searchParams; } catch { /* keep explicit attribution */ }
-  const tracked = (name: string) => order[name] ?? tracking[name] ?? query?.get(name) ?? null;
-  const externalId = String(order.id);
-  return {
-    workspace_id: workspaceId,
-    source: "youcan",
-    source_integration_id: integrationId,
-    external_order_id: externalId,
-    youcan_order_id: externalId,
-    order_number: `#YC-${order.reference ?? externalId}`,
-    phone: customer.phone ? String(customer.phone).trim() : null,
-    address: addressText,
-    city: customer.city ? String(customer.city).trim() : null,
-    raw_city: customer.city ? String(customer.city).trim() : "",
-    total: Number(order.total_price ?? order.total ?? 0),
-    status: statusMap[rawStatus] ?? "pending",
-    created_at: order.created_at ?? new Date().toISOString(),
-    customer_name: customer.full_name?.trim?.() || [customer.first_name, customer.last_name].filter(Boolean).join(" ").trim() || null,
-    sku: firstVariant?.variant?.sku ?? null,
-    product_variant: Array.isArray(firstVariant?.variant?.values) ? firstVariant.variant.values.join(", ") : null,
-    product_name: firstVariant?.variant?.product?.name ?? null,
-    quantity: firstVariant?.quantity ?? null,
-    unit_price: firstVariant?.price ?? null,
-    source_platform: tracked("source_platform") ?? (String(tracked("utm_source") ?? "").toLowerCase().includes("tiktok") ? "tiktok" : null),
-    utm_source: tracked("utm_source"), utm_medium: tracked("utm_medium"), utm_campaign: tracked("utm_campaign"),
-    utm_content: tracked("utm_content"), utm_term: tracked("utm_term"), ttclid: tracked("ttclid"),
-    landing_page: landingPage, referrer: order.referrer ?? tracking.referrer ?? null,
-    tiktok_campaign_id: tracked("tiktok_campaign_id"), tiktok_adgroup_id: tracked("tiktok_adgroup_id"), tiktok_ad_id: tracked("tiktok_ad_id"),
-    attribution_data: { imported_from: "youcan", tracking_fields_supplied: Boolean(tracked("ttclid") || tracked("utm_source") || tracked("tiktok_campaign_id")) },
-  };
-}
-
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
-  const url = new URL(req.url);
-  const integrationId = url.searchParams.get("integration_id")?.trim() ?? "";
-  const webhookToken = url.searchParams.get("token")?.trim() ?? "";
-  if (!uuidPattern.test(integrationId) || webhookToken.length < 32) return reply({ received: true, accepted: false });
-
-  const rawBody = await req.text();
-  let payload: Record<string, any>;
-  try { payload = JSON.parse(rawBody); } catch { return reply({ error: "Invalid JSON" }, 400); }
-
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   try {
-    const client = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const { data: integration, error } = await client.from("integrations")
-      .select("id, workspace_id, external_store_id, status, webhook_secret, access_token")
-      .eq("id", integrationId).eq("provider", "youcan").maybeSingle();
-    if (error || !integration || integration.status !== "active" || !integration.access_token || integration.webhook_secret !== webhookToken) {
-      console.warn("[YouCan webhook] inactive_or_unknown_integration");
-      return reply({ received: true, accepted: false });
+    const raw = await req.text();
+    const received = hexBytes(req.headers.get("x-youcan-signature")?.trim() ?? "");
+    if (!received || !equal(received, await sign(raw))) return json({ error: "Invalid signature" }, 401);
+    const deliveryId = req.headers.get("x-youcan-delivery-id")?.trim() ?? "";
+    if (!deliveryId || deliveryId.length > 200) return json({ error: "Invalid delivery" }, 400);
+    const payload = JSON.parse(raw) as Record<string, any>;
+    const eventType = String(payload.event_name ?? req.headers.get("x-youcan-topic") ?? "").trim();
+    if (!(YOUCAN_WEBHOOK_EVENTS as readonly string[]).includes(eventType)) return json({ received: true, ignored: true }, 202);
+    const data = payload.data && typeof payload.data === "object" ? payload.data : {};
+    const storeId = String(data.store_id ?? "").trim();
+    if (!storeId) return json({ error: "Invalid delivery" }, 400);
+    const client = createClient(requiredYouCanEnv("SUPABASE_URL"), requiredYouCanEnv("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data: integration, error } = await client.from("integrations").select("id, workspace_id, status").eq("provider", "youcan").eq("external_store_id", storeId).maybeSingle();
+    if (error || !integration) return json({ error: "Integration not found" }, 404);
+    const { error: deliveryError } = await client.from("youcan_webhook_deliveries").insert({ workspace_id: integration.workspace_id, integration_id: integration.id, delivery_id: deliveryId, event_type: eventType });
+    if (deliveryError?.code === "23505") return json({ received: true, duplicate: true }, 200);
+    if (deliveryError) return json({ error: "Delivery could not be queued" }, 503);
+    if (eventType === "app.uninstalled") {
+      await Promise.all([
+        client.from("integrations").update({ status: "revoked", disconnected_at: new Date().toISOString(), access_token: null, refresh_token: null, access_token_encrypted: null, refresh_token_encrypted: null, webhook_health: "deactivated", webhook_last_received_at: new Date().toISOString() }).eq("id", integration.id),
+        client.from("integration_sync_state").update({ enabled: false, updated_at: new Date().toISOString() }).eq("workspace_id", integration.workspace_id).eq("provider", "youcan"),
+        client.from("youcan_sync_jobs").update({ status: "cancelled", completed_at: new Date().toISOString() }).eq("integration_id", integration.id).in("status", ["pending", "retry"]),
+        client.from("youcan_webhook_deliveries").update({ status: "processed", processed_at: new Date().toISOString() }).eq("integration_id", integration.id).eq("delivery_id", deliveryId),
+      ]);
+      return json({ received: true });
     }
-
-    // YouCan signature validation: x-youcan-signature header with YOUCAN_CLIENT_SECRET
-    const providerSignature = req.headers.get("x-youcan-signature") ?? "";
-    const providerSecret = Deno.env.get("YOUCAN_CLIENT_SECRET")?.trim();
-    if (providerSignature && providerSecret && !await validHmac(rawBody, providerSignature, providerSecret)) {
-      console.warn("[YouCan webhook] invalid_signature");
-      return reply({ error: "Invalid signature" }, 401);
+    if (integration.status !== "active") {
+      await client.from("youcan_webhook_deliveries").update({ status: "ignored", processed_at: new Date().toISOString() }).eq("integration_id", integration.id).eq("delivery_id", deliveryId);
+      return json({ received: true, ignored: true });
     }
-
-    // YouCan payload structure: event_name field and data contains order
-    let eventType = String(payload.event_name ?? payload.event ?? payload.eventName ?? "order.create");
-    if (eventType === "order.created" || eventType === "unknown") eventType = "order.create";
-    const order = (payload.data ?? payload.order ?? payload) as Record<string, any>;
-    if (!order?.id) return reply({ received: true, accepted: true, ignored: "not_an_order" });
-    const mapped = orderRow(order, integration.workspace_id, integration.id);
-
-    // Recheck immediately before the write. A database trigger also locks and
-    // verifies this integration in the same transaction as the order upsert.
-    const { data: active } = await client.from("integrations").select("id")
-      .eq("id", integration.id).eq("status", "active").not("access_token", "is", null).maybeSingle();
-    if (!active) return reply({ received: true, accepted: false });
-
-    const { error: orderError } = await client.from("orders").upsert(mapped, {
-      onConflict: "workspace_id,source_integration_id,external_order_id",
-      ignoreDuplicates: false,
-    });
-    if (orderError) {
-      const reason = orderError.message.includes("ORDER_") ? "plan_limit" : orderError.message.includes("SOURCE_INTEGRATION_INACTIVE") ? "integration_inactive" : "persistence_error";
-      console.error("[YouCan webhook] order_rejected", reason);
-      await client.from("webhook_logs").insert({
-        provider: "youcan", event_type: eventType, youcan_order_id: String(order.id),
-        payload: { integration_id: integration.id, external_order_id: String(order.id) },
-        status: "rejected", error_message: reason, created_at: new Date().toISOString(),
-      });
-      return reply({ received: true, accepted: false, reason });
-    }
-
     await Promise.all([
-      client.from("integration_sync_state").upsert({
-        workspace_id: integration.workspace_id, provider: "youcan", enabled: true,
-        last_success_at: new Date().toISOString(), last_sync_completed_at: new Date().toISOString(),
-        last_processed_external_id: String(order.id), consecutive_failures: 0, last_error: null,
-      }, { onConflict: "workspace_id,provider" }),
-      client.from("webhook_logs").insert({
-        provider: "youcan", event_type: eventType, youcan_order_id: String(order.id),
-        payload: { integration_id: integration.id, external_order_id: String(order.id) },
-        status: "processed", processed_at: new Date().toISOString(), created_at: new Date().toISOString(),
-      }),
+      client.from("youcan_sync_jobs").upsert({ workspace_id: integration.workspace_id, integration_id: integration.id, job_type: "orders", idempotency_key: `webhook:${deliveryId}`, payload: { event_type: eventType, event_payload: data, delivery_id: deliveryId, source_integration_id: integration.id }, status: "pending", available_at: new Date().toISOString() }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key" }),
+      client.from("integrations").update({ webhook_last_received_at: new Date().toISOString(), webhook_health: "healthy", webhook_last_error: null }).eq("id", integration.id),
+      client.from("youcan_webhook_subscriptions").update({ last_delivery_at: new Date().toISOString(), status: "active" }).eq("integration_id", integration.id).eq("event_type", eventType),
     ]);
-    return reply({ received: true, accepted: true, order_id: String(order.id) });
+    return json({ received: true, queued: true }, 202);
   } catch (error) {
-    console.error("[YouCan webhook] unexpected_error", error instanceof Error ? error.name : "unknown");
-    return reply({ received: true, accepted: false, reason: "temporary_error" }, 503);
+    console.error("[YouCan webhook] rejected", error instanceof Error ? error.message : "invalid_delivery");
+    return json({ error: "Webhook could not be accepted" }, 400);
   }
 });

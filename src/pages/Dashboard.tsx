@@ -584,17 +584,17 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
           d.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-muted" /> : null
         }
         action={
-          <div className="flex w-full items-center gap-2 overflow-x-auto pb-px md:w-auto">
-            <div className="text-ink-muted flex items-center justify-center mr-1">
+          <div className="flex w-full items-center gap-2.5 overflow-x-auto pb-2 scrollbar-none md:w-auto md:pb-0">
+            <div className="relative flex-shrink-0 mr-1">
               <button
                 onClick={() => setShowDatePicker(!showDatePicker)}
-                className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition-colors hover:bg-base-raised md:h-auto md:w-auto md:p-1 md:rounded ${showDatePicker ? 'bg-base-raised text-brand' : ''}`}
+                className={`w-11 h-11 flex items-center justify-center rounded-2xl border transition-colors md:h-9 md:w-9 md:rounded-lg ${showDatePicker || rangeType === 'custom' ? 'bg-[#d96b86]/10 border-[#d96b86]/30 text-[#d96b86]' : 'bg-base-surface border-base-border/70 text-ink-muted hover:bg-base-raised'}`}
                 title="Select custom date range"
               >
-                <Calendar size={18} />
+                <Calendar size={18} strokeWidth={2} />
               </button>
             </div>
-            {(['today', 'yesterday', 'thisMonth', 'all'] as RangeType[]).map((type) => {
+            {(['today', 'yesterday', 'all'] as RangeType[]).map((type) => {
               const isActive = rangeType === type;
               return (
                 <button
@@ -603,9 +603,9 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
                     setRangeType(type);
                     setShowDatePicker(false);
                   }}
-                  className={`min-h-11 shrink-0 px-3.5 py-1.5 rounded-xl text-[13px] font-medium transition-colors md:min-h-0 md:rounded-lg ${isActive
-                    ? "bg-brand-accent text-white border border-brand-accent"
-                    : "bg-transparent text-text-muted border border-brand-border hover:border-text-muted/50 hover:text-text-main"
+                  className={`h-11 px-5 flex items-center justify-center rounded-2xl text-[14px] font-bold whitespace-nowrap transition-all flex-shrink-0 border md:h-9 md:px-3 md:rounded-lg md:text-[13px] ${isActive
+                    ? "bg-[#d96b86] text-white border-[#d96b86] shadow-sm shadow-[#d96b86]/30"
+                    : "bg-base-surface text-ink-muted border-base-border/70 hover:bg-base-raised"
                     }`}
                 >
                   {rangeLabels[type]}

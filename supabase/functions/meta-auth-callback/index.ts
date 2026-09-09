@@ -1,5 +1,6 @@
 import {
   META_REQUIRED_SCOPES,
+  MetaError,
   encryptSecret,
   fetchAllPages,
   metaRequest,
@@ -19,9 +20,8 @@ function redirect(
   const target = new URL(
     isTrustedFrontendUrl(returnUrl)
       ? returnUrl
-      : `${frontendAppUrl()}/settings/integrations`,
+      : `${frontendAppUrl()}/settings?tab=integrations`,
   );
-  target.searchParams.set("tab", "integrations");
   target.searchParams.set("meta", result);
   if (message) target.searchParams.set("meta_message", message.slice(0, 160));
   return Response.redirect(target.toString(), 302);
@@ -301,7 +301,7 @@ async function discoverAssets(
 }
 
 Deno.serve(async (req) => {
-  let fallback = `${frontendAppUrl()}/settings/integrations`;
+  let fallback = `${frontendAppUrl()}/settings?tab=integrations`;
   try {
     if (req.method !== "GET")
       return new Response("Method not allowed", { status: 405 });
@@ -357,7 +357,8 @@ Deno.serve(async (req) => {
           disconnected_at: new Date().toISOString(),
           last_sync_error: "Authorization cancelled",
         })
-        .eq("id", stateRow.connection_id);
+        .eq("id", stateRow.connection_id)
+        .eq("status", "connecting");
       return redirect(fallback, "error", "Meta authorization was cancelled.");
     }
     const shortToken = await metaRequest<{ access_token?: string }>(
@@ -447,7 +448,7 @@ Deno.serve(async (req) => {
     return redirect(
       fallback,
       "error",
-      error instanceof Error ? error.message : "Meta connection failed.",
+      error instanceof MetaError ? error.message : "Meta connection failed.",
     );
   }
 });

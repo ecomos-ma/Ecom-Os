@@ -270,35 +270,6 @@ export default function Orders() {
   const showShippingColumn = workspace?.show_shipping_column ?? false;
   const isStoreConnected = !!workspace?.google_sheet_url || !!workspace?.youcan_access_token || !!workspace?.shopify_enabled;
 
-  // Auto Sync states
-  const [autoSync, setAutoSync] = useState(false);
-
-  // Load autosync setting on mount/workspace change
-  useEffect(() => {
-    setAutoSync(Boolean(workspace?.google_sheet_autosync ?? false));
-  }, [workspace?.id, workspace?.google_sheet_autosync]);
-
-  // Note: Auto sync is now handled by backend cron job (every 2 seconds)
-  // Frontend polling removed - sync works even when browser is closed
-
-  const handleToggleAutoSync = async () => {
-    if (!workspace?.id) return;
-    const next = !autoSync;
-    setAutoSync(next);
-
-    const { error } = await supabase
-      .from("workspaces")
-      .update({ google_sheet_autosync: next })
-      .eq("id", workspace.id);
-
-    if (error) {
-      setAutoSync(!next);
-      console.error("[Orders] Unable to persist auto sync setting:", error);
-      return;
-    }
-
-    await refreshProfile();
-  };
 
   // Listen for global auto-sync reloads
   useEffect(() => {
@@ -313,24 +284,12 @@ export default function Orders() {
         title="Orders"
         subtitle="Full CRM for your COD orders — search, filter, edit, ship."
         action={
-          <div className="grid w-full grid-cols-2 items-center gap-2 md:flex md:w-auto">
-            <button
-              onClick={handleToggleAutoSync}
-              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-medium transition-all md:min-h-0 md:rounded-lg md:text-[13px] ${autoSync
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                : "border-base-border bg-base-surface text-ink-muted hover:bg-base-raised hover:text-ink"
-                }`}
-            >
-              <span className={`h-2 w-2 rounded-full ${autoSync ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"}`} />
-              {autoSync ? "Auto Sync: ON" : "Auto Sync: OFF"}
-            </button>
-            <button
-              onClick={() => setShowNew(true)}
-              className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-brand-accent px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-accentHover md:min-h-0 md:rounded-lg"
-            >
-              <Plus size={14} /> New order
-            </button>
-          </div>
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-brand-accent px-4 py-2 text-[13px] font-medium text-white hover:bg-brand-accentHover md:w-auto md:min-h-0 md:rounded-lg"
+          >
+            <Plus size={14} /> New order
+          </button>
         }
       />
 
@@ -774,6 +733,7 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [whatsappLogs, setWhatsappLogs] = useState<any[]>([]);
+  const [youcanStore, setYoucanStore] = useState<{ name: string | null; domain: string | null } | null>(null);
 
   useEffect(() => {
     if (!order.id) return;
@@ -785,6 +745,18 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
       .limit(50)
       .then(({ data }) => { if (data) setWhatsappLogs(data); });
   }, [order.id, workspace?.id]);
+
+  useEffect(() => {
+    const integrationId = (order as any).source_integration_id;
+    if (!integrationId || (order as any).source !== "youcan") return;
+    supabase.from("integrations")
+      .select("store_name,store_domain")
+      .eq("id", integrationId)
+      .eq("workspace_id", workspace?.id)
+      .eq("provider", "youcan")
+      .maybeSingle()
+      .then(({ data }) => setYoucanStore(data ? { name: data.store_name, domain: data.store_domain } : null));
+  }, [order, workspace?.id]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -801,7 +773,6 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
       }
 
       console.log("[EditOrderModal] === STARTING ORDER UPDATE ===");
-      console.log("[EditOrderModal] Full order object:", order);
       console.log("[EditOrderModal] order.id:", order.id);
       console.log("[EditOrderModal] order['Order ID']:", (order as any)["Order ID"]);
       console.log("[EditOrderModal] order.order_number:", order.order_number);
@@ -1043,6 +1014,38 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
   };
 
   const canCreateShipment = isConfirmedOrderStatus(order.status) && !order.tracking_number;
+  const truncateIdentifier = (value: unknown) => {
+    const text = String(value ?? "");
+    return text.length > 14 ? `${text.slice(0, 8)}…${text.slice(-4)}` : text;
+  };
+  const attributionFields = [
+    ["Source", (order as any).source_platform || (order as any).utm_source],
+    ["Campaign", (order as any).utm_campaign],
+    ["Meta campaign", (order as any).meta_campaign_id],
+    ["Meta ad set", (order as any).meta_adset_id],
+    ["Meta ad", (order as any).meta_ad_id],
+    ["TikTok campaign", (order as any).tiktok_campaign_id],
+    ["TikTok ad group", (order as any).tiktok_adgroup_id],
+    ["TikTok ad", (order as any).tiktok_ad_id],
+    ["UTM medium", (order as any).utm_medium],
+    ["UTM content", (order as any).utm_content],
+    ["Meta click", truncateIdentifier((order as any).fbclid)],
+    ["Google click", truncateIdentifier((order as any).gclid)],
+    ["TikTok click", truncateIdentifier((order as any).ttclid)],
+    ["Customer IP", (order as any).customer_ip],
+    ["Landing page", (order as any).landing_page],
+    ["Referrer", (order as any).referrer],
+  ].filter(([, value]) => Boolean(value));
+  const isYouCanOrder = (order as any).source === "youcan" || Boolean((order as any).youcan_order_id);
+  const youcanFields = [
+    ["External order", (order as any).youcan_order_id || (order as any).external_order_id],
+    ["Store", youcanStore?.name || youcanStore?.domain],
+    ["Provider status", (order as any).youcan_status_raw],
+    ["Payment status", (order as any).youcan_payment_status_raw],
+    ["Shipping status", (order as any).youcan_shipping_status_raw],
+    ["Provider updated", (order as any).provider_payload_updated_at ? new Date((order as any).provider_payload_updated_at).toLocaleString() : null],
+    ["Status sync", (order as any).youcan_status_sync_error ? "Sync failed" : (order as any).youcan_status_synced_at ? "Synced" : "Syncing"],
+  ].filter(([, value]) => Boolean(value));
 
   return (
     <Modal title={`Edit Order ${order.order_number}`} onClose={onClose}>
@@ -1092,6 +1095,17 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
             className="w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[13px] text-ink focus:border-brand-accent/50 outline-none"
           />
         </div>
+
+        {attributionFields.length > 0 && <div className="rounded-xl border border-base-border bg-base-raised/50 p-3">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-ink-muted">Attribution</p>
+          <div className="grid gap-2 sm:grid-cols-2">{attributionFields.map(([label, value]) => <div key={String(label)} className="min-w-0"><p className="text-[10px] text-ink-faint">{label}</p><p className="truncate text-[12px] font-medium text-ink" title={String(value)}>{String(value)}</p></div>)}</div>
+        </div>}
+
+        {isYouCanOrder && <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">YouCan</p>
+          <div className="grid gap-2 sm:grid-cols-2">{youcanFields.map(([label, value]) => <div key={String(label)} className="min-w-0"><p className="text-[10px] text-ink-faint">{label}</p><p className="truncate text-[12px] font-medium text-ink" title={String(value)}>{String(value)}</p></div>)}</div>
+          {(order as any).youcan_status_sync_error && <p className="mt-2 text-[11px] text-amber-600">{String((order as any).youcan_status_sync_error)}</p>}
+        </div>}
 
         {error && <div className="rounded-lg bg-danger/10 px-3 py-2 text-[12.5px] text-danger">{error}</div>}
 

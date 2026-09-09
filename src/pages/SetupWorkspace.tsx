@@ -33,10 +33,10 @@ export default function SetupWorkspace() {
   }, [workspace?.coliaty_enabled, workspace?.id, workspace?.ozon_enabled]);
 
   const steps = [
-    { title: "Account", copy: "Your EcomOS account is ready.", done: Boolean(profile?.id), icon: Check, to: "/settings?tab=Profile", topic: "account" },
-    { title: "Business workspace", copy: "Choose its name and appearance.", done: Boolean(workspace?.id), icon: Sparkles, to: "/settings?tab=Workspace", topic: "workspace" },
-    { title: "Connect your store", copy: "Import orders from YouCan or Google Sheets.", done: Boolean(progress?.store), icon: Store, to: "/settings/integrations", topic: "store integration" },
-    { title: "Set up shipping", copy: "Choose a carrier before sending orders.", done: Boolean(progress?.shipping), icon: Truck, to: "/settings/integrations", topic: "shipping integration" },
+    { title: "Account", copy: "Your EcomOS account is ready.", done: Boolean(profile?.id), icon: Check, to: "/settings?tab=profile", topic: "account" },
+    { title: "Business workspace", copy: "Choose its name and appearance.", done: Boolean(workspace?.id), icon: Sparkles, to: "/settings?tab=workspace", topic: "workspace" },
+    { title: "Connect your store", copy: "Import orders from YouCan or Google Sheets.", done: Boolean(progress?.store), icon: Store, to: "/settings?tab=integrations", topic: "store integration" },
+    { title: "Set up shipping", copy: "Choose a carrier before sending orders.", done: Boolean(progress?.shipping), icon: Truck, to: "/settings?tab=integrations", topic: "shipping integration" },
     { title: "Invite your team", copy: "Give teammates only the access they need.", done: Boolean(progress?.team), icon: Users, to: "/team", topic: "team" },
   ];
   const completed = steps.filter((step) => step.done).length;
