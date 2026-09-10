@@ -34,9 +34,20 @@
         { "key": "Permissions-Policy", "value": "camera=(), geolocation=(), microphone=(self), payment=(), usb=()" },
         { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" }
       ]
+    },
+    {
+      "source": "/api/youcan/callback",
+      "headers": [
+        { "key": "Cache-Control", "value": "private, no-store, max-age=0" },
+        { "key": "Referrer-Policy", "value": "no-referrer" }
+      ]
     }
   ],
   "rewrites": [
+    {
+      "source": "/api/youcan/callback",
+      "destination": "https://wxfialbmyfkafobtkrde.supabase.co/functions/v1/youcan-oauth-callback"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

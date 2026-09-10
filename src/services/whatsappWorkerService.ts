@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 
-export type WhatsAppWorkerAction = "connect" | "disconnect" | "status" | "test" | "reconnect" | "logout" | "send" | "ai_test";
+export type WhatsAppWorkerAction = "connect" | "disconnect" | "status" | "test" | "reconnect" | "logout" | "send" | "send_audio" | "send_media" | "profile_photo" | "ai_test";
 
 type WorkerRequest = {
   action: WhatsAppWorkerAction;
@@ -119,11 +119,18 @@ async function callLocalWorker(action: WhatsAppWorkerAction, workspaceId: string
     reconnect: `/sessions/${workspaceId}/reconnect`,
     logout: `/sessions/${workspaceId}/logout`,
     send: `/sessions/${workspaceId}/send`,
+    send_audio: `/sessions/${workspaceId}/send`,
+    send_media: `/sessions/${workspaceId}/send-media`,
+    profile_photo: `/sessions/${workspaceId}/profile-photo`,
     ai_test: `/sessions/${workspaceId}/ai/test`,
   };
 
   const url = `${LOCAL_WORKER_URL}${endpoints[action]}`;
   const method = action === "status" ? "GET" : "POST";
+
+  if (action === "connect" || action === "status") {
+    console.info(`[WhatsApp worker] ${method} ${url}`);
+  }
 
   const options: RequestInit = {
     method,
@@ -158,7 +165,7 @@ export async function callWhatsAppWorker({ action, workspaceId, payload = {} }: 
   if (!workspaceId) throw new Error("Workspace not found");
 
   // Use local worker in development, production Edge Function otherwise
-  if (useLocalWorker) {
+  if (useLocalWorker && action !== "send_audio") {
     return callLocalWorker(action, workspaceId, payload);
   }
 
@@ -234,7 +241,9 @@ export async function disconnectWhatsApp(workspaceId: string) {
 export async function getWorkerHealth() {
   if (useLocalWorker) {
     try {
-      const response = await fetch(`${LOCAL_WORKER_URL}/health`);
+      const url = `${LOCAL_WORKER_URL}/health`;
+      console.info(`[WhatsApp worker] GET ${url}`);
+      const response = await fetch(url);
       return await safeJsonResponse(response);
     } catch {
       return null;

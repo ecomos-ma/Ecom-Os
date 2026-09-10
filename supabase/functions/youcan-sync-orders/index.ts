@@ -1,4 +1,5 @@
 import { assertOnlyKeys, authenticate, authorizeOperationalWorkspace, corsHeaders, errorResponse, HttpError, json, requireUuid, serviceClient } from "../_shared/security.ts";
+import { processYouCanJobInBackground } from "../_shared/youcan-background.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(req) });
@@ -14,11 +15,12 @@ Deno.serve(async (req) => {
     if (error) throw new HttpError("YouCan connection could not be verified", 503);
     if (!integration || integration.status !== "active") throw new HttpError("YouCan is disconnected", 409);
     const bucket = new Date().toISOString().slice(0, 16);
-    const { error: queueError } = await client.from("youcan_sync_jobs").upsert({
+    const { data: job, error: queueError } = await client.from("youcan_sync_jobs").upsert({
       workspace_id: workspaceId, integration_id: integration.id, job_type: "orders",
       idempotency_key: `manual:${bucket}`, payload: { requested_by: user.id }, status: "pending", available_at: new Date().toISOString(),
-    }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key" });
-    if (queueError) throw new HttpError("YouCan sync could not be queued", 503);
+    }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key" }).select("id").single();
+    if (queueError || !job?.id) throw new HttpError("YouCan sync could not be queued", 503);
+    processYouCanJobInBackground(job.id, workspaceId);
     return json(req, { success: true, queued: true, total_fetched: 0, synced_count: 0, skipped_count: 0 });
   } catch (error) {
     console.error("[YouCan sync] request rejected", error instanceof HttpError ? error.message : "internal_error");

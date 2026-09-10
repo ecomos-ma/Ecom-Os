@@ -1,4 +1,4 @@
-import { Filter, RefreshCw, Search, SlidersHorizontal, UsersRound } from "lucide-react";
+import { Filter, List, Maximize2, RefreshCw, Search, SlidersHorizontal, UsersRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
@@ -26,7 +26,19 @@ export default function Confirmation() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedOrder, setSelectedOrder] = useState<ConfirmationOrder | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [viewMode, setViewModeState] = useState<"focus" | "queue">(() => {
+    try {
+      return window.localStorage.getItem("confirmation-view-mode") === "queue" ? "queue" : "focus";
+    } catch {
+      return "focus";
+    }
+  });
   const requestedOrderId = searchParams.get("order");
+
+  const setViewMode = (mode: "focus" | "queue") => {
+    setViewModeState(mode);
+    try { window.localStorage.setItem("confirmation-view-mode", mode); } catch { /* optional preference */ }
+  };
 
   const openOrder = (order: ConfirmationOrder) => {
     setSelectedOrder(order);
@@ -41,6 +53,11 @@ export default function Confirmation() {
     }).catch((error: any) => toast.error(error?.message || "Could not open the requested order."));
     setSearchParams({}, { replace: true });
   }, [requestedOrderId, crm.workspaceId]);
+
+  useEffect(() => {
+    if (viewMode !== "focus" || selectedOrder || crm.loading || !crm.orders.length) return;
+    openOrder(crm.orders[0]);
+  }, [viewMode, selectedOrder?.id, crm.loading, crm.orders]);
 
   const saveStatus = async (status: string) => {
     if (!selectedOrder) return;
@@ -58,7 +75,9 @@ export default function Confirmation() {
   const saveAndNext = () => {
     if (!selectedOrder) return;
     const currentIndex = crm.orders.findIndex((order) => order.id === selectedOrder.id);
-    const next = crm.orders[currentIndex + 1] || crm.orders[currentIndex - 1] || null;
+    const next = currentIndex >= 0
+      ? crm.orders[currentIndex + 1] || crm.orders[currentIndex - 1] || null
+      : crm.orders[0] || null;
     if (next) openOrder(next);
     else setSelectedOrder(null);
   };
@@ -70,14 +89,15 @@ export default function Confirmation() {
         subtitle={crm.canManage ? "Live workspace view for your Moroccan COD confirmation team." : "Your focused confirmation queue and callback workspace."}
         action={
           <div className="flex items-center gap-2">
+            <button onClick={() => setViewMode(viewMode === "focus" ? "queue" : "focus")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 text-[12px] font-semibold text-brand transition-colors hover:bg-brand/15">{viewMode === "focus" ? <List size={14} /> : <Maximize2 size={14} />} {viewMode === "focus" ? "Order list" : "Focus mode"}</button>
             <button onClick={() => void crm.refresh()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-base-border bg-base-surface px-3 text-[12px] font-semibold text-ink-muted transition-colors hover:border-brand/30 hover:text-ink"><RefreshCw size={14} /> Refresh</button>
           </div>
         }
       />
 
-      <ConfirmationMetrics summary={crm.summary} loading={crm.loading} myView={!crm.canManage} />
+      {viewMode === "queue" && <ConfirmationMetrics summary={crm.summary} loading={crm.loading} myView={!crm.canManage} />}
 
-      {crm.canManage && crm.agentMetrics.length > 0 && (
+      {viewMode === "queue" && crm.canManage && crm.agentMetrics.length > 0 && (
         <section className="rounded-2xl border border-base-border bg-base-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10 text-brand"><UsersRound size={14} /></span><div><h2 className="text-[13px] font-semibold text-ink">Confirmation team</h2><p className="text-[10.5px] text-ink-muted">Live workload and CRM activity for each agent.</p></div></div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -91,8 +111,9 @@ export default function Confirmation() {
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
+          {crm.visibleStatusFilters.filter(({ id }) => id === "pending").map(({ id, count }) => <button key={id} onClick={() => crm.setStatus(id)} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === id ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>{getStatusLabel(id, language)} <span className="ml-1 opacity-75">{count}</span></button>)}
           <button onClick={() => crm.setStatus("all")} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === "all" ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>All <span className="ml-1 opacity-75">{crm.summary?.totalOrders ?? 0}</span></button>
-          {crm.visibleStatusFilters.map(({ id, count }) => <button key={id} onClick={() => crm.setStatus(id)} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === id ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>{getStatusLabel(id, language)} <span className="ml-1 opacity-75">{count}</span></button>)}
+          {crm.visibleStatusFilters.filter(({ id }) => id !== "pending").map(({ id, count }) => <button key={id} onClick={() => crm.setStatus(id)} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === id ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>{getStatusLabel(id, language)} <span className="ml-1 opacity-75">{count}</span></button>)}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-base-border bg-base-surface p-2.5 shadow-sm">
@@ -111,9 +132,13 @@ export default function Confirmation() {
         </MobileBottomSheet>
       </section>
 
-      {crm.error ? <div className="rounded-2xl border border-danger/20 bg-danger/5 p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold text-danger"><Filter size={15} /> Confirmation CRM needs attention</div><p className="mt-1 text-[11.5px] text-danger/85">{crm.error}</p><button onClick={() => void crm.refresh()} className="mt-3 rounded-lg bg-danger px-3 py-2 text-[11px] font-semibold text-white">Try again</button></div> : <><ConfirmationOrdersTable orders={crm.orders} loading={crm.loading} onOpen={openOrder} selectedId={selectedOrder?.id} />{crm.hasMore && <div className="flex justify-center"><button onClick={() => void crm.loadMore()} disabled={crm.loadingMore} className="inline-flex items-center gap-1.5 rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[11.5px] font-semibold text-ink hover:border-brand/30 disabled:opacity-50">{crm.loadingMore && <RefreshCw size={13} className="animate-spin" />} {crm.loadingMore ? "Loading" : "Load more orders"}</button></div>}</>}
+      {crm.error ? <div className="rounded-2xl border border-danger/20 bg-danger/5 p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold text-danger"><Filter size={15} /> Confirmation CRM needs attention</div><p className="mt-1 text-[11.5px] text-danger/85">{crm.error}</p><button onClick={() => void crm.refresh()} className="mt-3 rounded-lg bg-danger px-3 py-2 text-[11px] font-semibold text-white">Try again</button></div> : viewMode === "focus" ? (
+        selectedOrder && crm.workspaceId && crm.userId
+          ? <ConfirmationOrderDrawer presentation="focus" workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => setViewMode("queue")} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onOpenRelatedOrder={openRelatedOrder} onSaveAndNext={saveAndNext} />
+          : <ConfirmationOrdersTable orders={crm.orders} loading={crm.loading} onOpen={openOrder} selectedId={selectedOrder?.id} />
+      ) : <><ConfirmationOrdersTable orders={crm.orders} loading={crm.loading} onOpen={openOrder} selectedId={selectedOrder?.id} />{crm.hasMore && <div className="flex justify-center"><button onClick={() => void crm.loadMore()} disabled={crm.loadingMore} className="inline-flex items-center gap-1.5 rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[11.5px] font-semibold text-ink hover:border-brand/30 disabled:opacity-50">{crm.loadingMore && <RefreshCw size={13} className="animate-spin" />} {crm.loadingMore ? "Loading" : "Load more orders"}</button></div>}</>}
 
-      {selectedOrder && crm.workspaceId && crm.userId && <ConfirmationOrderDrawer workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => setSelectedOrder(null)} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onOpenRelatedOrder={openRelatedOrder} onSaveAndNext={saveAndNext} />}
+      {viewMode === "queue" && selectedOrder && crm.workspaceId && crm.userId && <ConfirmationOrderDrawer workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => setSelectedOrder(null)} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onOpenRelatedOrder={openRelatedOrder} onSaveAndNext={saveAndNext} />}
     </div>
   );
 }

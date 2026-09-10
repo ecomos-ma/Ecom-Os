@@ -22,7 +22,7 @@ Set these browser-safe values in `.env`:
 - `VITE_SUPABASE_ANON_KEY` — a Supabase publishable key or legacy anon key, never a secret/service-role key
 - `WHATSAPP_WORKER_API_SECRET` — server-side secret used by the Vite development proxy; it is never exposed through a `VITE_` variable
 - `WHATSAPP_WORKER_URL` — production Edge Function backend-to-worker URL
-- `VITE_YOUCAN_REDIRECT_URI` — optional, when YouCan OAuth is enabled
+- YouCan OAuth configuration is server-side only; the browser requests an authorization URL from the authenticated Edge Function.
 
 The app renders a visible configuration error if the required Supabase browser values are missing or invalid.
 

@@ -295,6 +295,25 @@ export class BaileysWhatsAppProvider extends WhatsAppProvider {
     return { id: providerMessageId(message), raw: message };
   }
 
+  async sendMedia(jid, { buffer, mimeType, fileName, kind, caption }) {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+      throw new WorkerError(ErrorCode.INVALID_REQUEST, "Attachment is empty", { retryable: false });
+    }
+    const payload = kind === "image"
+      ? { image: buffer, mimetype: mimeType, caption: caption || undefined }
+      : { document: buffer, mimetype: mimeType, fileName };
+    const message = await this.#requireReady().sendMessage(jid, payload);
+    return { id: providerMessageId(message), raw: message };
+  }
+
+  async getProfilePicture(jid) {
+    try {
+      return await this.#requireReady().profilePictureUrl(jid, "image");
+    } catch {
+      return null;
+    }
+  }
+
   getConnectedPhone() {
     return this.connectedPhone;
   }

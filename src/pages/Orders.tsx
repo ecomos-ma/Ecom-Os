@@ -268,9 +268,6 @@ export default function Orders() {
   const displayOrders = useMemo(() => orders.slice(0, visibleCount), [orders, visibleCount]);
 
   const showShippingColumn = workspace?.show_shipping_column ?? false;
-  const isStoreConnected = !!workspace?.google_sheet_url || !!workspace?.youcan_access_token || !!workspace?.shopify_enabled;
-
-
   // Listen for global auto-sync reloads
   useEffect(() => {
     const onReload = () => reload(true);

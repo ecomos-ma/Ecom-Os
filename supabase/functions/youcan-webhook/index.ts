@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.111.0";
 import { requiredYouCanEnv, YOUCAN_WEBHOOK_EVENTS } from "../_shared/youcan.ts";
+import { processYouCanJobInBackground } from "../_shared/youcan-background.ts";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -34,10 +35,19 @@ Deno.serve(async (req) => {
     const storeId = String(data.store_id ?? "").trim();
     if (!storeId) return json({ error: "Invalid delivery" }, 400);
     const client = createClient(requiredYouCanEnv("SUPABASE_URL"), requiredYouCanEnv("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data: integration, error } = await client.from("integrations").select("id, workspace_id, status").eq("provider", "youcan").eq("external_store_id", storeId).maybeSingle();
+    const { data: integration, error } = await client.from("integrations").select("id, workspace_id, status")
+      .eq("provider", "youcan").eq("external_store_id", storeId).eq("status", "active")
+      .order("updated_at", { ascending: false }).limit(1).maybeSingle();
     if (error || !integration) return json({ error: "Integration not found" }, 404);
     const { error: deliveryError } = await client.from("youcan_webhook_deliveries").insert({ workspace_id: integration.workspace_id, integration_id: integration.id, delivery_id: deliveryId, event_type: eventType });
-    if (deliveryError?.code === "23505") return json({ received: true, duplicate: true }, 200);
+    if (deliveryError?.code === "23505") {
+      const existing = await client.from("youcan_sync_jobs").select("id,status")
+        .eq("integration_id", integration.id).eq("idempotency_key", `webhook:${deliveryId}`).maybeSingle();
+      if (existing.data?.id && ["pending", "retry"].includes(existing.data.status)) {
+        processYouCanJobInBackground(existing.data.id, integration.workspace_id);
+      }
+      return json({ received: true, duplicate: true }, 200);
+    }
     if (deliveryError) return json({ error: "Delivery could not be queued" }, 503);
     if (eventType === "app.uninstalled") {
       await Promise.all([
@@ -52,11 +62,13 @@ Deno.serve(async (req) => {
       await client.from("youcan_webhook_deliveries").update({ status: "ignored", processed_at: new Date().toISOString() }).eq("integration_id", integration.id).eq("delivery_id", deliveryId);
       return json({ received: true, ignored: true });
     }
-    await Promise.all([
-      client.from("youcan_sync_jobs").upsert({ workspace_id: integration.workspace_id, integration_id: integration.id, job_type: "orders", idempotency_key: `webhook:${deliveryId}`, payload: { event_type: eventType, event_payload: data, delivery_id: deliveryId, source_integration_id: integration.id }, status: "pending", available_at: new Date().toISOString() }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key" }),
+    const [jobResult] = await Promise.all([
+      client.from("youcan_sync_jobs").upsert({ workspace_id: integration.workspace_id, integration_id: integration.id, job_type: "orders", idempotency_key: `webhook:${deliveryId}`, payload: { event_type: eventType, event_payload: data, delivery_id: deliveryId, source_integration_id: integration.id }, status: "pending", available_at: new Date().toISOString() }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key" }).select("id").single(),
       client.from("integrations").update({ webhook_last_received_at: new Date().toISOString(), webhook_health: "healthy", webhook_last_error: null }).eq("id", integration.id),
       client.from("youcan_webhook_subscriptions").update({ last_delivery_at: new Date().toISOString(), status: "active" }).eq("integration_id", integration.id).eq("event_type", eventType),
     ]);
+    if (jobResult.error || !jobResult.data?.id) return json({ error: "Delivery could not be queued" }, 503);
+    processYouCanJobInBackground(jobResult.data.id, integration.workspace_id);
     return json({ received: true, queued: true }, 202);
   } catch (error) {
     console.error("[YouCan webhook] rejected", error instanceof Error ? error.message : "invalid_delivery");

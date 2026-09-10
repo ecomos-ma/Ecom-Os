@@ -18,6 +18,9 @@ const ORDER_COLUMNS = `
   "Order ID",
   workspace_id,
   order_number,
+  display_order_id,
+  order_source,
+  order_sequence_number,
   customer_id,
   city,
   city_name,
@@ -68,7 +71,7 @@ function toOrder(row: any, assignedAgent: ConfirmationAgent | null, products: Co
   return {
     id,
     workspaceId: row.workspace_id,
-    orderNumber: row.order_number || id,
+    orderNumber: row.display_order_id || row.order_number || "Order",
     customerId: row.customer_id ?? rawCustomer?.id ?? null,
     customerName: rawCustomer?.name || row.customer_name || "Customer unavailable",
     phone: row.phone ?? rawCustomer?.phone ?? null,

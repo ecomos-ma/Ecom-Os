@@ -26,8 +26,18 @@ test("legacy nested Settings URLs redirect without dropping callback parameters"
 });
 
 test("OAuth integrations return to the existing Integrations tab", () => {
-  for (const source of [metaCard, metaStart, metaCallback, youcanCallback]) {
+  for (const source of [metaCard, metaStart, metaCallback]) {
     assert.match(source, /\/settings\?tab=integrations/);
     assert.doesNotMatch(source, /\/settings\/integrations(?:\/meta)?/);
   }
+  assert.match(youcanCallback, /new URL\("\/settings"/);
+  assert.match(youcanCallback, /target\.searchParams\.set\("tab", "integrations"\)/);
+  assert.doesNotMatch(youcanCallback, /\/settings\/integrations/);
+});
+
+test("integration cards restore a stable cached order and do not jump during status discovery", () => {
+  assert.match(settings, /ecomos:integration-order:/);
+  assert.match(settings, /setVisibleOrder\(\(current\) => current \?\? order\)/);
+  assert.match(settings, /Checking connections/);
+  assert.match(settings, /pointer-events-none opacity-0/);
 });

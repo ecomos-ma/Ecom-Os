@@ -7,8 +7,10 @@ const migration = readFileSync("supabase/migrations/20260908153104_live_view_rea
 const service = readFileSync("src/services/liveViewService.ts", "utf8");
 const hook = readFileSync("src/hooks/useLiveView.ts", "utf8");
 const globe = readFileSync("src/components/live-view/LiveGlobe.tsx", "utf8");
+const liveCss = readFileSync("src/pages/live-view/LiveView.css", "utf8");
 const page = readFileSync("src/pages/LiveView.tsx", "utf8");
 const provider = readFileSync("supabase/functions/_shared/live-view-ipapi-provider.ts", "utf8");
+const geolocate = readFileSync("supabase/functions/live-view-geolocate/index.ts", "utf8");
 const mapping = readFileSync("src/lib/googleSheetsMappingEngine.ts", "utf8");
 
 test("IP validation accepts public IPv4/IPv6 and rejects local, reserved, and malformed values", () => {
@@ -31,6 +33,18 @@ test("provider abstraction uses POST so IPs and keys never enter URL logs", () =
   assert.match(provider, /method:\s*"POST"/);
   assert.doesNotMatch(provider, /api\.ipapi\.is\/\?/);
   assert.doesNotMatch(provider, /console\.(log|error|warn)/);
+});
+
+test("production geolocation is authenticated, IP-hashed, cached, and updates only projected events", () => {
+  assert.match(geolocate, /LIVE_VIEW_IP_GEOLOCATION_ENABLED/);
+  assert.match(geolocate, /disabled_pending_explicit_approval/);
+  assert.match(geolocate, /LIVE_VIEW_IP_HASH_SALT/);
+  assert.match(geolocate, /hashIp\(ip, salt\)/);
+  assert.match(geolocate, /live_view_geo_cache/);
+  assert.match(geolocate, /x-youcan-cron-secret/);
+  assert.match(geolocate, /profile_workspaces/);
+  assert.match(geolocate, /\.eq\("order_id", order\["Order ID"\]\)\.eq\("workspace_id", workspaceId\)/);
+  assert.doesNotMatch(geolocate, /console\.(log|error|warn)/);
 });
 
 test("IP cache identity is salted and deterministic without retaining the raw address", async () => {
@@ -69,6 +83,20 @@ test("Realtime deduplicates updates, filters seller subscriptions, reconciles, a
   assert.match(globe, /events\.slice\(0, 500\)/);
   assert.match(globe, /slice\(0, 300\)/);
   assert.match(globe, /slice\(0, 16\)/);
+  assert.match(globe, /pulseEvents[\s\S]*slice\(0, 12\)/);
+  assert.match(globe, /arcDashAnimateTime=\{720\}/);
+});
+
+test("globe uses real country polygons, visible borders, graticules, and the full desktop height", () => {
+  assert.match(globe, /ne_110m_admin_0_countries\.geojson\?raw/);
+  assert.match(globe, /showGraticules/);
+  assert.match(globe, /polygonStrokeColor/);
+  assert.match(globe, /polygonLabel/);
+  assert.match(globe, /isSeparateWesternSaharaFeature/);
+  assert.match(globe, /filter\(\(feature\) => !isSeparateWesternSaharaFeature\(feature\)\)/);
+  assert.match(globe, /altitude: 1\.55/);
+  assert.match(liveCss, /height:100%;min-height:0/);
+  assert.match(liveCss, /height:calc\(100% - 62px\);min-height:0/);
 });
 
 test("fallback aliases are multilingual and the UI never invents a visitor metric", () => {

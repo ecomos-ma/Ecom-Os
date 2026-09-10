@@ -416,7 +416,7 @@ async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: Syn
 
       const { data: existingOrder, error: checkError } = await supabase
         .from("orders")
-        .select("order_number")
+        .select('"Order ID"')
         .eq("workspace_id", workspaceId)
         .eq("sync_key", orderPayload.sync_key)
         .maybeSingle();
@@ -426,24 +426,6 @@ async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: Syn
       }
 
       const isNewOrder = !existingOrder;
-      let orderNumber: string;
-      
-      if (existingOrder?.order_number) {
-        orderNumber = existingOrder.order_number;
-      } else {
-        const { data: nextNumberData, error: numberError } = await supabase
-          .rpc("get_next_google_sheets_order_number", {
-            p_workspace_id: workspaceId
-          });
-
-        if (numberError) {
-          throw new Error(`Failed to get sequential order number: ${numberError.message}`);
-        }
-
-        orderNumber = nextNumberData as string;
-      }
-
-      orderPayload.order_number = orderNumber;
 
       const { error: upsertError } = await supabase
         .from("orders")

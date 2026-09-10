@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.111.0";
-import { ensureYouCanWebhooks, inferCheckoutField, integrationAccessToken, mapYouCanOrder, paginateYouCan, requiredYouCanEnv, youcanRequest, youCanGeneralStatus, youCanShippingStatus } from "../_shared/youcan.ts";
+import { ensureYouCanWebhooks, integrationAccessToken, mapYouCanOrder, paginateYouCan, requiredYouCanEnv, youcanRequest, youCanGeneralStatus, youCanShippingStatus } from "../_shared/youcan.ts";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -312,23 +312,6 @@ async function syncProducts(client: SupabaseClient, job: any, token: string): Pr
   }
   return products.length;
 }
-async function syncCheckoutFields(client: SupabaseClient, job: any, token: string): Promise<number> {
-  const response = await youcanRequest(token, "/settings/checkout/fields/");
-  const fields = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
-  let mapped = 0;
-  for (const field of fields) {
-    const inferred = inferCheckoutField(field?.label ?? field?.name ?? field?.title);
-    const externalId = String(field?.id ?? field?.name ?? "").trim();
-    if (!inferred || !externalId) continue;
-    const result = await client.from("integration_field_mappings").upsert({
-      workspace_id: job.workspace_id, integration_id: job.integration_id, provider: "youcan", external_field_id: externalId,
-      external_label: field?.label ?? field?.name ?? null, canonical_field: inferred.canonical, language: inferred.language,
-      source: "automatic", confidence: inferred.confidence, updated_at: new Date().toISOString(),
-    }, { onConflict: "workspace_id,integration_id,external_field_id", ignoreDuplicates: true });
-    if (!result.error) mapped += 1;
-  }
-  return mapped;
-}
 async function syncFinance(client: SupabaseClient, job: any, token: string): Promise<number> {
   const store = await youcanRequest(token, "/me");
   const domain = String(store?.domain ?? "").trim() || null;
@@ -389,27 +372,45 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const supplied = req.headers.get("x-youcan-cron-secret")?.trim() ?? "";
   if (!supplied || !equalSecret(supplied, requiredYouCanEnv("YOUCAN_CRON_SECRET"))) return json({ error: "Unauthorized" }, 401);
-  const client = createClient(requiredYouCanEnv("SUPABASE_URL"), requiredYouCanEnv("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
-  await client.rpc("configure_youcan_cron_v2", {
-    p_function_url: `${requiredYouCanEnv("SUPABASE_URL").replace(/\/$/, "")}/functions/v1/youcan-reconcile`,
-    p_cron_secret: requiredYouCanEnv("YOUCAN_CRON_SECRET"),
-  });
-  await client.rpc("install_youcan_cron_jobs_v2");
-  await client.from("youcan_sync_jobs").update({ status: "retry", locked_at: null, locked_by: null, available_at: new Date().toISOString(), last_error: "stale_worker_recovered" })
-    .eq("status", "processing").lt("locked_at", new Date(Date.now() - 10 * 60_000).toISOString());
-  const { data: activeIntegrations } = await client.from("integrations").select("id,workspace_id").eq("provider", "youcan").eq("status", "active");
-  const hour = new Date().toISOString().slice(0, 13);
-  const day = new Date().toISOString().slice(0, 10);
-  for (const integration of activeIntegrations ?? []) {
-    for (const [jobType, bucket] of [["orders", hour], ["products", hour], ["finance", hour], ["checkout_fields", day], ["webhook_repair", day]] as const) {
-      await client.from("youcan_sync_jobs").upsert({
-        workspace_id: integration.workspace_id, integration_id: integration.id, job_type: jobType,
-        idempotency_key: `scheduled:${bucket}:${jobType}`, payload: {}, status: "pending", available_at: new Date().toISOString(),
-      }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key", ignoreDuplicates: true });
-    }
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  const urgentJobId = typeof body.job_id === "string" ? body.job_id.trim() : "";
+  if (urgentJobId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(urgentJobId)) {
+    return json({ error: "Invalid job" }, 400);
   }
+  const client = createClient(requiredYouCanEnv("SUPABASE_URL"), requiredYouCanEnv("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
   const workerId = crypto.randomUUID();
-  const claimed = await client.rpc("claim_youcan_sync_jobs", { p_worker: workerId, p_limit: 10 });
+  let claimed: { data: any[] | null; error: any };
+  if (urgentJobId) {
+    const pending = await client.from("youcan_sync_jobs").select("*").eq("id", urgentJobId)
+      .eq("job_type", "orders").in("status", ["pending", "retry"]).maybeSingle();
+    if (pending.error) return json({ error: "Queue unavailable" }, 503);
+    if (!pending.data) return json({ success: true, claimed: 0, completed: 0, retried: 0 });
+    const updated = await client.from("youcan_sync_jobs").update({
+      status: "processing", attempts: Number(pending.data.attempts) + 1,
+      locked_at: new Date().toISOString(), locked_by: workerId, updated_at: new Date().toISOString(),
+    }).eq("id", urgentJobId).eq("attempts", pending.data.attempts).in("status", ["pending", "retry"]).select("*").maybeSingle();
+    claimed = { data: updated.data ? [updated.data] : [], error: updated.error };
+  } else {
+    await client.rpc("configure_youcan_cron_v2", {
+      p_function_url: `${requiredYouCanEnv("SUPABASE_URL").replace(/\/$/, "")}/functions/v1/youcan-reconcile`,
+      p_cron_secret: requiredYouCanEnv("YOUCAN_CRON_SECRET"),
+    });
+    await client.rpc("install_youcan_cron_jobs_v2");
+    await client.from("youcan_sync_jobs").update({ status: "retry", locked_at: null, locked_by: null, available_at: new Date().toISOString(), last_error: "stale_worker_recovered" })
+      .eq("status", "processing").lt("locked_at", new Date(Date.now() - 10 * 60_000).toISOString());
+    const { data: activeIntegrations } = await client.from("integrations").select("id,workspace_id").eq("provider", "youcan").eq("status", "active");
+    const hour = new Date().toISOString().slice(0, 13);
+    const day = new Date().toISOString().slice(0, 10);
+    for (const integration of activeIntegrations ?? []) {
+      for (const [jobType, bucket] of [["orders", hour], ["products", hour], ["finance", hour], ["webhook_repair", day]] as const) {
+        await client.from("youcan_sync_jobs").upsert({
+          workspace_id: integration.workspace_id, integration_id: integration.id, job_type: jobType,
+          idempotency_key: `scheduled:${bucket}:${jobType}`, payload: {}, status: "pending", available_at: new Date().toISOString(),
+        }, { onConflict: "workspace_id,integration_id,job_type,idempotency_key", ignoreDuplicates: true });
+      }
+    }
+    claimed = await client.rpc("claim_youcan_sync_jobs", { p_worker: workerId, p_limit: 10 });
+  }
   if (claimed.error) return json({ error: "Queue unavailable" }, 503);
   let completed = 0, retried = 0;
   for (const job of claimed.data ?? []) {
@@ -417,7 +418,9 @@ Deno.serve(async (req) => {
       const { token } = await integrationAccessToken(client, job.integration_id);
       if (job.job_type === "orders" || job.job_type === "initial_backfill") await syncOrders(client, job, token);
       else if (job.job_type === "products") await syncProducts(client, job, token);
-      else if (job.job_type === "checkout_fields") await syncCheckoutFields(client, job, token);
+      else if (job.job_type === "checkout_fields") {
+        // Historical optional jobs are completed without calling the unsupported checkout-fields API.
+      }
       else if (job.job_type === "finance") await syncFinance(client, job, token);
       else if (job.job_type === "webhook_repair") await ensureYouCanWebhooks(client, job.integration_id, job.workspace_id, token);
       else if (job.job_type === "status_outbound") await syncStatus(client, job, token);

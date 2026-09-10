@@ -69,7 +69,7 @@ export function useConfirmationCRM() {
   const [page, setPage] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"all" | CanonicalStatus>("all");
+  const [status, setStatus] = useState<"all" | CanonicalStatus>("pending");
   const [queue, setQueue] = useState<ConfirmationQueue>("all");
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
   const [datePreset, setDatePreset] = useState<ConfirmationDatePreset>("all");
@@ -83,8 +83,10 @@ export function useConfirmationCRM() {
 
   const scopeAgentId = canManage ? null : userId;
   const statusRawValues = useMemo(() => {
-    if (status === "all" || !summary) return undefined;
-    return Object.keys(summary.statusCounts).filter((rawStatus) => normalizeStatus(rawStatus) === status);
+    if (status === "all") return undefined;
+    if (!summary) return [status];
+    const matching = Object.keys(summary.statusCounts).filter((rawStatus) => normalizeStatus(rawStatus) === status);
+    return matching.length ? matching : [status];
   }, [status, summary]);
   const range = useMemo(() => dateRange(datePreset), [datePreset]);
 

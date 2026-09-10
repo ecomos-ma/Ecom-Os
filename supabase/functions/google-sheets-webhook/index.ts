@@ -98,7 +98,7 @@ function mapSheetRow(row: any, workspaceId: string, sheetId: string): Record<str
 
   return {
     workspace_id: workspaceId,
-    order_number: orderNumber ? `#GS-${orderNumber}` : null,
+    source_order_reference: orderNumber ? String(orderNumber).trim() : null,
     customer_name: customerName,
     phone: phone ? String(phone).trim() : null,
     address: address,
@@ -258,9 +258,13 @@ serve(async (req) => {
     const contentHash = await generateContentHash(row);
 
     // Build order payload
+    const stableSyncKey = mapped.source_order_reference
+      ? `webhook:${sheetId}:${mapped.source_order_reference}`
+      : `webhook:${sheetId}:${contentHash}`;
     const orderPayload: Record<string, any> = {
       workspace_id: workspaceId,
-      order_number: mapped.order_number,
+      sync_key: stableSyncKey,
+      external_order_id: `gs:${sheetId}:${mapped.source_order_reference || contentHash}`,
       phone: mapped.phone,
       address: mapped.address,
       city: city_name || mapped.raw_city || null,
@@ -286,25 +290,15 @@ serve(async (req) => {
     };
     if (customerId) orderPayload.customer_id = customerId;
 
-    // Upsert with appropriate conflict resolution
-    let upsertResult;
-    if (mapped.order_number) {
-      // Use order_number for deduplication if present
-      upsertResult = await supabase
-        .from("orders")
-        .upsert(orderPayload, {
-          onConflict: "workspace_id,order_number",
-          ignoreDuplicates: false,
-        });
-    } else {
-      // Use content hash for deduplication if no order_number
-      upsertResult = await supabase
-        .from("orders")
-        .upsert(orderPayload, {
-          onConflict: "workspace_id,content_hash",
-          ignoreDuplicates: false,
-        });
-    }
+    // The provider reference is kept in external_order_id/sync_key. The DB
+    // trigger owns the short seller-facing order_number and does not expose a
+    // provider UUID in the UI.
+    const upsertResult = await supabase
+      .from("orders")
+      .upsert(orderPayload, {
+        onConflict: "workspace_id,sync_key",
+        ignoreDuplicates: false,
+      });
 
     if (upsertResult.error) {
       console.error("[Google Sheets Webhook] Upsert error:", upsertResult.error);

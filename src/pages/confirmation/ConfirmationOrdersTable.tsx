@@ -89,7 +89,7 @@ export function ConfirmationOrdersTable({
               <span className="shrink-0 font-mono text-[13px] font-bold text-ink">{money(order.total)}</span>
             </span>
             <span className="mt-3 block"><ProductPreview order={order} /></span>
-            <span className="mt-3 flex items-center justify-between gap-2 border-t border-base-border pt-3"><span className="flex min-w-0 items-center gap-2"><StatusBadge status={order.status} size="sm" /><span className="truncate font-mono text-[10px] text-ink-faint">#{order.orderNumber}</span></span><ChevronRight size={16} className="shrink-0 text-brand" /></span>
+            <span className="mt-3 flex items-center justify-between gap-2 border-t border-base-border pt-3"><span className="flex min-w-0 items-center gap-2"><StatusBadge status={order.status} size="sm" /><span className="truncate font-mono text-[10px] text-ink-faint">{order.orderNumber}</span></span><ChevronRight size={16} className="shrink-0 text-brand" /></span>
           </button>
         ))}
       </div>
@@ -117,7 +117,7 @@ export function ConfirmationOrdersTable({
                   className={`group cursor-pointer border-b border-base-border/60 transition-colors last:border-0 ${selected ? "bg-brand/5" : "hover:bg-base-raised/55"}`}
                 >
                   <td className="px-4 py-3.5 align-middle">
-                    <div className="font-mono text-[12.5px] font-bold text-ink">#{order.orderNumber}</div>
+                    <div className="font-mono text-[12.5px] font-bold text-ink">{order.orderNumber}</div>
                     <div className="mt-0.5 text-[10.5px] text-ink-muted">{when(order.createdAt)}</div>
                   </td>
                   <td className="px-4 py-3.5 align-middle"><ProductPreview order={order} /></td>

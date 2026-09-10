@@ -56,6 +56,8 @@ export class FakeWhatsAppProvider extends WhatsAppProvider {
 
   async sendText(jid, text) { return this.#send("text", jid, { text }); }
   async sendVoice(jid, audio) { return this.#send("voice", jid, audio); }
+  async sendMedia(jid, media) { return this.#send("media", jid, media); }
+  async getProfilePicture(jid) { return `https://example.test/avatar/${encodeURIComponent(jid)}.jpg`; }
   getConnectedPhone() { return this.connectedPhone; }
 
   async disconnect({ revoke = false } = {}) {

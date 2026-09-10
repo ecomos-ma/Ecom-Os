@@ -94,14 +94,6 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
-[functions.debug-youcan-order]
-enabled = true
-verify_jwt = true
-
-[functions.fix-youcan-orders]
-enabled = true
-verify_jwt = true
-
 [functions.enable-orders-realtime]
 enabled = true
 verify_jwt = true
@@ -150,6 +142,10 @@ verify_jwt = true
 enabled = true
 verify_jwt = false
 
-[functions.save-youcan-credentials]
+[functions.live-view-geolocate]
 enabled = true
 verify_jwt = false
+
+[functions.save-youcan-credentials]
+enabled = true
+verify_jwt = true

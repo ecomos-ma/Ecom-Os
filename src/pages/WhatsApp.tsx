@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   Bot,
@@ -6,17 +6,16 @@ import {
   CheckCheck,
   ChevronLeft,
   FileText,
+  Image as ImageIcon,
   Mic,
   MoreVertical,
   Paperclip,
-  Phone,
   Search,
   Send,
   Settings,
   Smile,
   UserRound,
   Users,
-  Video,
   X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -40,6 +39,7 @@ type Contact = {
   last_message_direction: string | null;
   ai_enabled: boolean;
   archived_at: string | null;
+  avatar_url: string | null;
 };
 type Message = {
   id: string;
@@ -50,7 +50,17 @@ type Message = {
   created_at: string;
   sent_by_user_id: string | null;
   reply_to_message_id: string | null;
+  media_url: string | null;
 };
+
+const commonEmoji = ["😀", "😂", "🥰", "😍", "😊", "🙏", "👍", "❤️", "🔥", "🎉", "✅", "📦", "🚚", "💰", "🇲🇦", "وعليكم السلام"];
+const acceptedMediaTypes = new Set([
+  "image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf",
+  "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip", "text/plain",
+]);
+const isImageMessage = (message: Message) => message.message_type === "image" || /\.(?:jpe?g|png|webp|gif)$/i.test(message.media_url || "");
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
@@ -100,7 +110,7 @@ function RoundIconButton({
   );
 }
 
-function Avatar({ name, large = false }: { name?: string | null; large?: boolean }) {
+function Avatar({ name, src, large = false }: { name?: string | null; src?: string | null; large?: boolean }) {
   const safeName = name?.trim() || "Unknown contact";
   const initials = safeName
     .split(/\s+/)
@@ -110,9 +120,10 @@ function Avatar({ name, large = false }: { name?: string | null; large?: boolean
     .toUpperCase();
   return (
     <span
-      className={`${large ? "h-20 w-20 text-xl" : "h-11 w-11 text-sm"} grid shrink-0 place-items-center rounded-full bg-[#dfe5e7] font-semibold text-[#667781] dark:bg-[#6a7175] dark:text-slate-100`}
+      className={`${large ? "h-20 w-20 text-xl" : "h-11 w-11 text-sm"} relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#dfe5e7] font-semibold text-[#667781] dark:bg-[#6a7175] dark:text-slate-100`}
     >
       {initials || <UserRound size={large ? 28 : 19} />}
+      {src && <img src={src} alt="" className="absolute inset-0 h-full w-full rounded-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />}
     </span>
   );
 }
@@ -130,6 +141,18 @@ export default function WhatsApp() {
   >("all");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [sendingAudio, setSendingAudio] = useState(false);
+  const [sendingAttachment, setSendingAttachment] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef(0);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const requestedAvatarsRef = useRef(new Set<string>());
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [agents, setAgents] = useState<
     Array<{ id: string; full_name: string | null }>
@@ -142,7 +165,7 @@ export default function WhatsApp() {
     const { data, error } = await supabase
       .from("whatsapp_contacts")
       .select(
-        "id,phone_number,display_name,remote_jid,customer_id,order_id,assigned_agent_id,unread_count,last_message,last_message_at,last_message_direction,ai_enabled,archived_at",
+        "id,phone_number,display_name,remote_jid,customer_id,order_id,assigned_agent_id,unread_count,last_message,last_message_at,last_message_direction,ai_enabled,archived_at,avatar_url",
       )
       .eq("workspace_id", workspaceId)
       .order("last_message_at", { ascending: false, nullsFirst: false });
@@ -170,12 +193,29 @@ export default function WhatsApp() {
       const { data, error } = await supabase
         .from("whatsapp_messages")
         .select(
-          "id,body,direction,message_type,status,created_at,sent_by_user_id,reply_to_message_id",
+          "id,body,direction,message_type,status,created_at,sent_by_user_id,reply_to_message_id,media_url",
         )
         .eq("workspace_id", workspaceId)
         .eq("conversation_id", contact.id)
         .order("created_at", { ascending: true });
-      if (!error) setMessages((data ?? []) as Message[]);
+      if (!error) {
+        const nextMessages = (data ?? []) as Message[];
+        setMessages(nextMessages);
+        const storedMedia = nextMessages.filter((message) => message.media_url && !/^https?:\/\//i.test(message.media_url));
+        if (storedMedia.length) {
+          const { data: signed } = await supabase.storage
+            .from("whatsapp-media")
+            .createSignedUrls(storedMedia.map((message) => message.media_url as string), 3600);
+          const signedByPath = new Map((signed ?? []).map((item) => [item.path, item.signedUrl]));
+          setMessageMediaUrls(Object.fromEntries(nextMessages.flatMap((message) => {
+            if (!message.media_url) return [];
+            const url = /^https?:\/\//i.test(message.media_url) ? message.media_url : signedByPath.get(message.media_url);
+            return url ? [[message.id, url]] : [];
+          })));
+        } else {
+          setMessageMediaUrls({});
+        }
+      }
       await supabase
         .from("whatsapp_contacts")
         .update({ unread_count: 0 })
@@ -243,6 +283,28 @@ export default function WhatsApp() {
       );
   }, [workspaceId]);
 
+  useEffect(() => {
+    if (!workspaceId) return;
+    const missing = contacts
+      .filter((contact) => contact.phone_number && !contact.avatar_url && !requestedAvatarsRef.current.has(contact.id))
+      .slice(0, 24);
+    if (!missing.length) return;
+    missing.forEach((contact) => requestedAvatarsRef.current.add(contact.id));
+    let cancelled = false;
+    void Promise.allSettled(missing.map(async (contact) => {
+      const result = await callWhatsAppWorker({
+        action: "profile_photo",
+        workspaceId,
+        payload: { phone: contact.phone_number },
+      });
+      const avatarUrl = typeof result?.avatar_url === "string" ? result.avatar_url : null;
+      if (!avatarUrl || cancelled) return;
+      await supabase.from("whatsapp_contacts").update({ avatar_url: avatarUrl }).eq("id", contact.id).eq("workspace_id", workspaceId);
+      if (!cancelled) setContacts((current) => current.map((item) => item.id === contact.id ? { ...item, avatar_url: avatarUrl } : item));
+    }));
+    return () => { cancelled = true; };
+  }, [contacts, workspaceId]);
+
   const visibleContacts = useMemo(
     () =>
       contacts.filter((contact) => {
@@ -285,6 +347,177 @@ export default function WhatsApp() {
       setSending(false);
     }
   };
+
+  const sendVoiceMessage = async (
+    blob: Blob,
+    contact: Contact,
+    durationSeconds: number,
+  ) => {
+    if (!workspaceId || !contact.phone_number || !contact.order_id) return;
+    const mimeType = (blob.type || "audio/webm").toLowerCase();
+    const extension = mimeType.includes("ogg") ? "ogg" : "webm";
+    const storagePath = `${workspaceId}/${crypto.randomUUID()}.${extension}`;
+    setSendingAudio(true);
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from("whatsapp-audio")
+        .upload(storagePath, blob, {
+          contentType: mimeType.split(";", 1)[0],
+          upsert: false,
+        });
+      if (uploadError) throw uploadError;
+      await callWhatsAppWorker({
+        action: "send_audio",
+        workspaceId,
+        payload: {
+          phone: contact.phone_number,
+          order_id: contact.order_id,
+          storage_path: storagePath,
+          mime_type: mimeType,
+          file_size: blob.size,
+          duration_seconds: durationSeconds,
+        },
+      });
+      toast.success("Voice message queued");
+    } catch (error) {
+      await supabase.storage.from("whatsapp-audio").remove([storagePath]);
+      toast.error(
+        error instanceof Error ? error.message : "Unable to send voice message",
+      );
+    } finally {
+      setSendingAudio(false);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    if (!selected || !workspaceId || sendingAudio) return;
+    if (!selected.phone_number) {
+      toast.error("This conversation has no valid WhatsApp number");
+      return;
+    }
+    if (!selected.order_id) {
+      toast.error("Voice messages require a conversation linked to an order");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast.error("Audio recording is not supported in this browser");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/ogg;codecs=opus",
+        "audio/webm",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      const recordingContact = selected;
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const durationSeconds = Math.max(
+          1,
+          Math.round((Date.now() - recordingStartedAtRef.current) / 1000),
+        );
+        const blob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        stream.getTracks().forEach((track) => track.stop());
+        audioStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setRecording(false);
+        if (!blob.size) {
+          toast.error("The voice recording was empty");
+          return;
+        }
+        void sendVoiceMessage(blob, recordingContact, durationSeconds);
+      };
+      audioStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recordingStartedAtRef.current = Date.now();
+      recorder.start(500);
+      setRecording(true);
+    } catch {
+      toast.error("Microphone access was denied");
+    }
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? draft.length;
+    const end = textarea?.selectionEnd ?? draft.length;
+    setDraft(`${draft.slice(0, start)}${emoji}${draft.slice(end)}`);
+    setEmojiOpen(false);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
+
+  const sendAttachment = async (file: File) => {
+    if (!selected || !workspaceId || !selected.phone_number || sendingAttachment) return;
+    if (!acceptedMediaTypes.has(file.type)) {
+      toast.error("Use an image, PDF, Word, Excel, ZIP, or text file");
+      return;
+    }
+    if (!file.size || file.size > 16 * 1024 * 1024) {
+      toast.error("Attachment must be smaller than 16 MB");
+      return;
+    }
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(-120) || "attachment";
+    const storagePath = `${workspaceId}/${crypto.randomUUID()}-${safeName}`;
+    setSendingAttachment(true);
+    try {
+      const { error: uploadError } = await supabase.storage.from("whatsapp-media").upload(storagePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      await callWhatsAppWorker({
+        action: "send_media",
+        workspaceId,
+        payload: {
+          phone: selected.phone_number,
+          order_id: selected.order_id,
+          storage_path: storagePath,
+          mime_type: file.type,
+          file_size: file.size,
+          file_name: file.name,
+          kind: file.type.startsWith("image/") ? "image" : "document",
+        },
+      });
+      toast.success(file.type.startsWith("image/") ? "Image sent" : "File sent");
+      await loadContacts();
+      await loadMessages(selected);
+    } catch (error) {
+      await supabase.storage.from("whatsapp-media").remove([storagePath]);
+      toast.error(error instanceof Error ? error.message : "Unable to send attachment");
+    } finally {
+      setSendingAttachment(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+    }
+  };
+
+  useEffect(() => () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === "recording") {
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const updateContact = async (patch: Partial<Contact>) => {
     if (!selected || !workspaceId) return;
@@ -373,7 +606,7 @@ export default function WhatsApp() {
                   }}
                   className={`group flex w-full items-center gap-3 px-3 text-left transition hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] ${selectedId === contact.id ? "bg-[#f0f2f5] dark:bg-[#2a3942]" : ""}`}
                 >
-                  <Avatar name={name} />
+                  <Avatar name={name} src={contact.avatar_url} />
                   <span className="min-w-0 flex-1 border-b border-[#e9edef] py-3 pr-2 dark:border-[#222d34]">
                     <span className="flex items-center justify-between gap-3">
                       <strong className="truncate text-[15px] font-normal">
@@ -447,6 +680,7 @@ export default function WhatsApp() {
                 >
                   <Avatar
                     name={contactName(selected)}
+                    src={selected.avatar_url}
                   />
                   <span className="min-w-0">
                     <strong className="block truncate text-[15px] font-normal">
@@ -457,9 +691,6 @@ export default function WhatsApp() {
                     </span>
                   </span>
                 </button>
-                <RoundIconButton label="Video call">
-                  <Video size={20} />
-                </RoundIconButton>
                 <RoundIconButton label="Search in conversation">
                   <Search size={19} />
                 </RoundIconButton>
@@ -496,9 +727,22 @@ export default function WhatsApp() {
                         <div
                           className={`relative max-w-[82%] rounded-lg px-2.5 pb-1.5 pt-1.5 text-[14px] leading-5 shadow-sm md:max-w-[68%] ${outbound ? "rounded-tr-none bg-[#d9fdd3] dark:bg-[#005c4b]" : "rounded-tl-none bg-white dark:bg-[#202c33]"}`}
                         >
-                          <p className="whitespace-pre-wrap break-words pr-12">
-                            {message.body || `[${message.message_type}]`}
-                          </p>
+                          {messageMediaUrls[message.id] && isImageMessage(message) && (
+                            <a href={messageMediaUrls[message.id]} target="_blank" rel="noreferrer" className="mb-1 block overflow-hidden rounded-md">
+                              <img src={messageMediaUrls[message.id]} alt={message.body || "WhatsApp image"} className="max-h-80 w-full object-cover" />
+                            </a>
+                          )}
+                          {messageMediaUrls[message.id] && !isImageMessage(message) && (
+                            <a href={messageMediaUrls[message.id]} target="_blank" rel="noreferrer" className="mb-1 flex min-w-[220px] items-center gap-3 rounded-md bg-black/[0.06] p-3 hover:bg-black/10 dark:bg-white/10">
+                              <FileText size={25} className="shrink-0" />
+                              <span className="min-w-0 flex-1 truncate">{message.body || "Open attachment"}</span>
+                            </a>
+                          )}
+                          {(!message.media_url || (isImageMessage(message) && message.body)) && (
+                            <p className="whitespace-pre-wrap break-words pr-12">
+                              {message.body || `[${message.message_type}]`}
+                            </p>
+                          )}
                           <span className="absolute bottom-1 right-1.5 flex items-center gap-0.5 text-[10px] text-[#667781] dark:text-[#aebac1]">
                             {formatTime(message.created_at)}
                             {outbound &&
@@ -526,16 +770,30 @@ export default function WhatsApp() {
                   </div>
                 )}
               </div>
-              <footer className="flex min-h-[62px] shrink-0 items-end gap-1 bg-[#f0f2f5] px-2 py-2 dark:bg-[#202c33] md:px-3">
-                <RoundIconButton label="Emoji">
+              <footer className="sticky bottom-0 z-20 flex min-h-[62px] shrink-0 items-end gap-1 border-t border-[#d8dfe3] bg-[#f0f2f5] px-2 py-2 dark:border-[#222d34] dark:bg-[#202c33] md:px-3">
+                {emojiOpen && (
+                  <div className="absolute bottom-[58px] left-2 z-30 grid w-[280px] grid-cols-8 gap-1 rounded-xl border border-[#d8dfe3] bg-white p-2 shadow-xl dark:border-[#374045] dark:bg-[#202c33]">
+                    {commonEmoji.map((emoji) => <button key={emoji} type="button" onClick={() => insertEmoji(emoji)} className="grid h-8 place-items-center rounded-lg text-lg hover:bg-black/[0.06] dark:hover:bg-white/10">{emoji}</button>)}
+                  </div>
+                )}
+                <RoundIconButton label="Emoji" onClick={() => setEmojiOpen((open) => !open)}>
                   <Smile size={23} />
                 </RoundIconButton>
-                <RoundIconButton label="Attach">
+                <RoundIconButton label="Attach image or file" onClick={() => attachmentInputRef.current?.click()}>
                   <Paperclip size={22} />
                 </RoundIconButton>
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.txt"
+                  onChange={(event) => { const file = event.target.files?.[0]; if (file) void sendAttachment(file); }}
+                />
                 <textarea
+                  ref={textareaRef}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  disabled={recording || sendingAudio || sendingAttachment}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
@@ -543,7 +801,7 @@ export default function WhatsApp() {
                     }
                   }}
                   rows={1}
-                  placeholder="Type a message"
+                  placeholder={recording ? "Recording… click the microphone to send" : sendingAudio ? "Sending voice message…" : sendingAttachment ? "Sending attachment…" : "Type a message"}
                   aria-label="Message"
                   className="max-h-28 min-h-[42px] flex-1 resize-none rounded-lg border-0 bg-white px-3 py-2.5 text-[14px] outline-none placeholder:text-[#667781] dark:bg-[#2a3942] dark:placeholder:text-[#8696a0]"
                 />
@@ -558,9 +816,16 @@ export default function WhatsApp() {
                     <Send size={22} />
                   </button>
                 ) : (
-                  <RoundIconButton label="Voice message">
+                  <button
+                    type="button"
+                    disabled={sendingAudio}
+                    onClick={() => recording ? stopVoiceRecording() : void startVoiceRecording()}
+                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-full transition disabled:opacity-40 ${recording ? "animate-pulse bg-red-500 text-white" : "text-[#54656f] hover:bg-black/[0.06] dark:text-[#aebac1]"}`}
+                    aria-label={recording ? "Stop and send voice message" : "Record voice message"}
+                    title={recording ? "Stop and send" : "Record voice message"}
+                  >
                     <Mic size={22} />
-                  </RoundIconButton>
+                  </button>
                 )}
               </footer>
             </>
@@ -608,6 +873,7 @@ export default function WhatsApp() {
               <div className="flex justify-center">
                 <Avatar
                   name={contactName(selected)}
+                  src={selected.avatar_url}
                   large
                 />
               </div>
@@ -682,12 +948,6 @@ export default function WhatsApp() {
                 className="flex items-center gap-5 border-b border-[#e9edef] px-5 py-4 text-left text-sm hover:bg-[#f5f6f6] dark:border-[#222d34] dark:hover:bg-[#202c33]"
               >
                 <Settings size={20} /> Automation settings
-              </button>
-              <button
-                type="button"
-                className="flex items-center gap-5 border-b border-[#e9edef] px-5 py-4 text-left text-sm hover:bg-[#f5f6f6] dark:border-[#222d34] dark:hover:bg-[#202c33]"
-              >
-                <Phone size={20} /> Call later
               </button>
               <button
                 type="button"

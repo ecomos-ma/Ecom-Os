@@ -106,6 +106,59 @@ export function createRoutes({ sessionManager, repository, aiProcessor, logger }
     res.status(200).json({ ok: true, workspace_id: workspaceId, message_id: sent.id, messageId: sent.id });
   });
 
+  const sendMedia = run(async (req, res) => {
+    const workspaceId = extractWorkspaceId(req);
+    const phone = normalizeMoroccanPhone(req.body?.phone);
+    const storagePath = String(req.body?.storage_path || "").trim();
+    const mimeType = String(req.body?.mime_type || "application/octet-stream").trim().toLowerCase();
+    const fileName = String(req.body?.file_name || "attachment").trim().slice(0, 180);
+    const kind = req.body?.kind === "image" ? "image" : "document";
+    const caption = String(req.body?.caption || "").trim().slice(0, 1024);
+    if (!phone) throw new WorkerError(ErrorCode.RECIPIENT_INVALID, "Invalid Moroccan mobile number", { httpStatus: 400 });
+    if (!storagePath.startsWith(`${workspaceId}/`) || storagePath.includes("..") || storagePath.includes("\\")) {
+      throw new WorkerError(ErrorCode.INVALID_REQUEST, "Invalid attachment storage path", { httpStatus: 400 });
+    }
+    if (!repository.configured) throw new WorkerError(ErrorCode.DATABASE_ERROR, "Attachments require Supabase storage", { httpStatus: 503 });
+    if (sessionManager.getState(workspaceId).connection_status !== "ready") {
+      throw new WorkerError(ErrorCode.PROVIDER_DISCONNECTED, "WhatsApp is not connected", { httpStatus: 409 });
+    }
+    const registration = await sessionManager.isRegistered(workspaceId, phone);
+    if (!registration.registered || !registration.jid) throw new WorkerError(ErrorCode.RECIPIENT_INVALID, "Number is not registered on WhatsApp", { httpStatus: 422 });
+    const buffer = await repository.downloadAttachment(storagePath);
+    if (!buffer.length || buffer.length > 16 * 1024 * 1024) throw new WorkerError(ErrorCode.INVALID_REQUEST, "Attachment must be smaller than 16 MB", { httpStatus: 400 });
+    const sent = await sessionManager.sendMedia(workspaceId, registration.jid, { buffer, mimeType, fileName, kind, caption });
+    await repository.logMessage({
+      workspace_id: workspaceId,
+      order_id: req.body?.order_id || null,
+      phone,
+      normalized_phone: phone,
+      remote_jid: registration.jid,
+      direction: "outbound",
+      message_type: "custom",
+      body: caption || fileName,
+      media_url: storagePath,
+      wa_message_id: sent.id,
+      provider_event_id: sent.id,
+      status: "sent",
+      raw_payload: { inbox_media_kind: kind, mime_type: mimeType, file_name: fileName },
+    });
+    logger.info({ workspaceId, providerMessageId: sent.id, kind }, "WhatsApp attachment sent");
+    res.status(200).json({ ok: true, workspace_id: workspaceId, message_id: sent.id, messageId: sent.id });
+  });
+
+  const profilePhoto = run(async (req, res) => {
+    const workspaceId = extractWorkspaceId(req);
+    const phone = normalizeMoroccanPhone(req.body?.phone);
+    if (!phone) throw new WorkerError(ErrorCode.RECIPIENT_INVALID, "Invalid Moroccan mobile number", { httpStatus: 400 });
+    if (sessionManager.getState(workspaceId).connection_status !== "ready") {
+      throw new WorkerError(ErrorCode.PROVIDER_DISCONNECTED, "WhatsApp is not connected", { httpStatus: 409 });
+    }
+    const registration = await sessionManager.isRegistered(workspaceId, phone);
+    if (!registration.registered || !registration.jid) return res.status(200).json({ ok: true, avatar_url: null });
+    const avatarUrl = await sessionManager.getProfilePicture(workspaceId, registration.jid);
+    res.status(200).json({ ok: true, avatar_url: avatarUrl || null });
+  });
+
   const testAi = run(async (req, res) => {
     const workspaceId = extractWorkspaceId(req);
     const message = String(req.body?.message || "").trim().slice(0, 4000);
@@ -121,6 +174,8 @@ export function createRoutes({ sessionManager, repository, aiProcessor, logger }
   router.post("/sessions/:workspaceId/reconnect", reconnect);
   router.post("/sessions/:workspaceId/logout", logout);
   router.post("/sessions/:workspaceId/send", send);
+  router.post("/sessions/:workspaceId/send-media", sendMedia);
+  router.post("/sessions/:workspaceId/profile-photo", profilePhoto);
   router.post("/sessions/:workspaceId/test", send);
   router.post("/sessions/:workspaceId/ai/test", testAi);
 

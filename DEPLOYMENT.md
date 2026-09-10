@@ -10,7 +10,6 @@ Configure for Preview and Production:
 | `VITE_SUPABASE_URL` | Yes | No | Supabase project URL |
 | `VITE_SUPABASE_ANON_KEY` | Yes | No | Publishable key or legacy anon key protected by RLS |
 | `VITE_WHATSAPP_WORKER_URL` | Yes for WhatsApp | No | Public HTTPS URL of the VPS `whatsapp-web.js` worker |
-| `VITE_YOUCAN_REDIRECT_URI` | Only for YouCan OAuth | No | Browser callback URL: `https://www.ecomos.ma/api/youcan/callback` |
 
 Never configure a service-role key, `sb_secret_...`, OAuth client secret, worker API secret, or private VAPID key with a `VITE_` prefix.
 
@@ -22,7 +21,7 @@ Supabase provides `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROL
 | --- | --- |
 | Allowed web origins | `ALLOWED_FRONTEND_ORIGINS`, `FRONTEND_URL`, `APP_URL` |
 | Notifications | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `NOTIFICATION_WORKER_SECRET` |
-| YouCan | `YOUCAN_CLIENT_ID`, `YOUCAN_CLIENT_SECRET`, `YOUCAN_REDIRECT_URI`, `STATE_SIGNING_SECRET` |
+| YouCan | `YOUCAN_CLIENT_ID`, `YOUCAN_CLIENT_SECRET`, `YOUCAN_REDIRECT_URI`, `YOUCAN_TOKEN_ENCRYPTION_KEY`, `YOUCAN_CRON_SECRET` |
 | Google Sheets/OAuth | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` |
 | Shopify | `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `STATE_SIGNING_SECRET` |
 | TikTok | `TIKTOK_CRON_SECRET`, `TIKTOK_SCOPES`, `FRONTEND_URL` |

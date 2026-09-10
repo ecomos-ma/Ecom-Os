@@ -51,11 +51,6 @@ export interface Workspace {
   coliaty_secret_key?: string | null;
   coliaty_api_url?: string | null;
   language: "en" | "fr";
-  youcan_client_id?: string | null;
-  youcan_client_secret?: string | null;
-  youcan_access_token?: string | null;
-  youcan_refresh_token?: string | null;
-  youcan_token_expires_at?: string | null;
   shopify_enabled?: boolean | null;
   shopify_shop_domain?: string | null;
   shopify_access_token?: string | null;

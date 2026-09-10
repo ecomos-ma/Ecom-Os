@@ -17,6 +17,8 @@ export class WhatsAppProvider extends EventEmitter {
   async disconnect() { throw new Error("disconnect() is not implemented"); }
   async sendText() { throw new Error("sendText() is not implemented"); }
   async sendVoice() { throw new Error("sendVoice() is not implemented"); }
+  async sendMedia() { throw new Error("sendMedia() is not implemented"); }
+  async getProfilePicture() { throw new Error("getProfilePicture() is not implemented"); }
   async isRegistered() { throw new Error("isRegistered() is not implemented"); }
   getConnectedPhone() { return null; }
 }

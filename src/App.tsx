@@ -378,15 +378,6 @@ export default function App() {
                   }
                 />
                 <Route
-                  path="/api/youcan/callback"
-                  element={
-                    <LoadablePage>
-                      <OAuthCallback provider="youcan" />
-                    </LoadablePage>
-                  }
-                />
-
-                <Route
                   element={
                     <ProtectedRoute>
                       <OrdersProvider>

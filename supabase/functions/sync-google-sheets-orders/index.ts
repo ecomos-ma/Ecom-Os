@@ -425,7 +425,7 @@ serve(async (req) => {
         // Check if order already exists (for determining order_number)
         const { data: existingOrder, error: checkError } = await supabase
           .from("orders")
-          .select("order_number")
+          .select('"Order ID"')
           .eq("workspace_id", workspace_id)
           .eq("sync_key", orderPayload.sync_key)
           .maybeSingle();
@@ -435,32 +435,10 @@ serve(async (req) => {
         }
 
         const isNewOrder = !existingOrder;
-        let orderNumber: string;
-        
-        if (existingOrder?.order_number) {
-          // Use existing order_number for updates
-          orderNumber = existingOrder.order_number;
-        } else {
-          // New order: get next sequential number from database function
-          console.log("Getting next sequential order number for workspace:", workspace_id);
-          const { data: nextNumberData, error: numberError } = await supabase
-            .rpc("get_next_google_sheets_order_number", {
-              p_workspace_id: workspace_id
-            });
-
-          if (numberError) {
-            throw new Error(`Failed to get sequential order number: ${numberError.message}`);
-          }
-
-          orderNumber = nextNumberData as string;
-          console.log("Assigned order number:", orderNumber);
-        }
-
-        // Add order_number to payload
-        orderPayload.order_number = orderNumber;
 
         // Upsert using sync_key for deduplication.
-        // On conflict, update status/delivery/variant fields — never overwrite order_number.
+        // The database trigger assigns the canonical short order_number on
+        // insert. Omitting it here also keeps updates from renumbering orders.
         const { error: upsertError, data: upsertData } = await supabase
           .from("orders")
           .upsert(orderPayload, {
@@ -479,10 +457,10 @@ serve(async (req) => {
           // If it was a new order, increment created count, otherwise updated
           if (isNewOrder) {
             created++;
-            console.log(`Created new order with number: ${orderNumber}`);
+            console.log(`Created new Google Sheets order for sync key: ${orderPayload.sync_key}`);
           } else {
             updated++;
-            console.log(`Updated existing order with number: ${orderNumber}`);
+            console.log(`Updated Google Sheets order for sync key: ${orderPayload.sync_key}`);
           }
         }
       } catch (error: any) {

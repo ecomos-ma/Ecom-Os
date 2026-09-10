@@ -99,6 +99,12 @@ export class SupabaseWhatsAppRepository {
     return Buffer.from(await response.data.arrayBuffer());
   }
 
+  async downloadAttachment(storagePath) {
+    const response = await this.client.storage.from("whatsapp-media").download(storagePath);
+    if (response.error) throw databaseError("Download WhatsApp attachment", response.error);
+    return Buffer.from(await response.data.arrayBuffer());
+  }
+
   async isOptedOut(workspaceId, phone) {
     const response = await result(this.client.from("whatsapp_opt_outs").select("id").eq("workspace_id", workspaceId).eq("normalized_phone", phone).maybeSingle(), "Check WhatsApp opt-out");
     return Boolean(response.data);

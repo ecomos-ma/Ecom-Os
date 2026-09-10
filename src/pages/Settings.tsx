@@ -1,4 +1,4 @@
-import { FormEvent, useState, useEffect, useCallback } from "react";
+import { FormEvent, useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { CheckCircle2, ExternalLink, User, Building2, Lock, Save, X, Loader2, Store, Truck, Star } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -632,6 +632,11 @@ function ComingNext({ title, subtitle }: { title: string; subtitle: string }) {
 
 // ─── Integrations Tab ─────────────────────────────────────────────────────────
 
+const INTEGRATION_KEYS = [
+  "youcan", "google_sheets", "meta", "tiktok", "shopify", "ozon",
+  "coliaty", "forcelog", "ameex", "sendit", "whatsapp",
+] as const;
+
 // ─── Shared Imports for New UI ────────────────────────────────────────────────
 import { MoreHorizontal } from "lucide-react";
 
@@ -644,7 +649,7 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
 
   // Track real connection states for all integrations
   const [connectionStates, setConnectionStates] = useState<Record<string, boolean>>({
-    youcan: !!workspace?.youcan_access_token,
+    youcan: false,
     google_sheets: false,
     meta: false,
     tiktok: false,
@@ -656,25 +661,73 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
     sendit: false,
     whatsapp: false,
   });
+  const connectionStatesRef = useRef(connectionStates);
+  const reportedConnectionsRef = useRef(new Set<string>());
+  const [reportedConnectionCount, setReportedConnectionCount] = useState(0);
+  const [visibleOrder, setVisibleOrder] = useState<string[] | null>(null);
+
+  const persistStableOrder = useCallback((states: Record<string, boolean>) => {
+    const order = [...INTEGRATION_KEYS].sort((a, b) => {
+      if (states[a] !== states[b]) return states[a] ? -1 : 1;
+      return INTEGRATION_KEYS.indexOf(a) - INTEGRATION_KEYS.indexOf(b);
+    });
+    if (workspace?.id) {
+      localStorage.setItem(`ecomos:integration-order:${workspace.id}`, JSON.stringify(order));
+    }
+    setVisibleOrder((current) => current ?? order);
+  }, [workspace?.id]);
 
   // Callback for integration cards to report their connection state
   const reportConnectionState = useCallback((key: string, connected: boolean) => {
+    const changed = connectionStatesRef.current[key] !== connected;
+    connectionStatesRef.current = { ...connectionStatesRef.current, [key]: connected };
+    reportedConnectionsRef.current.add(key);
+    setReportedConnectionCount(reportedConnectionsRef.current.size);
     setConnectionStates(prev => {
       if (prev[key] === connected) return prev;
       return { ...prev, [key]: connected };
     });
-  }, []);
+    // Refresh the cache as live states change, but keep the currently visible
+    // grid frozen so a slow provider can never move cards under the user's cursor.
+    if (changed && workspace?.id) {
+      const nextOrder = [...INTEGRATION_KEYS].sort((a, b) => {
+        if (connectionStatesRef.current[a] !== connectionStatesRef.current[b]) return connectionStatesRef.current[a] ? -1 : 1;
+        return INTEGRATION_KEYS.indexOf(a) - INTEGRATION_KEYS.indexOf(b);
+      });
+      localStorage.setItem(`ecomos:integration-order:${workspace.id}`, JSON.stringify(nextOrder));
+    }
+  }, [workspace?.id]);
+
+  // Restore the last verified order immediately. On a workspace's first visit,
+  // keep the cards hidden briefly while they report their status so users never
+  // see disconnected cards jumping upward one at a time.
+  useEffect(() => {
+    reportedConnectionsRef.current = new Set();
+    setReportedConnectionCount(0);
+    setVisibleOrder(null);
+    if (workspace?.id) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(`ecomos:integration-order:${workspace.id}`) ?? "null");
+        if (Array.isArray(cached) && cached.length === INTEGRATION_KEYS.length && INTEGRATION_KEYS.every((key) => cached.includes(key))) {
+          setVisibleOrder(cached);
+        }
+      } catch {
+        // A corrupt presentation cache is harmless; statuses are rediscovered below.
+      }
+    }
+    const fallback = setTimeout(() => persistStableOrder(connectionStatesRef.current), 2200);
+    return () => clearTimeout(fallback);
+  }, [persistStableOrder, workspace?.id]);
 
   // Update workspace-based connection states when workspace changes
   useEffect(() => {
     setConnectionStates(prev => ({
       ...prev,
-      youcan: !!workspace?.youcan_access_token,
       shopify: !!workspace?.shopify_access_token,
       ozon: !!workspace?.ozon_api_key,
       coliaty: !!workspace?.coliaty_public_key,
     }));
-  }, [workspace?.youcan_access_token, workspace?.shopify_access_token, workspace?.ozon_api_key, workspace?.coliaty_public_key]);
+  }, [workspace?.shopify_access_token, workspace?.ozon_api_key, workspace?.coliaty_public_key]);
 
   // Define integration cards with their order and connection state tracking
   const integrationCards = [
@@ -749,10 +802,9 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
   // Keep one clear marketplace: connected services first, then the services
   // that still need setup. This makes an active integration immediately
   // visible without duplicating the grid into two sections.
-  const sortedIntegrations = [...integrationCards].sort((a, b) => {
-    if (a.connected !== b.connected) return a.connected ? -1 : 1;
-    return a.order - b.order;
-  });
+  const sortedIntegrations = visibleOrder
+    ? visibleOrder.map((key) => integrationCards.find((item) => item.key === key)).filter(Boolean) as typeof integrationCards
+    : [...integrationCards].sort((a, b) => a.order - b.order);
 
   return (
     <div className="flex flex-col w-full h-full pb-10">
@@ -778,13 +830,22 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
             </div>
             <div className="flex items-center gap-2 text-[11px] font-semibold">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-600"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Active first</span>
-              <span className="rounded-full bg-base-raised px-2.5 py-1 text-ink-muted">{sortedIntegrations.filter((item) => item.connected).length} connected</span>
+              <span className="rounded-full bg-base-raised px-2.5 py-1 text-ink-muted">
+                {reportedConnectionCount === INTEGRATION_KEYS.length
+                  ? `${integrationCards.filter((item) => item.connected).length} connected`
+                  : "Checking connections…"}
+              </span>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {sortedIntegrations.map((integration) => (
-              <React.Fragment key={integration.key}>{integration.component}</React.Fragment>
-            ))}
+          <div className="relative">
+            <div className={`grid grid-cols-1 gap-6 transition-opacity sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${visibleOrder ? "opacity-100" : "pointer-events-none opacity-0"}`} aria-busy={!visibleOrder}>
+              {sortedIntegrations.map((integration) => (
+                <React.Fragment key={integration.key}>{integration.component}</React.Fragment>
+              ))}
+            </div>
+            {!visibleOrder && <div className="absolute inset-0 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-hidden="true">
+              {Array.from({ length: 8 }, (_, index) => <div key={index} className="h-[266px] animate-pulse rounded-[24px] border border-base-border bg-base-surface p-6"><div className="h-12 w-12 rounded-2xl bg-base-raised" /><div className="mt-5 h-3 w-2/3 rounded bg-base-raised" /><div className="mt-3 h-3 w-full rounded bg-base-raised" /><div className="mt-2 h-3 w-4/5 rounded bg-base-raised" /></div>)}
+            </div>}
           </div>
         </div>
 

@@ -3,13 +3,15 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.111.0";
 import { HttpError } from "./security.ts";
 
 export const YOUCAN_API_BASE = "https://api.youcan.shop";
+export const YOUCAN_AUTHORIZATION_ENDPOINT = "https://seller-area.youcan.shop/admin/oauth/authorize";
+export const YOUCAN_TOKEN_ENDPOINT = `${YOUCAN_API_BASE}/oauth/token`;
+export const YOUCAN_PRODUCTION_CLIENT_ID = "2921";
+export const YOUCAN_PRODUCTION_REDIRECT_URI = "https://www.ecomos.ma/api/youcan/callback";
 export const YOUCAN_REQUIRED_SCOPES = [
   "read-orders",
   "edit-orders",
   "view-store-info",
   "read-products",
-  "read-customers",
-  "read-checkout-fields",
   "read-rest-hooks",
   "edit-rest-hooks",
   "delete-rest-hooks",
@@ -25,6 +27,19 @@ export function requiredYouCanEnv(name: string): string {
   const value = Deno.env.get(name)?.trim();
   if (!value) throw new HttpError(`Missing environment variable: ${name}`, 503);
   return value;
+}
+
+export function youcanOAuthConfig(): { clientId: string; clientSecret: string; redirectUri: string } {
+  const clientId = requiredYouCanEnv("YOUCAN_CLIENT_ID");
+  const clientSecret = requiredYouCanEnv("YOUCAN_CLIENT_SECRET");
+  const redirectUri = requiredYouCanEnv("YOUCAN_REDIRECT_URI");
+  if (clientId !== YOUCAN_PRODUCTION_CLIENT_ID) {
+    throw new HttpError("YouCan OAuth client is misconfigured", 503);
+  }
+  if (redirectUri !== YOUCAN_PRODUCTION_REDIRECT_URI) {
+    throw new HttpError("YouCan OAuth redirect URI is misconfigured", 503);
+  }
+  return { clientId, clientSecret, redirectUri };
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -92,6 +107,7 @@ type CredentialRow = {
   access_token_encrypted: string | null;
   refresh_token_encrypted: string | null;
   expires_at: string | null;
+  updated_at: string;
 };
 
 export async function persistEncryptedTokens(
@@ -114,13 +130,14 @@ export async function persistEncryptedTokens(
 }
 
 async function refreshAccessToken(client: SupabaseClient, row: CredentialRow, refreshToken: string): Promise<string> {
-  const response = await fetch(`${YOUCAN_API_BASE}/oauth/token`, {
+  const oauth = youcanOAuthConfig();
+  const response = await fetch(YOUCAN_TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: requiredYouCanEnv("YOUCAN_CLIENT_ID"),
-      client_secret: requiredYouCanEnv("YOUCAN_CLIENT_SECRET"),
+      client_id: oauth.clientId,
+      client_secret: oauth.clientSecret,
       refresh_token: refreshToken,
     }),
     signal: AbortSignal.timeout(20_000),
@@ -138,14 +155,14 @@ async function refreshAccessToken(client: SupabaseClient, row: CredentialRow, re
 
 export async function integrationAccessToken(client: SupabaseClient, integrationId: string): Promise<{ token: string; integration: CredentialRow }> {
   const { data, error } = await client.from("integrations")
-    .select("id, workspace_id, status, access_token, refresh_token, access_token_encrypted, refresh_token_encrypted, expires_at")
+    .select("id, workspace_id, status, access_token, refresh_token, access_token_encrypted, refresh_token_encrypted, expires_at, updated_at")
     .eq("id", integrationId).eq("provider", "youcan").maybeSingle();
   const row = data as CredentialRow | null;
   if (error || !row || row.status !== "active") throw new HttpError("YouCan is disconnected", 409);
   let accessToken = row.access_token_encrypted
     ? await decryptYouCanSecret(row.access_token_encrypted)
     : row.access_token;
-  let refreshToken = row.refresh_token_encrypted
+  const refreshToken = row.refresh_token_encrypted
     ? await decryptYouCanSecret(row.refresh_token_encrypted)
     : row.refresh_token;
   if (!accessToken) throw new HttpError("YouCan authorization is unavailable. Reconnect the store.", 409);
@@ -156,7 +173,33 @@ export async function integrationAccessToken(client: SupabaseClient, integration
   }
   if (row.expires_at && new Date(row.expires_at).getTime() - Date.now() < 5 * 60_000) {
     if (!refreshToken) throw new HttpError("YouCan authorization expired. Reconnect the store.", 409);
-    accessToken = await refreshAccessToken(client, row, refreshToken);
+    const leaseTimestamp = new Date().toISOString();
+    const lease = await client.from("integrations")
+      .update({ updated_at: leaseTimestamp })
+      .eq("id", row.id)
+      .eq("updated_at", row.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (lease.error) throw new HttpError("YouCan authorization could not be refreshed", 503);
+    if (lease.data) {
+      accessToken = await refreshAccessToken(client, { ...row, updated_at: leaseTimestamp }, refreshToken);
+    } else if (new Date(row.expires_at).getTime() <= Date.now()) {
+      let refreshed = false;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const current = await client.from("integrations")
+          .select("status, access_token_encrypted, expires_at")
+          .eq("id", row.id)
+          .maybeSingle();
+        if (current.data?.status !== "active") throw new HttpError("YouCan authorization expired. Reconnect the store.", 409);
+        if (current.data?.access_token_encrypted && current.data.access_token_encrypted !== row.access_token_encrypted) {
+          accessToken = await decryptYouCanSecret(current.data.access_token_encrypted);
+          refreshed = true;
+          break;
+        }
+      }
+      if (!refreshed) throw new HttpError("YouCan authorization refresh is still in progress", 503);
+    }
   }
   return { token: accessToken, integration: row };
 }
@@ -292,7 +335,6 @@ export function mapYouCanOrder(order: any, workspaceId: string, integrationId: s
     external_order_id: externalId,
     youcan_order_id: externalId,
     youcan_ref: order?.reference ? String(order.reference) : null,
-    order_number: `#YC-${order?.reference ?? externalId}`,
     source: "youcan",
     customer_name: customerName ?? detected.customer_name ?? null,
     first_name: customer?.first_name ?? detected.first_name ?? null,

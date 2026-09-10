@@ -69,7 +69,13 @@ function MobilePlanGate() {
   );
 }
 
-function PullToRefresh({ children }: { children: React.ReactNode }) {
+function PullToRefresh({
+  children,
+  lockScroll = false,
+}: {
+  children: React.ReactNode;
+  lockScroll?: boolean;
+}) {
   const [pullProgress, setPullProgress] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -131,7 +137,7 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
   return (
     <div
       ref={containerRef}
-      className="relative h-full min-h-0 w-full overflow-y-auto overscroll-contain"
+      className={`relative h-full min-h-0 w-full overscroll-contain ${lockScroll ? "overflow-hidden" : "overflow-y-auto"}`}
     >
       <div
         className="absolute top-0 left-0 w-full flex justify-center items-end pb-3 overflow-hidden transition-all duration-100 ease-out z-50 pointer-events-none"
@@ -153,7 +159,7 @@ function PullToRefresh({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <div
-        className="min-h-full w-full transition-transform duration-100 ease-out"
+        className={`${lockScroll ? "h-full min-h-0" : "min-h-full"} w-full transition-transform duration-100 ease-out`}
         style={{ transform: `translateY(${pullProgress}px)` }}
       >
         {children}
@@ -408,7 +414,7 @@ export function Layout() {
         <AdminPreviewBanner />
         <AnnouncementTray />
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
-          <PullToRefresh>
+          <PullToRefresh lockScroll={isWhatsAppInbox || isLiveView}>
             <PageContent
               className={`h-full min-h-full ${isWhatsAppInbox || isLiveView ? "!p-0" : "mobile-page-content"}`}
             >

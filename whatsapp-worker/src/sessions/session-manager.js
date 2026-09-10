@@ -237,6 +237,18 @@ export class SessionManager {
     return provider.sendVoice(jid, audio);
   }
 
+  async sendMedia(workspaceId, jid, media) {
+    const provider = this.getProvider(workspaceId);
+    if (!provider || this.#session(workspaceId).state !== "ready") throw new WorkerError(ErrorCode.PROVIDER_DISCONNECTED, "WhatsApp is not ready", { retryable: true });
+    return provider.sendMedia(jid, media);
+  }
+
+  async getProfilePicture(workspaceId, jid) {
+    const provider = this.getProvider(workspaceId);
+    if (!provider || this.#session(workspaceId).state !== "ready") throw new WorkerError(ErrorCode.PROVIDER_DISCONNECTED, "WhatsApp is not ready", { retryable: true });
+    return provider.getProfilePicture(jid);
+  }
+
   async shutdown() {
     this.stopping = true;
     await Promise.allSettled([...this.sessions.values()].map((session) => session.provider?.disconnect({ revoke: false })));

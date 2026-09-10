@@ -9,7 +9,11 @@ import {
   requireUuid,
   serviceClient,
 } from "../_shared/security.ts";
-import { YOUCAN_REQUIRED_SCOPES } from "../_shared/youcan.ts";
+import {
+  YOUCAN_AUTHORIZATION_ENDPOINT,
+  YOUCAN_REQUIRED_SCOPES,
+  youcanOAuthConfig,
+} from "../_shared/youcan.ts";
 
 function randomState(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -32,11 +36,7 @@ Deno.serve(async (req) => {
     const workspaceId = requireUuid(body.workspace_id, "workspace_id");
     await authorizeOperationalWorkspace(client, user.id, workspaceId);
 
-    const clientId = Deno.env.get("YOUCAN_CLIENT_ID")?.trim();
-    const redirectUri = Deno.env.get("YOUCAN_REDIRECT_URI")?.trim();
-    if (!clientId || !redirectUri) {
-      throw new HttpError("YouCan connection is not configured", 503);
-    }
+    const { clientId, redirectUri } = youcanOAuthConfig();
 
     const state = randomState();
     await client.from("youcan_oauth_states").delete().eq("user_id", user.id).lt("expires_at", new Date().toISOString());
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
       expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     });
     if (stateError) throw new HttpError("YouCan connection could not be initialized", 503);
-    const authorizationUrl = new URL("https://seller-area.youcan.shop/admin/oauth/authorize");
+    const authorizationUrl = new URL(YOUCAN_AUTHORIZATION_ENDPOINT);
     authorizationUrl.searchParams.set("client_id", clientId);
     authorizationUrl.searchParams.set("redirect_uri", redirectUri);
     authorizationUrl.searchParams.set("response_type", "code");

@@ -4,8 +4,18 @@ import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const workerSecret = env.WHATSAPP_WORKER_API_SECRET;
-  const workerDevUrl = env.WHATSAPP_WORKER_DEV_URL || 'http://127.0.0.1:5000';
+  const workerSecret = env.WHATSAPP_WORKER_API_SECRET?.trim();
+  const workerUrl = env.WHATSAPP_WORKER_URL?.trim();
+  if (!workerUrl) {
+    throw new Error("WHATSAPP_WORKER_URL must point to the production VPS worker");
+  }
+  if (/trycloudflare\.com|localhost|127\.0\.0\.1/i.test(workerUrl)) {
+    throw new Error("WHATSAPP_WORKER_URL must be the current production VPS worker URL, not a local address or tunnel");
+  }
+  if (!workerSecret) {
+    throw new Error("WHATSAPP_WORKER_API_SECRET is required for the server-side WhatsApp worker proxy");
+  }
+  console.info(`[Vite] WhatsApp worker proxy target: ${new URL(workerUrl).origin}`);
 
   return {
   plugins: [
@@ -83,10 +93,23 @@ export default defineConfig(({ mode }) => {
     port: 8080,
     proxy: {
       '/api/whatsapp-worker': {
-        target: workerDevUrl,
+        target: workerUrl,
         changeOrigin: true,
+        proxyTimeout: 30000,
+        timeout: 30000,
         rewrite: (path) => path.replace(/^\/api\/whatsapp-worker/, ''),
-        headers: workerSecret ? { Authorization: `Bearer ${workerSecret}` } : undefined,
+        headers: { Authorization: `Bearer ${workerSecret}` },
+        configure: (proxy) => {
+          proxy.on('proxyReq', (_proxyReq, req) => {
+            console.info(`[WhatsApp worker proxy] ${req.method} ${req.url} -> ${workerUrl}`);
+          });
+          proxy.on('proxyRes', (proxyRes, req) => {
+            console.info(`[WhatsApp worker proxy] upstream ${proxyRes.statusCode} ${req.method} ${req.url}`);
+          });
+          proxy.on('error', (error, req) => {
+            console.error(`[WhatsApp worker proxy] upstream error ${req.method} ${req.url}: ${error.message}`);
+          });
+        },
       },
       '/api-ozon': {
         target: 'https://api.ozonexpress.ma',
