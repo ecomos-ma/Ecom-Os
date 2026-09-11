@@ -35,11 +35,13 @@ async function authenticatedAdmin(request: Request) {
   const userClient = createClient(url, anon, { global: { headers: { Authorization: authorization } } });
   const { data: { user }, error } = await userClient.auth.getUser();
   if (error || !user) throw new Error("Authentication required");
-  return { user, adminClient: createClient(url, service) };
+  return { user, userClient, adminClient: createClient(url, service) };
 }
-async function getAuthority(adminClient: any, userId: string, workspaceId: string) {
-  const { data: profile, error } = await adminClient.from("profiles").select("id,workspace_id,role,is_active,deleted_at,full_name,email").eq("id", userId).maybeSingle();
-  if (error || !profile || profile.workspace_id !== workspaceId || profile.is_active === false || profile.deleted_at || !["owner", "supervisor"].includes(profile.role)) throw new Error("You do not have permission to manage this workspace team");
+async function getAuthority(userClient: any, adminClient: any, userId: string, workspaceId: string) {
+  const { data: canManage, error: permissionError } = await userClient.rpc("can_manage_workspace_team", { p_workspace_id: workspaceId });
+  if (permissionError || canManage !== true) throw new Error("You do not have permission to manage this workspace team");
+  const { data: profile, error } = await adminClient.from("profiles").select("id,is_active,deleted_at,full_name,email").eq("id", userId).maybeSingle();
+  if (error || !profile || profile.is_active === false || profile.deleted_at) throw new Error("You do not have permission to manage this workspace team");
   return profile;
 }
 async function sendEmail(apiKey: string, inviteUrl: string, email: string, name: string, inviter: string, role: string) {
@@ -70,12 +72,12 @@ serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: headers(request) });
   if (request.method !== "POST") return json(request, { error: "Method not allowed" }, 405);
   try {
-    const { user, adminClient } = await authenticatedAdmin(request);
+    const { user, userClient, adminClient } = await authenticatedAdmin(request);
     const body = await request.json();
     const action = String(body.action || "create");
     const workspaceId = String(body.workspace_id || "");
     if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) throw new Error("Workspace is required");
-    const inviter = await getAuthority(adminClient, user.id, workspaceId);
+    const inviter = await getAuthority(userClient, adminClient, user.id, workspaceId);
 
     if (action === "revoke") {
       const { data, error } = await adminClient.from("workspace_invitations").update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("id", body.invitation_id).eq("workspace_id", workspaceId).eq("status", "pending").select("id,email").maybeSingle();
@@ -92,10 +94,11 @@ serve(async (request) => {
       ? await adminClient.from("subscription_plans").select("team_member_limit").eq("id", subscription.plan_id).maybeSingle()
       : { data: null };
     const email = normalizeEmail(body.email);
+    const delivery = body.delivery === "link" ? "link" : "email";
     const role = body.role === "supervisor" ? "supervisor" : "agent";
     const allowedSections = normalizeSections(body.allowed_sections, role);
     const { data: existingProfile } = await adminClient.from("profiles").select("id,is_active").ilike("email", email).maybeSingle();
-    if (existingProfile?.is_active !== false) {
+    if (existingProfile && existingProfile.is_active !== false) {
       const { data: existingMembership } = await adminClient.from("profile_workspaces").select("id").eq("profile_id", existingProfile.id).eq("workspace_id", workspaceId).eq("status", "active").maybeSingle();
       if (existingMembership) throw new Error("This person is already an active member");
     }
@@ -130,11 +133,18 @@ serve(async (request) => {
 
     const appUrl = (Deno.env.get("APP_URL") || "https://www.ecomos.ma").replace(/\/+$/, "");
     const inviteUrl = `${appUrl}/invite?token=${encodeURIComponent(invitation.id)}`;
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    if (!resendApiKey) throw new Error("Email service is not configured");
-    await sendEmail(resendApiKey, inviteUrl, email, invitation.full_name, inviter.full_name || inviter.email, role);
-    await adminClient.from("team_audit_log").insert({ workspace_id: workspaceId, actor_id: user.id, actor_email: inviter.email, action: currentInvite ? "invitation_resent" : "invitation_created", target_type: "invitation", target_id: invitation.id, target_email: email, changes: { role, allowed_sections: allowedSections } });
-    return json(request, { success: true, invitation: { id: invitation.id, email, role, status: "pending", expires_at: expiresAt, resent: Boolean(currentInvite) } });
+    if (delivery === "email") {
+      const resendApiKey = Deno.env.get("RESEND_API_KEY");
+      if (!resendApiKey) throw new Error("Email service is not configured. Create and copy an invitation link instead.");
+      await sendEmail(resendApiKey, inviteUrl, email, invitation.full_name, inviter.full_name || inviter.email, role);
+    }
+    await adminClient.from("team_audit_log").insert({ workspace_id: workspaceId, actor_id: user.id, actor_email: inviter.email, action: delivery === "link" ? "invitation_link_created" : currentInvite ? "invitation_resent" : "invitation_created", target_type: "invitation", target_id: invitation.id, target_email: email, changes: { role, allowed_sections: allowedSections, delivery } });
+    return json(request, {
+      success: true,
+      invitation: { id: invitation.id, email, role, status: "pending", expires_at: expiresAt, resent: Boolean(currentInvite) },
+      invite_url: inviteUrl,
+      delivery,
+    });
   } catch (error) {
     return json(request, { error: error instanceof Error ? error.message : "Invitation failed" }, 400);
   }

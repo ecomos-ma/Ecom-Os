@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
@@ -16,6 +17,7 @@ import {
   Unlock, Users, Trophy, Activity, LayoutDashboard, Shield, Star,
   TrendingUp, Package, Wifi, Coffee, AlertCircle, ChevronRight,
   Search, RefreshCw, Award, Zap, Target, BarChart2, MessageSquare,
+  Copy, Link2, MonitorUp, Headphones, Mic,
 } from "lucide-react";
 
 async function invitationFunctionError(error: unknown, data: any) {
@@ -43,6 +45,21 @@ async function invokeInvitationFunction(body: Record<string, unknown>) {
     body,
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -234,6 +251,7 @@ export default function Team() {
   const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [callReviewAgentId, setCallReviewAgentId] = useState("");
 
   useEffect(() => {
     if (!selectedMember) return;
@@ -241,6 +259,9 @@ export default function Team() {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = previousOverflow; };
   }, [selectedMember]);
+  useEffect(() => {
+    setSelectedMember((current) => current ? members.find((member) => member.id === current.id) ?? null : null);
+  }, [members]);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -283,7 +304,7 @@ export default function Team() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleInvite = async () => {
+  const handleInvite = async (delivery: "email" | "link") => {
     if (!inviteForm.email || !workspace?.id || !session?.user?.id) { toast.error("Fill in all fields."); return; }
     setInviteBusy(true);
     try {
@@ -295,9 +316,16 @@ export default function Team() {
         full_name: inviteForm.fullName,
         role: inviteForm.role,
         allowed_sections: allowedSections,
+        delivery,
       });
       if (error || data?.error) throw new Error(await invitationFunctionError(error, data));
-      toast.success(data?.invitation?.resent ? "Invitation resent." : "Invitation email sent.");
+      if (delivery === "link") {
+        if (!data?.invite_url) throw new Error("Invitation link was not returned");
+        await copyText(String(data.invite_url));
+        toast.success("Invitation link copied.");
+      } else {
+        toast.success(data?.invitation?.resent ? "Invitation resent." : "Invitation email sent.");
+      }
 
       setShowInviteModal(false);
       setInviteForm({ fullName: "", email: "", role: "agent", allowedSections: ["Dashboard"] });
@@ -311,23 +339,35 @@ export default function Team() {
 
   const handleSaveEdit = async () => {
     if (!editingMember) return;
-    await updateMemberRole(editingMember.id, editingMember.role, editingMember.allowed_sections);
-    toast.success("Member updated.");
-    setEditingMember(null);
+    try {
+      await updateMemberRole(editingMember.id, editingMember.role, editingMember.allowed_sections);
+      toast.success("Member updated.");
+      setEditingMember(null);
+    } catch (error: any) {
+      toast.error(error?.message || "Member could not be updated.");
+    }
   };
 
   const handleToggleStatus = async (m: TeamMember) => {
     if (m.is_owner) return;
-    await updateMemberStatus(m.id, m.status !== "active");
-    toast.success(m.status === "active" ? "Member suspended." : "Member activated.");
+    try {
+      await updateMemberStatus(m.id, m.status !== "active");
+      toast.success(m.status === "active" ? "Member suspended." : "Member activated.");
+    } catch (error: any) {
+      toast.error(error?.message || "Member status could not be changed.");
+    }
   };
 
   const handleRemove = async (m: TeamMember) => {
     if (m.is_owner) return;
     if (!confirm(`Remove ${m.full_name || m.email} from the team?`)) return;
-    await removeMember(m.id);
-    if (selectedMember?.id === m.id) setSelectedMember(null);
-    toast.success("Member removed.");
+    try {
+      await removeMember(m.id);
+      if (selectedMember?.id === m.id) setSelectedMember(null);
+      toast.success("Member removed.");
+    } catch (error: any) {
+      toast.error(error?.message || "Member could not be removed.");
+    }
   };
 
   const handleAssignOrder = async (orderId: string, agentId: string) => {
@@ -521,13 +561,27 @@ export default function Team() {
                     </button>
                     <button
                       onClick={async () => {
-                        const { data, error } = await invokeInvitationFunction({ action: "create", workspace_id: workspace?.id, email: inv.email, full_name: inv.full_name || "", role: inv.role, allowed_sections: inv.allowed_sections });
+                        const { data, error } = await invokeInvitationFunction({ action: "create", workspace_id: workspace?.id, email: inv.email, full_name: inv.full_name || "", role: inv.role, allowed_sections: inv.allowed_sections, delivery: "email" });
                         if (error || data?.error) toast.error(await invitationFunctionError(error, data));
                         else { toast.success("Invitation resent."); reload(); }
                       }}
                       className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:text-ink"
                     >
                       <Send size={12} />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await copyText(`${window.location.origin}/invite?token=${encodeURIComponent(inv.id)}`);
+                          toast.success("Invitation link copied.");
+                        } catch {
+                          toast.error("Could not copy the invitation link.");
+                        }
+                      }}
+                      aria-label={`Copy invitation link for ${inv.email}`}
+                      className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:text-ink"
+                    >
+                      <Copy size={12} />
                     </button>
                   </>}
                   </div>
@@ -737,6 +791,7 @@ export default function Team() {
       {tab === "callreview" && isAdmin && workspace?.id && (
         <CallReviewPanel
           workspaceId={workspace.id}
+          initialAgentId={callReviewAgentId}
           agents={members.map((member) => ({
             id: member.id,
             fullName: member.full_name || member.email || "Agent",
@@ -747,16 +802,16 @@ export default function Team() {
         />
       )}
 
-      {selectedMember && (
-        <div className="app-modal-backdrop fixed inset-0 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setSelectedMember(null)} role="dialog" aria-modal="true" aria-label="Member profile">
+      {selectedMember && createPortal(
+        <div className="app-modal-backdrop fixed inset-0 flex justify-end bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setSelectedMember(null)} role="dialog" aria-modal="true" aria-label="Member profile">
           <div
-            className="h-dvh w-full max-w-[420px] overflow-y-auto overscroll-contain border-l border-base-border bg-base-surface pb-[env(safe-area-inset-bottom)] shadow-2xl"
+            className="h-dvh w-full max-w-[460px] overflow-y-auto overscroll-contain border-l border-base-border bg-base-surface pb-[env(safe-area-inset-bottom)] shadow-[-24px_0_80px_-28px_rgba(2,6,23,0.65)] animate-in slide-in-from-right duration-200 dark:shadow-[-28px_0_90px_-28px_rgba(0,0,0,0.9)] max-sm:max-w-none"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-base-border bg-base-surface/95 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-sm">
               <span className="text-[14px] font-bold text-ink">Member Profile</span>
-              <button onClick={() => setSelectedMember(null)} aria-label="Close member profile" className="grid h-11 w-11 place-items-center rounded-xl text-ink-muted hover:bg-base-raised hover:text-ink"><X size={16} /></button>
+              <button onClick={() => setSelectedMember(null)} aria-label="Close member profile" className="grid h-10 w-10 place-items-center rounded-xl border border-transparent bg-base-raised/70 text-ink-muted transition-colors hover:border-base-border hover:text-ink"><X size={16} /></button>
             </div>
 
             {/* Profile hero */}
@@ -826,6 +881,42 @@ export default function Team() {
               </div>
             </div>
 
+            {/* Manager-visible live route and consented call status */}
+            {isAdmin && (
+              <div className="border-b border-base-border px-5 py-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Live agent activity</div>
+                  <span className="inline-flex items-center gap-1.5 text-[10.5px] text-ink-muted"><StatusDot status={selectedMember.agent_status} /> {selectedMember.agent_status === "offline" ? "Last known" : "Live"}</span>
+                </div>
+                <div className="rounded-xl border border-base-border bg-base-raised/60 p-3">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold text-ink"><MonitorUp size={14} className="text-brand" /> {selectedMember.current_page || "No active page reported"}</div>
+                  {selectedMember.current_path && <div className="mt-1 truncate font-mono text-[10.5px] text-ink-muted">{selectedMember.current_path}</div>}
+                  {selectedMember.current_path?.startsWith("/") && !selectedMember.current_path.startsWith("//") && (
+                    <button onClick={() => { navigate(selectedMember.current_path!); setSelectedMember(null); }} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-brand/20 bg-brand/10 px-2.5 py-1.5 text-[11px] font-semibold text-brand hover:bg-brand/15"><MonitorUp size={12} /> Open this page</button>
+                  )}
+                </div>
+                <div className={`mt-2 flex items-center gap-2 rounded-xl border p-3 text-[11.5px] ${selectedMember.active_call ? "border-danger/25 bg-danger/5 text-danger" : "border-base-border bg-base-raised/40 text-ink-muted"}`}>
+                  <Mic size={14} className={selectedMember.active_call ? "animate-pulse" : ""} />
+                  {selectedMember.active_call ? "Agent is making a visible, permitted microphone recording now." : "No permitted microphone recording is active."}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {activityLog.filter((entry) => entry.profile_id === selectedMember.id).slice(0, 6).map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between gap-3 text-[11px]">
+                      <span className="truncate text-ink">{entry.entity_label || entry.page || entry.action.replace(/_/g, " ")}</span>
+                      <span className="shrink-0 text-ink-faint">{new Date(entry.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => { setCallReviewAgentId(selectedMember.id); setTab("callreview"); setSelectedMember(null); }}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-2.5 text-[12px] font-semibold text-violet-500 hover:bg-violet-500/15"
+                >
+                  <Headphones size={14} /> Open consented call recordings
+                </button>
+                <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">Page presence is operational activity. Microphone audio is never opened silently; recordings only exist after the agent grants browser permission and starts recording.</p>
+              </div>
+            )}
+
             {/* Actions */}
             {isAdmin && selectedMember.role !== "owner" && (
               <div className="px-5 py-4 space-y-2">
@@ -855,7 +946,8 @@ export default function Team() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ── Edit Member Modal ─────────────────────────────────────────────── */}
@@ -968,13 +1060,23 @@ export default function Team() {
                 </div>
               </div>
             )}
-            <button
-              onClick={handleInvite}
-              disabled={inviteBusy}
-              className="w-full rounded-xl bg-brand py-2.5 text-[13.5px] font-medium text-white hover:bg-brand/90 disabled:opacity-60"
-            >
-              {inviteBusy ? "Sending…" : "Send Invitation"}
-            </button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                onClick={() => void handleInvite("email")}
+                disabled={inviteBusy}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand py-2.5 text-[13px] font-medium text-white hover:bg-brand/90 disabled:opacity-60"
+              >
+                <Send size={14} /> {inviteBusy ? "Working…" : "Send by email"}
+              </button>
+              <button
+                onClick={() => void handleInvite("link")}
+                disabled={inviteBusy}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand/25 bg-brand/10 py-2.5 text-[13px] font-medium text-brand hover:bg-brand/15 disabled:opacity-60"
+              >
+                <Link2 size={14} /> {inviteBusy ? "Working…" : "Create & copy link"}
+              </button>
+            </div>
+            <p className="text-[10.5px] leading-relaxed text-ink-muted">The invitee joins this workspace and uses its subscription. They are not sent to a separate payment flow.</p>
           </div>
         </Modal>
       )}

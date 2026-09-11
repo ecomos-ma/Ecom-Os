@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
+  BarChart3,
   Boxes,
   ChevronRight,
   CircleDollarSign,
@@ -36,6 +37,7 @@ import { useNotifications } from "../contexts/NotificationContext";
 import MobileBottomSheet from "./MobileBottomSheet";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
+import { getPrefetchHandler } from "../hooks/usePrefetch";
 
 type Icon = LucideIcon;
 
@@ -65,6 +67,7 @@ const pages: PageEntry[] = [
   { to: "/products-inventory", label: "Products & Stock",   desc: "Catalog, stock & variants",        cat: "ops",     icon: Boxes,           perm: "products" },
   { to: "/team",               label: "Team Permissions",   desc: "Members & permissions",            cat: "ops",     icon: Users,           perm: "team" },
   { to: "/ads-manager",        label: "Meta Ads Manager",   desc: "FB & IG campaigns",                cat: "finance", icon: Megaphone,       perm: "ads" },
+  { to: "/ads-manager-legacy", label: "Legacy Ads Manager", desc: "Manual ID & token reporting",      cat: "finance", icon: BarChart3,       perm: "ads" },
   { to: "/tiktok-ads",         label: "TikTok Ads ROI",     desc: "TikTok campaign ROI",              cat: "finance", icon: Megaphone,       perm: "tiktok_ads" },
   { to: "/expenses",           label: "Operating Expenses", desc: "Operating costs",                  cat: "finance", icon: Wallet,          perm: "expenses" },
   { to: "/finance",            label: "Revenue & Profit",   desc: "Revenue & profit breakdown",       cat: "finance", icon: CircleDollarSign, perm: "expenses" },
@@ -92,6 +95,7 @@ const routeTitles: Array<[string, string]> = [
   ["/delivering", "Delivering Parcels"],
   ["/shipping", "Carrier Shipping"],
   ["/customers", "Customer Directory"],
+  ["/ads-manager-legacy", "Legacy Ads Manager"],
   ["/ads-manager", "Meta Ads Manager"],
   ["/tiktok-ads", "TikTok Ads ROI"],
   ["/expenses", "Operating Expenses"],
@@ -188,7 +192,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
       {/* ── Mobile Topbar with Sidebar Icon & Horizontal Logo ─────────────── */}
       <header className="mobile-topbar md:hidden">
         {/* Left Section: Sidebar Menu Button + Horizontal Logo */}
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="mobile-topbar__brand flex min-w-0 items-center gap-2.5">
           <button
             type="button"
             onClick={() => { haptic(); setSidebarOpen(true); }}
@@ -204,12 +208,12 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
             className="flex items-center gap-2 min-w-0 active:opacity-80 transition-opacity"
             aria-label="Open sidebar menu"
           >
-            <img src={ecomosLogo} alt="Ecom OS" className="h-6 w-auto object-contain" />
+            <img src={ecomosLogo} alt="Ecom OS" className="mobile-topbar__logo h-6 w-auto object-contain" />
           </button>
         </div>
 
         {/* Right Section: Quick Action Tool + Search + In-place Notification Bell */}
-        <div className="flex items-center gap-1.5">
+        <div className="mobile-topbar__actions flex shrink-0 items-center gap-1.5">
           {/* Quick Action tool button */}
           <button
             type="button"
@@ -250,7 +254,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
       {/* ── Mobile Slide-out Sidebar Navigation Drawer ──────────────────── */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
+        <div className="mobile-navigation-overlay fixed inset-0 z-50 flex md:hidden">
           {/* Backdrop overlay */}
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-backdrop-in"
@@ -260,7 +264,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
           {/* Left Sidebar Drawer */}
           <aside
-            className="relative z-10 flex h-full w-[85vw] max-w-[340px] flex-col bg-base-surface border-r border-base-border shadow-2xl animate-sidebar-in outline-none"
+            className="relative z-10 flex h-dvh w-[min(88vw,340px)] max-w-full flex-col border-r border-base-border bg-base-surface shadow-2xl animate-sidebar-in outline-none"
             aria-label="Sidebar navigation menu"
           >
             {/* Drawer Header with Full Brand Logo */}
@@ -374,6 +378,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
                           <button
                             key={to}
                             type="button"
+                            onPointerDown={getPrefetchHandler(to)}
                             onClick={() => {
                               haptic();
                               setSidebarOpen(false);
@@ -584,6 +589,8 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         {/* 1 · Home */}
         <NavLink
           to="/dashboard"
+          onPointerDown={getPrefetchHandler("/dashboard")}
+          onMouseEnter={getPrefetchHandler("/dashboard")}
           onClick={haptic}
           className={({ isActive: a }) => `mobile-nav-item ${a ? "is-active" : ""}`}
         >
@@ -594,6 +601,8 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         {/* 2 · Orders */}
         <NavLink
           to="/orders"
+          onPointerDown={getPrefetchHandler("/orders")}
+          onMouseEnter={getPrefetchHandler("/orders")}
           onClick={haptic}
           className={({ isActive: a }) => `mobile-nav-item ${a ? "is-active" : ""}`}
         >
@@ -618,6 +627,8 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         {/* 4 · Delivering */}
         <NavLink
           to="/delivering"
+          onPointerDown={getPrefetchHandler("/delivering")}
+          onMouseEnter={getPrefetchHandler("/delivering")}
           onClick={haptic}
           className={({ isActive: a }) => `mobile-nav-item ${a ? "is-active" : ""}`}
         >
@@ -648,6 +659,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           {can("orders") && (
             <button
               type="button"
+              onPointerDown={getPrefetchHandler("/orders")}
               onClick={() => { haptic(); setQuickOpen(false); navigate("/orders", { state: { createOrder: true } }); }}
               className="flex min-h-[100px] flex-col justify-between rounded-2xl border border-brand/30 bg-brand/8 p-3 text-left active:scale-[0.97]"
             >
@@ -661,6 +673,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           {can("confirmation") && (
             <button
               type="button"
+              onPointerDown={getPrefetchHandler("/confirmation")}
               onClick={() => { haptic(); setQuickOpen(false); navigate("/confirmation"); }}
               className="flex min-h-[100px] flex-col justify-between rounded-2xl border border-base-border bg-base-raised/50 p-3 text-left active:scale-[0.97]"
             >
@@ -674,6 +687,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           {can("shipping") && shippingOn && (
             <button
               type="button"
+              onPointerDown={getPrefetchHandler("/delivering")}
               onClick={() => { haptic(); setQuickOpen(false); navigate("/delivering"); }}
               className="flex min-h-[100px] flex-col justify-between rounded-2xl border border-base-border bg-base-raised/50 p-3 text-left active:scale-[0.97]"
             >

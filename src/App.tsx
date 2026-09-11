@@ -17,7 +17,6 @@ import { supabaseConfigurationError } from "./lib/supabase";
 import { LanguageProvider } from "./i18n";
 import { SupportModeProvider } from "./contexts/SupportModeContext";
 import { SEOManager } from "./components/SEOManager";
-import WhatsApp from "./pages/WhatsApp";
 
 const Login = lazy(() => import("./pages/Login"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -47,6 +46,7 @@ const EcomOSLanding = lazy(() => import("./pages/LandingV3"));
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Orders = lazy(() => import("./pages/Orders"));
+const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 const LiveView = lazy(() => import("./pages/LiveView"));
 const Confirmation = lazy(() => import("./pages/Confirmation"));
 const Delivering = lazy(() => import("./pages/Delivering"));
@@ -55,6 +55,7 @@ const Customers = lazy(() => import("./pages/Customers"));
 const ProductsAndInventory = lazy(() => import("./pages/ProductsAndInventory"));
 const ProductDetails = lazy(() => import("./pages/ProductDetails"));
 const AdsManager = lazy(() => import("./pages/AdsManager"));
+const LegacyAdsManager = lazy(() => import("./pages/LegacyAdsManager"));
 const TikTokAds = lazy(() => import("./pages/TikTokAds"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const Finance = lazy(() => import("./pages/Finance"));
@@ -502,6 +503,16 @@ export default function App() {
                       <LoadablePage>
                         <PermissionGuard permission="ads">
                           <AdsManager />
+                        </PermissionGuard>
+                      </LoadablePage>
+                    }
+                  />
+                  <Route
+                    path="/ads-manager-legacy"
+                    element={
+                      <LoadablePage>
+                        <PermissionGuard permission="ads">
+                          <LegacyAdsManager />
                         </PermissionGuard>
                       </LoadablePage>
                     }

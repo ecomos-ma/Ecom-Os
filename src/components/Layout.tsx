@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { EnhancedHeader } from "./EnhancedHeader";
@@ -14,10 +14,14 @@ import { useTheme } from "../hooks/useTheme";
 import { supabase } from "../lib/supabase";
 import { RefreshCw } from "lucide-react";
 import { MobileAppChrome } from "./MobileAppChrome";
-import { InventoryQRScanner } from "./inventory/InventoryQRScanner";
 import { OfflineBanner } from "./ErrorStates";
 import { isFounder } from "../lib/rbac";
 import { metaAdsService } from "../services/metaAdsService";
+
+const InventoryQRScanner = lazy(async () => {
+  const module = await import("./inventory/InventoryQRScanner");
+  return { default: module.InventoryQRScanner };
+});
 
 function MobilePlanGate() {
   const { workspace, profile, session, isDemoMode } = useAuth();
@@ -63,7 +67,7 @@ function MobilePlanGate() {
 
   return allowed === true ? null : (
     <div
-      className="fixed inset-0 z-[1000] bg-white md:hidden"
+      className="mobile-plan-gate fixed inset-0 z-[1000] bg-white md:hidden"
       aria-hidden="true"
     />
   );
@@ -76,10 +80,15 @@ function PullToRefresh({
   children: React.ReactNode;
   lockScroll?: boolean;
 }) {
-  const [pullProgress, setPullProgress] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const indicatorRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const iconRef = useRef<SVGSVGElement>(null);
   const startY = useRef<number | null>(null);
+  const pullProgress = useRef(0);
+  const refreshing = useRef(false);
+  const animationFrame = useRef<number | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Only enable on mobile viewports (approx)
@@ -87,6 +96,40 @@ function PullToRefresh({
 
     const el = containerRef.current;
     if (!el) return;
+
+    const paint = (progress: number, settle = false) => {
+      pullProgress.current = progress;
+      const indicator = indicatorRef.current;
+      const content = contentRef.current;
+      const icon = iconRef.current;
+      const transition = settle ? "transform 120ms ease-out" : "none";
+
+      if (indicator) {
+        indicator.style.height = progress > 0 ? `${progress + 20}px` : "0px";
+        indicator.style.opacity = String(progress / 80);
+      }
+      if (content) {
+        content.style.transition = transition;
+        // A transform on an ancestor changes the containing block for fixed
+        // descendants. Keep it only while the user is actively pulling so
+        // dialogs and drawers remain viewport-fixed at rest.
+        content.style.transform = progress > 0 ? `translate3d(0, ${progress}px, 0)` : "";
+        content.style.willChange = progress > 0 ? "transform" : "";
+      }
+      if (icon && !refreshing.current) {
+        icon.style.transform = `rotate(${progress * 3}deg)`;
+      }
+    };
+
+    const schedulePaint = (progress: number, settle = false) => {
+      if (animationFrame.current !== null) {
+        cancelAnimationFrame(animationFrame.current);
+      }
+      animationFrame.current = requestAnimationFrame(() => {
+        animationFrame.current = null;
+        paint(progress, settle);
+      });
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       if (el.scrollTop <= 0) {
@@ -101,38 +144,47 @@ function PullToRefresh({
         if (delta > 0) {
           // Adding exponential resistance to the pull
           const progress = Math.min(delta * 0.4, 80);
-          setPullProgress(progress);
+          schedulePaint(progress);
         }
       }
     };
 
     const onTouchEnd = () => {
-      if (pullProgress >= 60 && !isRefreshing) {
-        setIsRefreshing(true);
+      if (pullProgress.current >= 60 && !refreshing.current) {
+        refreshing.current = true;
+        iconRef.current?.classList.add("animate-spin", "text-brand");
         if (typeof navigator !== "undefined" && navigator.vibrate) {
           navigator.vibrate(20);
         }
         // Keep the application shell, route and scroll position intact. The
         // affected data stores already listen for this targeted refresh event.
         window.dispatchEvent(new Event("trigger-order-reload"));
-        setPullProgress(0);
-        setIsRefreshing(false);
-      } else {
-        setPullProgress(0);
+        if (refreshTimer.current) clearTimeout(refreshTimer.current);
+        refreshTimer.current = setTimeout(() => {
+          refreshing.current = false;
+          iconRef.current?.classList.remove("animate-spin", "text-brand");
+        }, 240);
       }
+      schedulePaint(0, true);
       startY.current = null;
     };
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: true });
     el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
 
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+      if (animationFrame.current !== null) {
+        cancelAnimationFrame(animationFrame.current);
+      }
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
     };
-  }, [pullProgress, isRefreshing]);
+  }, []);
 
   return (
     <div
@@ -140,27 +192,22 @@ function PullToRefresh({
       className={`relative h-full min-h-0 w-full overscroll-contain ${lockScroll ? "overflow-hidden" : "overflow-y-auto"}`}
     >
       <div
-        className="absolute top-0 left-0 w-full flex justify-center items-end pb-3 overflow-hidden transition-all duration-100 ease-out z-50 pointer-events-none"
-        style={{
-          height: pullProgress > 0 ? pullProgress + 20 : 0,
-          opacity: pullProgress / 80,
-        }}
+        ref={indicatorRef}
+        className="absolute top-0 left-0 z-50 flex h-0 w-full items-end justify-center overflow-hidden pb-3 opacity-0 pointer-events-none"
       >
         <div
-          className={`p-2 bg-base-surface/80 backdrop-blur-md border border-base-border rounded-full shadow-lg text-ink ${isRefreshing ? "animate-spin text-brand" : ""}`}
+          className="rounded-full border border-base-border bg-base-surface/80 p-2 text-ink shadow-lg backdrop-blur-md"
         >
           <RefreshCw
+            ref={iconRef}
             size={16}
-            className={isRefreshing ? "" : "transform rotate-180"}
-            style={{
-              transform: isRefreshing ? "" : `rotate(${pullProgress * 3}deg)`,
-            }}
+            style={{ transform: "rotate(0deg)" }}
           />
         </div>
       </div>
       <div
-        className={`${lockScroll ? "h-full min-h-0" : "min-h-full"} w-full transition-transform duration-100 ease-out`}
-        style={{ transform: `translateY(${pullProgress}px)` }}
+        ref={contentRef}
+        className={`${lockScroll ? "h-full min-h-0" : "min-h-full"} w-full`}
       >
         {children}
       </div>
@@ -193,9 +240,9 @@ export function Layout() {
       const target = e.target as HTMLElement;
       if (!target) return;
       const isClickable =
-        target.closest("button") ||
-        target.closest("a") ||
-        window.getComputedStyle(target).cursor === "pointer";
+        target.closest(
+          "button, a, [role='button'], input, select, textarea, label, [data-haptic]",
+        );
       if (
         isClickable &&
         typeof navigator !== "undefined" &&
@@ -407,18 +454,23 @@ export function Layout() {
         <DemoBanner />
         <OfflineBanner online={isOnline} />
         <ActivityTracker />
-        <div className="hidden md:block">
+        <div className="desktop-app-header hidden md:block">
           <EnhancedHeader />
         </div>
         <MobileAppChrome onScan={() => setScannerOpen(true)} />
         <AdminPreviewBanner />
         <AnnouncementTray />
-        <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
+        <main className="app-main min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
           <PullToRefresh lockScroll={isWhatsAppInbox || isLiveView}>
             <PageContent
               className={`h-full min-h-full ${isWhatsAppInbox || isLiveView ? "!p-0" : "mobile-page-content"}`}
             >
-              <Outlet />
+              <div
+                key={location.pathname}
+                className={`h-full min-h-full ${isWhatsAppInbox || isLiveView ? "" : "app-route-enter"}`}
+              >
+                <Outlet />
+              </div>
             </PageContent>
           </PullToRefresh>
         </main>
@@ -426,15 +478,19 @@ export function Layout() {
       {/* Global toast notifications — mounted once here, used from anywhere */}
       <SupportTicketLauncher />
       <ToastContainer />
-      <InventoryQRScanner
-        isOpen={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onQRDetected={() => undefined}
-        onViewOrder={(orderId) => {
-          setScannerOpen(false);
-          navigate("/orders", { state: { viewOrderId: orderId } });
-        }}
-      />
+      {scannerOpen ? (
+        <Suspense fallback={null}>
+          <InventoryQRScanner
+            isOpen
+            onClose={() => setScannerOpen(false)}
+            onQRDetected={() => undefined}
+            onViewOrder={(orderId) => {
+              setScannerOpen(false);
+              navigate("/orders", { state: { viewOrderId: orderId } });
+            }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -152,6 +152,7 @@ export default function WhatsApp() {
   const recordingStartedAtRef = useRef(0);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messageViewportRef = useRef<HTMLDivElement | null>(null);
   const requestedAvatarsRef = useRef(new Set<string>());
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [agents, setAgents] = useState<
@@ -236,6 +237,14 @@ export default function WhatsApp() {
   useEffect(() => {
     void loadMessages(selected);
   }, [loadMessages, selectedId]);
+  useEffect(() => {
+    if (!selectedId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = messageViewportRef.current;
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedId, messages.length]);
   useEffect(() => {
     if (!workspaceId) return;
     const channel = supabase
@@ -699,6 +708,7 @@ export default function WhatsApp() {
                 </RoundIconButton>
               </header>
               <div
+                ref={messageViewportRef}
                 className="min-h-0 flex-1 overflow-y-auto px-[5%] py-5 lg:px-[8%]"
                 style={{
                   backgroundImage:

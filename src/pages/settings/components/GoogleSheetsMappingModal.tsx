@@ -221,11 +221,11 @@ export default function GoogleSheetsMappingModal({ workspaceId, webAppUrl, isOpe
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+        <div className="app-modal-backdrop fixed inset-0 flex h-dvh min-h-0 items-center justify-center overflow-hidden p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-          <div className="relative z-10 w-full max-w-4xl rounded-[28px] border border-base-border bg-base-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-base-border bg-base-surface shadow-2xl">
             {/* Header */}
-            <div className="flex items-center justify-between px-7 py-6 border-b border-base-border/60 bg-base-raised/30">
+            <div className="flex shrink-0 items-center justify-between border-b border-base-border/60 bg-base-raised/30 px-7 py-6">
               <div>
                 <h2 className="text-[18px] font-bold text-ink">Google Sheets Field Mapping</h2>
                 <p className="text-[13px] text-ink-muted">Map your Google Sheet columns to Ecom OS order fields</p>
@@ -270,7 +270,7 @@ export default function GoogleSheetsMappingModal({ workspaceId, webAppUrl, isOpe
               </div>
 
               {/* Content */}
-              <div className="flex-1 overflow-y-auto px-7 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 py-4">
                 {!sheetHeaders.length ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <AlertCircle size={48} className="text-ink-faint mb-4" />
@@ -314,10 +314,10 @@ export default function GoogleSheetsMappingModal({ workspaceId, webAppUrl, isOpe
                               <td className="px-4 py-3">
                                 <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${
                                   mapping.confidence === 'matched' 
-                                    ? 'bg-green-100 text-green-800' 
+                                    ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
                                     : mapping.confidence === 'needs_review'
-                                    ? 'bg-yellow-100 text-yellow-800'
-                                    : 'bg-gray-100 text-gray-800'
+                                    ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300'
+                                    : 'bg-base-raised text-ink-muted'
                                 }`}>
                                   {mapping.confidence === 'matched' && <CheckCircle2 size={12} />}
                                   {mapping.confidence}
@@ -358,7 +358,7 @@ export default function GoogleSheetsMappingModal({ workspaceId, webAppUrl, isOpe
             </div>
 
             {/* Footer */}
-            <div className="px-7 py-5 border-t border-base-border/60 bg-base-raised/20 flex items-center justify-between">
+            <div className="flex shrink-0 items-center justify-between border-t border-base-border/60 bg-base-raised/20 px-7 py-5">
               <button 
                 onClick={onClose} 
                 className="rounded-xl bg-base-raised py-2.5 px-4 text-[13px] font-semibold text-ink hover:bg-base-border transition-colors"

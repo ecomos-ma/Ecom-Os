@@ -32,6 +32,7 @@ const en = {
   "navigation.customers": "Customers",
   "navigation.productsInventory": "Products & Inventory",
   "navigation.adsManager": "Ads Manager",
+  "navigation.legacyAdsManager": "Legacy Ads Manager",
   "navigation.tiktokAds": "TikTok Ads",
   "navigation.expenses": "Expenses",
   "navigation.finance": "Finance",

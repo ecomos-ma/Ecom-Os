@@ -126,6 +126,12 @@ const mainGroups: NavGroup[] = [
         permission: "ads",
       },
       {
+        to: "/ads-manager-legacy",
+        labelKey: "navigation.legacyAdsManager",
+        icon: Gauge,
+        permission: "ads",
+      },
+      {
         to: "/tiktok-ads",
         labelKey: "navigation.tiktokAds",
         icon: Music2,
@@ -219,11 +225,16 @@ function NavLinkItem({
   return (
     <NavLink
       to={link.to}
-      end={link.to === "/dashboard" || link.to === "/admin"}
+      end={
+        link.to === "/dashboard" ||
+        link.to === "/admin" ||
+        link.to === "/ads-manager"
+      }
       title={collapsed ? label : undefined}
       aria-label={label}
       onMouseEnter={getPrefetchHandler(link.to)}
       onFocus={getPrefetchHandler(link.to)}
+      onPointerDown={getPrefetchHandler(link.to)}
       onClick={onNavigate}
       className={({ isActive }) =>
         [
@@ -617,7 +628,7 @@ function SidebarContent({
       <nav
         aria-label="Main navigation"
         className={[
-          "min-h-0 flex-1 overflow-y-auto py-4 space-y-4 [scrollbar-width:thin] [scrollbar-color:var(--color-base-border)_transparent]",
+          "min-h-0 flex-1 overflow-y-auto overscroll-contain py-4 space-y-4 [scrollbar-width:thin] [scrollbar-color:var(--color-base-border)_transparent]",
           collapsed ? "px-1.5" : "px-3",
         ].join(" ")}
       >
@@ -673,7 +684,7 @@ const DesktopSidebar = memo(function DesktopSidebar({
   return (
     <aside
       className={[
-        "relative hidden lg:flex h-screen flex-none flex-col border-r border-base-border bg-base-surface",
+        "desktop-sidebar relative hidden h-dvh min-h-0 flex-none flex-col overflow-hidden border-r border-base-border bg-base-surface lg:flex",
         "transition-[width] duration-200 ease-out z-30",
         collapsed ? "w-[72px]" : "w-[256px]",
       ].join(" ")}
@@ -747,7 +758,7 @@ const TabletSidebar = memo(function TabletSidebar() {
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
       className={[
-        "relative hidden md:flex lg:hidden h-screen flex-none flex-col border-r border-base-border bg-base-surface",
+        "tablet-sidebar relative hidden h-dvh min-h-0 flex-none flex-col overflow-hidden border-r border-base-border bg-base-surface md:flex lg:hidden",
         "transition-[width] duration-200 ease-out z-30",
         expanded ? "w-[256px]" : "w-[72px]",
       ].join(" ")}
@@ -874,7 +885,7 @@ function MobileDrawer({
         </div>
 
         {/* Nav content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <SidebarContent collapsed={false} onNavigate={onClose} />
         </div>
       </div>

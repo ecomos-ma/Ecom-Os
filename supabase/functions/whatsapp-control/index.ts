@@ -2,12 +2,13 @@ import {
   authenticateUser,
   authorizeWorkspace,
   corsHeaders,
+  classifyWhatsAppError,
   json,
   requiredEnv,
   serviceClient,
 } from "../_shared/whatsapp.ts";
 
-const actions = new Set(["connect", "disconnect", "status", "test", "reconnect", "logout", "send", "send_audio", "send_media", "profile_photo"]);
+const actions = new Set(["connect", "disconnect", "status", "test", "reconnect", "logout", "send", "send_audio", "send_media", "send_order_status", "profile_photo"]);
 const audioMimeTypes = new Set([
   "audio/webm",
   "audio/webm;codecs=opus",
@@ -32,6 +33,7 @@ type ControlBody = {
   file_name?: string;
   kind?: string;
   caption?: string;
+  request_id?: string;
 };
 
 function normalizeMoroccanPhone(value: unknown): string | null {
@@ -40,6 +42,29 @@ function normalizeMoroccanPhone(value: unknown): string | null {
   if (/^0[67]\d{8}$/.test(digits)) digits = `212${digits.slice(1)}`;
   if (/^[67]\d{8}$/.test(digits)) digits = `212${digits}`;
   return /^212[67]\d{8}$/.test(digits) ? digits : null;
+}
+
+function normalizeOrderStatus(value: unknown): string {
+  const normalized = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return ({ nouveau: "new", en_attente: "pending", ramasse: "picked_up", livre: "delivered", injoignable: "customer_unreachable", ne_repond_pas: "no_answer", retourne: "returned", annule: "cancelled" } as Record<string, string>)[normalized] || normalized;
+}
+
+async function authorizeWorkspaceMember(client: ReturnType<typeof serviceClient>, userId: string, workspaceId: string) {
+  const { data: membership, error: membershipError } = await client
+    .from("profile_workspaces")
+    .select("workspace_id")
+    .eq("profile_id", userId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+  if (membership) return;
+  const { data: profile, error: profileError } = await client
+    .from("profiles")
+    .select("workspace_id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError) throw profileError;
+  if (profile?.workspace_id !== workspaceId) throw new Error("Workspace access denied");
 }
 
 function workerPath(action: string, workspaceId: string) {
@@ -81,7 +106,75 @@ Deno.serve(async (req) => {
     const workspaceId = (body.workspace_id ?? req.url.split("/").slice(-2, -1)[0] ?? "").trim();
     if (!actions.has(action)) return json(req, { error: "Invalid action" }, 400);
     if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return json(req, { error: "Invalid workspace_id" }, 400);
-    await authorizeWorkspace(client, user.id, workspaceId);
+    if (action === "send_order_status") await authorizeWorkspaceMember(client, user.id, workspaceId);
+    else await authorizeWorkspace(client, user.id, workspaceId);
+
+    if (action === "send_order_status") {
+      const orderId = String(body.order_id ?? "").trim();
+      const requestId = String(body.request_id ?? "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(orderId)) return json(req, { error: "A valid order is required" }, 400);
+      if (!/^[0-9a-f-]{36}$/i.test(requestId)) return json(req, { error: "A valid request identifier is required" }, 400);
+
+      const [{ data: order, error: orderError }, { data: settings, error: settingsError }, { data: rules, error: rulesError }] = await Promise.all([
+        client.from("orders").select("*").eq("workspace_id", workspaceId).eq("Order ID", orderId).maybeSingle(),
+        client.from("whatsapp_settings").select("enabled,connection_status").eq("workspace_id", workspaceId).maybeSingle(),
+        client.from("whatsapp_automation_rules").select("id,rule_key,display_name,event_type,status_source,trigger_statuses,channel_sequence,audio_recording_id,expires_after_minutes").eq("workspace_id", workspaceId),
+      ]);
+      if (orderError || !order) return json(req, { error: "Order was not found in this workspace" }, 404);
+      if (settingsError || !settings?.enabled || settings.connection_status !== "ready") {
+        return json(req, { error: "WhatsApp is not connected and enabled for this workspace" }, 409);
+      }
+      if (rulesError) return json(req, { error: "WhatsApp automation rules could not be loaded" }, 500);
+
+      const phone = normalizeMoroccanPhone(order.phone);
+      if (!phone) return json(req, { error: "Customer does not have a valid Moroccan WhatsApp number" }, 400);
+      const { data: optOut, error: optOutError } = await client
+        .from("whatsapp_opt_outs")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("normalized_phone", phone)
+        .maybeSingle();
+      if (optOutError) return json(req, { error: "Customer messaging preference could not be checked" }, 500);
+      if (optOut) return json(req, { error: "This customer has opted out of WhatsApp messages" }, 409);
+
+      const allowedSources = new Set(["status", "shipping_status", "delivery_status", "provider_status"]);
+      const matchingRules = (rules ?? []).filter((rule) => {
+        if (!allowedSources.has(rule.status_source)) return false;
+        const currentStatus = normalizeOrderStatus(order[rule.status_source]);
+        return currentStatus && (rule.trigger_statuses ?? []).some((candidate: unknown) => normalizeOrderStatus(candidate) === currentStatus);
+      });
+      const rule = matchingRules.sort((left, right) => {
+        const priority = { status: 0, confirmation: 1, delivery: 2 } as Record<string, number>;
+        return (priority[left.event_type] ?? 3) - (priority[right.event_type] ?? 3);
+      })[0];
+      if (!rule) return json(req, { error: "Configure a WhatsApp Automation message for this order status first" }, 409);
+
+      const statusSource = rule.status_source;
+      const currentStatus = normalizeOrderStatus(order[statusSource]);
+      const now = new Date();
+      const expiresMinutes = Math.max(5, Math.min(10080, Number(rule.expires_after_minutes) || 60));
+      const messageType = rule.event_type === "confirmation" || rule.event_type === "delivery" ? rule.event_type : "status_update";
+      const { data: job, error: queueError } = await client.from("whatsapp_queue").insert({
+        workspace_id: workspaceId,
+        order_id: orderId,
+        phone: order.phone,
+        normalized_phone: phone,
+        message_type: messageType,
+        automation_event: "manual_status",
+        rule_id: rule.id,
+        idempotency_key: `manual-status:${workspaceId}:${orderId}:${rule.id}:${requestId}`,
+        channel_sequence: rule.channel_sequence,
+        audio_recording_id: rule.audio_recording_id,
+        payload: { source: "confirmation_crm", status_source: statusSource, status: currentStatus, rule_key: rule.rule_key, requested_by: user.id },
+        status: "pending",
+        scheduled_for: now.toISOString(),
+        expires_at: new Date(now.getTime() + expiresMinutes * 60_000).toISOString(),
+        attempts: 0,
+        max_attempts: 3,
+      }).select("id").single();
+      if (queueError || !job) return json(req, { error: "Status message could not be queued" }, 500);
+      return json(req, { ok: true, queued: true, job_id: job.id, rule_name: rule.display_name, status: currentStatus }, 202);
+    }
 
     if (action === "send_audio") {
       const phone = normalizeMoroccanPhone(body.phone);
@@ -189,7 +282,9 @@ Deno.serve(async (req) => {
     const workerUrl = new URL(requiredEnv("WHATSAPP_WORKER_URL"));
     const workerSecret = requiredEnv("WHATSAPP_WORKER_API_SECRET");
     const workerEndpoint = workerPath(action, workspaceId);
-    const response = await fetch(new URL(workerEndpoint, `${workerUrl.toString().replace(/\/$/, "")}/`), {
+    const workerRequestUrl = new URL(workerEndpoint, `${workerUrl.toString().replace(/\/$/, "")}/`);
+    console.info("[whatsapp-control] worker request", { action, method: action === "status" ? "GET" : "POST", origin: workerRequestUrl.origin, path: workerRequestUrl.pathname });
+    const response = await fetch(workerRequestUrl, {
       method: action === "status" ? "GET" : "POST",
       headers: { "Authorization": `Bearer ${workerSecret}`, "Content-Type": "application/json" },
       body: action === "status" ? undefined : JSON.stringify({
@@ -207,6 +302,7 @@ Deno.serve(async (req) => {
       }),
       signal: AbortSignal.timeout(20_000),
     });
+    console.info("[whatsapp-control] worker response", { action, status: response.status, origin: workerRequestUrl.origin, path: workerRequestUrl.pathname });
     const payload = await response.json().catch(() => ({ error: "Invalid worker response" }));
     if (payload && typeof payload === "object" && !Array.isArray(payload)) {
       const normalizedStatus = typeof payload.connection_status === "string"
@@ -223,8 +319,8 @@ Deno.serve(async (req) => {
     }
     return json(req, payload, response.status);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    const status = /authorization|access denied/i.test(message) ? 401 : /not configured|worker unavailable/i.test(message) ? 503 : 500;
-    return json(req, { error: message }, status);
+    const classified = classifyWhatsAppError(error);
+    console.error("[whatsapp-control] request failed", { code: classified.code, message: error instanceof Error ? error.message : String(error) });
+    return json(req, { error: classified.message, code: classified.code }, classified.status);
   }
 });

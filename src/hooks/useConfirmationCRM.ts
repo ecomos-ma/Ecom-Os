@@ -69,11 +69,11 @@ export function useConfirmationCRM() {
   const [page, setPage] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"all" | CanonicalStatus>("pending");
+  const [status, setStatusState] = useState<"all" | CanonicalStatus>("pending");
   const [queue, setQueue] = useState<ConfirmationQueue>("all");
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
   const [datePreset, setDatePreset] = useState<ConfirmationDatePreset>("all");
-  const inFlight = useRef(false);
+  const appendInFlight = useRef(false);
   const loadVersion = useRef(0);
 
   useEffect(() => {
@@ -90,9 +90,18 @@ export function useConfirmationCRM() {
   }, [status, summary]);
   const range = useMemo(() => dateRange(datePreset), [datePreset]);
 
+  const setStatus = useCallback((nextStatus: "all" | CanonicalStatus) => {
+    if (nextStatus === status) return;
+    loadVersion.current += 1;
+    setOrders([]);
+    setPage(0);
+    setLoading(true);
+    setStatusState(nextStatus);
+  }, [status]);
+
   const load = useCallback(async (options: { append?: boolean; silent?: boolean } = {}) => {
-    if (!workspaceId || !userId || inFlight.current) return;
-    inFlight.current = true;
+    if (!workspaceId || !userId || (options.append && appendInFlight.current)) return;
+    if (options.append) appendInFlight.current = true;
     const version = ++loadVersion.current;
     if (!options.silent) options.append ? setLoadingMore(true) : setLoading(true);
     setError(null);
@@ -143,7 +152,7 @@ export function useConfirmationCRM() {
         setLoading(false);
         setLoadingMore(false);
       }
-      inFlight.current = false;
+      if (options.append) appendInFlight.current = false;
     }
   }, [workspaceId, userId, page, statusRawValues, search, canManage, assigneeId, queue, range.from, range.to]);
 

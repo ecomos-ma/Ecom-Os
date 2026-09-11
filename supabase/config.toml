@@ -74,6 +74,10 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
+[functions.meta-legacy]
+enabled = true
+verify_jwt = true
+
 [functions.whatsapp-control]
 enabled = true
 verify_jwt = true

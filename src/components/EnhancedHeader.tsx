@@ -28,10 +28,14 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import { useGlobalOrders } from "../contexts/OrdersContext";
+import { useSupportMode } from "../contexts/SupportModeContext";
 import { supabase } from "../lib/supabase";
+import { founderAdmin, type PlatformWorkspace } from "../lib/founderAdmin";
+import { isFounder } from "../lib/rbac";
 import { getUserInitials } from "../services/avatarService";
 import { ThemeToggle } from "./ThemeToggle";
 import { ChangelogMenu } from "./ChangelogMenu";
+import { toast } from "./Toast";
 import { useNotifications } from "../contexts/NotificationContext";
 import type { NotificationRecord } from "../notifications/types";
 
@@ -440,6 +444,7 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
   const navigate = useNavigate();
   const { session, profile, workspace, availableWorkspaces, switchWorkspace, createWorkspace, refreshProfile, signOut, teamPermissions } =
     useAuth();
+  const supportMode = useSupportMode();
   const { isDark } = useTheme();
   const { notifications, unreadCount, loading: notificationsLoading, openNotification, markAllAsRead } =
     useNotifications();
@@ -453,6 +458,8 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [showWorkspaceCreator, setShowWorkspaceCreator] = useState(false);
+  const [platformWorkspaces, setPlatformWorkspaces] = useState<PlatformWorkspace[]>([]);
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<string | null>(null);
   const [operationsOpen, setOperationsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -534,7 +541,17 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
   };
 
   const displayName = profile?.full_name || profile?.email || "User";
-  const workspaceOptions = [workspace, ...availableWorkspaces].filter((item, index, all): item is NonNullable<typeof workspace> =>
+  const founderWorkspaceAccess = Boolean(supportMode.context) || isFounder(profile?.role, session?.user?.email);
+  const platformWorkspaceOptions = platformWorkspaces.map((item) => ({
+    id: item.id,
+    name: item.name,
+    status: item.status as NonNullable<typeof workspace>["status"],
+    plan: item.plan,
+    created_by: item.owner_profile_id,
+    created_at: item.created_at,
+    language: "en" as const,
+  }));
+  const workspaceOptions = [workspace, ...(founderWorkspaceAccess ? platformWorkspaceOptions : availableWorkspaces)].filter((item, index, all): item is NonNullable<typeof workspace> =>
     Boolean(item?.id) && all.findIndex((candidate) => candidate?.id === item?.id) === index,
   );
 
@@ -548,8 +565,61 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
         allowed: Boolean(data.allowed),
       });
     });
+    if (founderWorkspaceAccess) {
+      void founderAdmin.platformWorkspaces({ pageSize: 100 }).then((result) => {
+        if (!cancelled) setPlatformWorkspaces(result.rows || []);
+      }).catch((error) => {
+        if (!cancelled) {
+          console.error("[EnhancedHeader] Unable to load Founder workspace metadata:", error instanceof Error ? error.message : "Unknown error");
+        }
+      });
+    }
     return () => { cancelled = true; };
-  }, [availableWorkspaces.length, workspaceOpen]);
+  }, [availableWorkspaces.length, founderWorkspaceAccess, workspaceOpen]);
+
+  const handleWorkspaceSelect = async (targetWorkspace: NonNullable<typeof workspace>) => {
+    if (switchingWorkspaceId || targetWorkspace.id === workspace?.id) {
+      setWorkspaceOpen(false);
+      return;
+    }
+
+    setSwitchingWorkspaceId(targetWorkspace.id);
+    try {
+      if (founderWorkspaceAccess) {
+        const platformWorkspace = platformWorkspaces.find((item) => item.id === targetWorkspace.id);
+        const ownerProfileId = platformWorkspace?.owner_profile_id ?? targetWorkspace.created_by ?? null;
+        const isFounderOwnedWorkspace = ownerProfileId === session?.user?.id;
+
+        if (isFounderOwnedWorkspace) {
+          if (supportMode.context) await supportMode.end("workspace_switcher_exit");
+          const switched = await switchWorkspace(targetWorkspace.id);
+          if (!switched) return;
+        } else {
+          if (!ownerProfileId) {
+            toast.error("Unable to open workspace: no active owner was found.");
+            return;
+          }
+          await supportMode.start(
+            targetWorkspace.id,
+            ownerProfileId,
+            "Opened from Founder workspace switcher",
+            30,
+          );
+          toast.success(`${targetWorkspace.name} opened in secure read-only mode.`);
+          navigate("/dashboard");
+        }
+      } else {
+        const switched = await switchWorkspace(targetWorkspace.id);
+        if (!switched) return;
+      }
+      setWorkspaceOpen(false);
+    } catch (error) {
+      toast.error("Unable to open workspace.");
+      console.error("[EnhancedHeader] Workspace open failed:", error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setSwitchingWorkspaceId(null);
+    }
+  };
 
   const handleCreateWorkspace = async () => {
     const name = newWorkspaceName.trim();
@@ -640,12 +710,12 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
                       <button
                         key={ws.id}
                         role="menuitem"
+                        disabled={Boolean(switchingWorkspaceId)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          switchWorkspace(ws.id);
-                          setWorkspaceOpen(false);
+                          void handleWorkspaceSelect(ws);
                         }}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all hover:bg-base-raised ${
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all hover:bg-base-raised disabled:cursor-wait disabled:opacity-70 ${
                           workspace?.id === ws.id ? "bg-pink-500/[0.08] ring-1 ring-inset ring-pink-500/15" : ""
                         }`}
                       >
@@ -656,7 +726,9 @@ export const EnhancedHeader = memo(function EnhancedHeader({ onMenuClick }: Enha
                           <div className="flex items-center gap-2"><span className="truncate text-sm font-semibold text-ink">{ws.name}</span>{workspace?.id === ws.id && <span className="rounded-full bg-pink-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Current</span>}</div>
                           <div className="mt-0.5 truncate text-xs capitalize text-ink-muted">{ws.plan || "Workspace"}</div>
                         </div>
-                        {workspace?.id === ws.id && (
+                        {switchingWorkspaceId === ws.id ? (
+                          <Loader2 size={16} className="shrink-0 animate-spin text-pink-600" />
+                        ) : workspace?.id === ws.id && (
                           <CheckCircle2 size={16} className="shrink-0 text-pink-600" />
                         )}
                       </button>

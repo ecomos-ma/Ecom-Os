@@ -154,15 +154,15 @@ export default function TikTokIntegrationCard({ autoOpenAccountSelection = false
       </div>
 
       {modal && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+        <div className="app-modal-backdrop fixed inset-0 flex h-dvh min-h-0 items-center justify-center overflow-hidden p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !busy && setModal(null)} />
-          <div className="relative z-10 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border border-base-border bg-base-surface shadow-2xl">
-            <div className="sticky top-0 flex items-center gap-3 border-b border-base-border bg-base-surface px-6 py-5">
+          <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-base-border bg-base-surface shadow-2xl">
+            <div className="flex shrink-0 items-center gap-3 border-b border-base-border bg-base-surface px-6 py-5">
               <img src={getIntegrationLogo("tiktok")} alt="" className="h-10 w-10 rounded-xl" />
               <div className="flex-1"><h2 className="text-[18px] font-bold text-ink">TikTok Ads</h2><p className="text-[12px] text-ink-muted">{modal === "select" ? "Choose one or more authorized advertisers" : "Manage accounts, sync, and Events API"}</p></div>
               <button onClick={() => setModal(null)} className="rounded-full bg-base-raised p-2 text-ink-muted"><X size={16} /></button>
             </div>
-            <div className="space-y-5 p-6">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-6">
               <div className="space-y-2">
                 {status.ad_accounts.length === 0 ? <p className="rounded-xl bg-base-raised p-4 text-[13px] text-ink-muted">No authorized advertiser accounts were returned. Confirm the TikTok Business user has advertiser access, then reconnect.</p> : status.ad_accounts.map((account) => (
                   <label key={account.id} className="flex items-center gap-3 rounded-xl border border-base-border bg-base-raised/50 p-3">

@@ -166,11 +166,11 @@ export default function SenditShippingIntegrationCard({ onConnectionChange }: { 
       </div>
     </div>
 
-    {open && <div className="fixed inset-0 z-[999] overflow-y-auto p-4" onClick={() => !loading && setOpen(false)}>
+    {open && <div className="app-modal-backdrop fixed inset-0 flex h-dvh min-h-0 items-center justify-center overflow-hidden p-4" onClick={() => !loading && setOpen(false)}>
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-      <div className="relative mx-auto my-8 w-full max-w-2xl overflow-hidden rounded-[28px] border border-base-border bg-base-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-base-border bg-base-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center gap-4 border-b border-base-border/60 bg-base-raised/30 px-6 py-5"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand/10 text-brand"><Truck size={21} /></div><div className="flex-1"><h2 className="text-[18px] font-bold text-ink">Sendit Shipping</h2><p className="text-[13px] text-ink-muted">Your public and secret keys remain server-side and are never shown again.</p></div><button onClick={() => setOpen(false)} disabled={loading} className="rounded-full bg-base-raised p-2 text-ink-faint hover:text-ink"><X size={16} /></button></div>
-        <div className="max-h-[70vh] space-y-6 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-6 py-5">
           <section className="space-y-3"><div><h3 className="text-[14px] font-semibold text-ink">Secure credentials</h3><p className="mt-1 text-[12px] text-ink-muted">{status.connected ? "Credentials configured. Enter both fields only to replace them." : "Connect your Sendit account."}</p></div>
             <label className="block text-[13px] font-medium text-ink"><span className="mb-1.5 flex items-center gap-1.5"><KeyRound size={13} className="text-brand" />Public Key</span><input autoComplete="off" value={publicKey} onChange={(event) => setPublicKey(event.target.value)} placeholder={status.connected ? "Enter a new Public Key to replace" : "Enter your Public Key"} className="w-full rounded-xl border border-base-border bg-base-raised px-3.5 py-2.5 text-[13px] outline-none focus:border-brand/50" /></label>
             <label className="block text-[13px] font-medium text-ink"><span className="mb-1.5 flex items-center gap-1.5"><KeyRound size={13} className="text-brand" />Private / Secret Key</span><input type="password" autoComplete="new-password" value={secretKey} onChange={(event) => setSecretKey(event.target.value)} placeholder={status.connected ? "Enter a new Secret Key to replace" : "Enter your Secret Key"} className="w-full rounded-xl border border-base-border bg-base-raised px-3.5 py-2.5 text-[13px] outline-none focus:border-brand/50" /></label>
@@ -200,7 +200,7 @@ export default function SenditShippingIntegrationCard({ onConnectionChange }: { 
           </section>}
           {message && <div className={`flex items-start gap-2 rounded-xl px-4 py-3 text-[13px] ${message.success ? "bg-emerald-500/10 text-emerald-700" : "bg-danger/10 text-danger"}`}>{message.success ? <CheckCircle2 size={15} className="mt-0.5 shrink-0" /> : <AlertCircle size={15} className="mt-0.5 shrink-0" />}{message.text}</div>}
         </div>
-        <div className="flex gap-3 border-t border-base-border/60 bg-base-raised/20 px-6 py-4">{status.connected && <button onClick={() => void disconnect()} disabled={loading} className="rounded-xl bg-danger/10 px-4 text-[13px] font-semibold text-danger hover:bg-danger hover:text-white">Disconnect</button>}<button onClick={() => setOpen(false)} className="ml-auto rounded-xl bg-base-raised px-5 py-2.5 text-[13px] font-semibold text-ink hover:bg-base-border">Close</button></div>
+        <div className="flex shrink-0 gap-3 border-t border-base-border/60 bg-base-raised/20 px-6 py-4">{status.connected && <button onClick={() => void disconnect()} disabled={loading} className="rounded-xl bg-danger/10 px-4 text-[13px] font-semibold text-danger hover:bg-danger hover:text-white">Disconnect</button>}<button onClick={() => setOpen(false)} className="ml-auto rounded-xl bg-base-raised px-5 py-2.5 text-[13px] font-semibold text-ink hover:bg-base-border">Close</button></div>
       </div>
     </div>}
   </>;

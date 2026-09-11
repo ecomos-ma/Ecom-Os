@@ -99,7 +99,7 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   patchWorkspace: (workspaceId: string, patch: Partial<Workspace>) => void;
-  switchWorkspace: (workspaceId: string) => Promise<void>;
+  switchWorkspace: (workspaceId: string) => Promise<boolean>;
   createWorkspace: (name: string) => Promise<Workspace | null>;
   previewWorkspace: PreviewWorkspaceState | null;
   selectWorkspacePreview: (profile: Profile, workspace: Workspace) => void;
@@ -127,7 +127,7 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: async () => { },
   refreshProfile: async () => { },
   patchWorkspace: () => { },
-  switchWorkspace: async () => { },
+  switchWorkspace: async () => false,
   createWorkspace: async () => null,
   previewWorkspace: null,
   selectWorkspacePreview: () => { },
@@ -193,6 +193,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPermissionsLoading(true);
 
     const { data: { session: currentSession } } = await supabase.auth.getSession();
+
+    // A pending Team invitation is bound to the authenticated JWT email and is
+    // accepted server-side before workspace boot. This lets invited existing
+    // users sign in normally without needing to revisit the invitation link.
+    try {
+      const { error: invitationError } = await supabase.rpc("accept_pending_workspace_invitation");
+      if (invitationError && !["42883", "PGRST202"].includes(invitationError.code || "")) {
+        console.warn("[useAuth] Pending workspace invitation could not be accepted:", invitationError.message);
+      }
+    } catch {
+      // Keep normal authentication available while a migration is rolling out.
+    }
 
     const isSupabaseTableError = (error: { code?: string; message?: string; details?: string; hint?: string } | null | undefined) => {
       if (!error) return false;
@@ -548,15 +560,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const switchWorkspace = useCallback(async (workspaceId: string) => {
-    if (!sessionRef.current?.user?.id) return;
-    const { error } = await supabase.rpc("switch_profile_workspace", { new_workspace_id: workspaceId });
-    if (error) {
+    if (!sessionRef.current?.user?.id) return false;
+    try {
+      const { error } = await supabase.rpc("switch_profile_workspace", { new_workspace_id: workspaceId });
+      if (error) throw error;
+
+      await refreshProfile();
+      return true;
+    } catch (error) {
       toast.error("Unable to switch workspace.");
       console.error("[useAuth] switchWorkspace failed:", error);
-      return;
+      return false;
     }
-
-    await refreshProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ← stable: reads session via ref, refreshProfile is stable
 

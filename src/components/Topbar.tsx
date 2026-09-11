@@ -50,6 +50,8 @@ export const Topbar = memo(function Topbar() {
       pathname.startsWith("/cod-scenarios")
     )
       return "navigation.codScenarios";
+    if (pathname.startsWith("/ads-manager-legacy"))
+      return "navigation.legacyAdsManager";
     if (pathname.startsWith("/ads-manager")) return "navigation.adsManager";
     if (pathname.startsWith("/tiktok-ads")) return "navigation.tiktokAds";
     if (pathname.startsWith("/team")) return "navigation.team";

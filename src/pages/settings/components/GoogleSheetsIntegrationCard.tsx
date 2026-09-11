@@ -258,11 +258,11 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
 
       {/* ── Manage Modal ── */}
       {manageOpen && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+        <div className="app-modal-backdrop fixed inset-0 flex h-dvh min-h-0 items-center justify-center overflow-hidden p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setManageOpen(false)} />
-          <div className="relative z-10 w-full max-w-[700px] rounded-[24px] border border-base-border bg-base-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-[700px] flex-col overflow-hidden rounded-[24px] border border-base-border bg-base-surface shadow-2xl">
             {/* Header */}
-            <div className="flex items-center gap-4 px-6 py-5 border-b border-base-border/60 bg-base-raised/30">
+            <div className="flex shrink-0 items-center gap-4 border-b border-base-border/60 bg-base-raised/30 px-6 py-5">
               <div className="h-10 w-10 rounded-xl overflow-hidden border border-base-border/50 flex-shrink-0">
                 <img src={getIntegrationLogo("google_sheets") || ""} alt="Google Sheets" className="h-full w-full object-contain" />
               </div>
@@ -283,7 +283,7 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {!credentials ? (
                 <div className="p-6">
                   <div className="mb-6">
@@ -516,7 +516,7 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-base-border/60 bg-base-raised/20">
+            <div className="shrink-0 border-t border-base-border/60 bg-base-raised/20 px-6 py-4">
               <button onClick={() => setManageOpen(false)} className="w-full rounded-lg py-2.5 text-[13px] font-semibold text-ink hover:bg-base-border transition-colors">
                 Close
               </button>

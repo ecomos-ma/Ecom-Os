@@ -55,6 +55,14 @@ type Rule = {
   expires_after_minutes: number;
 };
 type BaseRuleKey = "confirmation" | "delivery";
+type StatusRulePreset = {
+  rule_key: string;
+  display_name: string;
+  status_source: Rule["status_source"];
+  trigger_status: string;
+  text_template: string;
+  enabled?: boolean;
+};
 type AiPermissions = {
   answer_questions: boolean; confirm_order: boolean; change_address: boolean; set_callback: boolean;
   change_status: boolean; change_variant: boolean; change_size: boolean; change_quantity: boolean;
@@ -91,6 +99,89 @@ const DELIVERY_TEMPLATE = `السلام عليكم {{customer_name}} 👋
 شركة التوصيل: {{shipping_company}}
 رقم التتبع: {{tracking_number}}
 المجموع: {{total}} DH`;
+
+const STATUS_RULE_PRESETS: StatusRulePreset[] = [
+  { rule_key: "status-pending", display_name: "Pending confirmation", status_source: "status", trigger_status: "pending", text_template: "السلام عليكم {{customer_name}} 👋 الطلب ديالك {{order_number}} باقي كيتسنى التأكيد. جاوبنا هنا باش نكملو التأكيد ديالو." },
+  { rule_key: "status-confirmed", display_name: "Order confirmed", status_source: "status", trigger_status: "confirmed", text_template: "شكراً {{customer_name}} ✅ تأكد الطلب ديالك {{order_number}} بنجاح، وغادي نخبروك ملي يخرج للتوصيل." },
+  { rule_key: "status-postponed", display_name: "Confirmation postponed", status_source: "status", trigger_status: "postponed", text_template: "السلام عليكم {{customer_name}}، أجلنا متابعة الطلب {{order_number}} للوقت المناسب ليك. جاوبنا هنا إلا بغيتي تبدل الموعد." },
+  { rule_key: "status-scheduled", display_name: "Callback scheduled", status_source: "status", trigger_status: "scheduled", text_template: "السلام عليكم {{customer_name}} 👋 تسجل موعد جديد لمتابعة الطلب {{order_number}}. غادي نتاصلو بيك فالوقت المتفق عليه." },
+  { rule_key: "status-no-answer", display_name: "No answer follow-up", status_source: "status", trigger_status: "no_answer", enabled: true, text_template: "السلام عليكم {{customer_name}} 👋 الموزع ديال الطلب {{order_number}} كيحاول يتاصل بيك وما قدرش يوصل ليك. عافاك جاوب الهاتف أو صيفط لينا الوقت المناسب باش يعاود يتاصل بيك." },
+  { rule_key: "status-busy", display_name: "Customer busy", status_source: "status", trigger_status: "busy", text_template: "السلام عليكم {{customer_name}}، حاولنا نتاصلو بيك بخصوص الطلب {{order_number}} ولقينا الخط مشغول. عافاك صيفط لينا الوقت المناسب باش نعاودو نتاصلو بيك." },
+  { rule_key: "status-unreachable", display_name: "Customer unreachable", status_source: "status", trigger_status: "unreachable", text_template: "السلام عليكم {{customer_name}}، ما قدرناش نوصلو ليك بخصوص الطلب {{order_number}}. عافاك جاوبنا هنا أو تأكد لينا رقم الهاتف: {{phone}}." },
+  { rule_key: "status-wrong-number", display_name: "Wrong phone number", status_source: "status", trigger_status: "wrong_number", text_template: "السلام عليكم، الرقم المسجل مع الطلب {{order_number}} ما قدرناش نتأكدو منو. عافاك صيفط لينا رقم الهاتف الصحيح." },
+  { rule_key: "status-cancelled", display_name: "Order cancelled", status_source: "status", trigger_status: "cancelled", text_template: "السلام عليكم {{customer_name}}، تلغى الطلب ديالك {{order_number}}. إلا كان هاد الشي بالغلط جاوبنا هنا باش نعاونوك." },
+  { rule_key: "status-blacklisted", display_name: "Order blocked", status_source: "status", trigger_status: "blacklisted", text_template: "السلام عليكم {{customer_name}}، توقف تجهيز الطلب {{order_number}} وخصنا نتأكدو من بعض المعلومات. عافاك تواصل معانا هنا." },
+  { rule_key: "status-duplicate", display_name: "Duplicate order", status_source: "status", trigger_status: "duplicate", text_template: "السلام عليكم {{customer_name}}، بان لينا أن الطلب {{order_number}} ممكن يكون مكرر. عافاك أكد لينا واش نخليو طلب واحد فقط." },
+  { rule_key: "status-out-of-stock", display_name: "Product unavailable", status_source: "status", trigger_status: "out_of_stock", text_template: "السلام عليكم {{customer_name}}، للأسف واحد المنتج فالطلب {{order_number}} ما بقاش متوفر دابا. جاوبنا هنا باش نقترحو عليك البدائل." },
+  { rule_key: "status-refused", display_name: "Order refused", status_source: "status", trigger_status: "refused", text_template: "السلام عليكم {{customer_name}}، تسجل أن الطلب {{order_number}} ترفض. إلا كان شي خطأ أو بغيتي تعاود الطلب جاوبنا هنا." },
+  { rule_key: "delivery-registered", display_name: "Shipment registered", status_source: "shipping_status", trigger_status: "registered", text_template: "السلام عليكم {{customer_name}} 👋 تسجلت شحنة الطلب {{order_number}} عند شركة التوصيل {{shipping_company}}." },
+  { rule_key: "delivery-picked-up", display_name: "Shipment picked up", status_source: "shipping_status", trigger_status: "picked_up", text_template: "السلام عليكم {{customer_name}}، شركة التوصيل تسلمات الطلب {{order_number}} وغادي يبدا الطريق ديالو عندك قريباً 🚚" },
+  { rule_key: "delivery-in-transit", display_name: "Shipment in transit", status_source: "shipping_status", trigger_status: "in_transit", text_template: "الطلب ديالك {{order_number}} راه دابا فالطريق 🚚 رقم التتبع: {{tracking_number}}." },
+  { rule_key: "delivery-out-for-delivery", display_name: "Out for delivery", status_source: "shipping_status", trigger_status: "out_for_delivery", text_template: DELIVERY_TEMPLATE },
+  { rule_key: "delivery-delivered", display_name: "Order delivered", status_source: "shipping_status", trigger_status: "delivered", text_template: "توصلتي بالطلب {{order_number}} بنجاح ✅ شكراً {{customer_name}} على ثقتك فينا، ومرحبا بك ديما." },
+  { rule_key: "delivery-returned", display_name: "Shipment returned", status_source: "shipping_status", trigger_status: "returned", text_template: "السلام عليكم {{customer_name}}، رجعات شحنة الطلب {{order_number}}. جاوبنا هنا إلا بغيتي نعرفو السبب أو نعاودو الإرسال." },
+  { rule_key: "delivery-refused", display_name: "Delivery refused", status_source: "shipping_status", trigger_status: "refused", text_template: "السلام عليكم {{customer_name}}، تسجل رفض استلام الطلب {{order_number}}. إلا كان شي خطأ جاوبنا هنا باش نعاونوك." },
+  { rule_key: "delivery-cancelled", display_name: "Delivery cancelled", status_source: "shipping_status", trigger_status: "cancelled", text_template: "السلام عليكم {{customer_name}}، تلغات عملية توصيل الطلب {{order_number}}. جاوبنا هنا إلا بغيتي نبرمجو توصيل جديد." },
+  { rule_key: "delivery-unknown", display_name: "Delivery needs attention", status_source: "shipping_status", trigger_status: "unknown", text_template: "السلام عليكم {{customer_name}}، خاصنا نراجعو حالة توصيل الطلب {{order_number}}. غادي نتواصلو مع شركة التوصيل ونخبروك بالجديد." },
+];
+
+function ruleFromPreset(preset: StatusRulePreset): Rule {
+  return {
+    rule_key: preset.rule_key,
+    display_name: preset.display_name,
+    event_type: "status",
+    enabled: preset.enabled ?? false,
+    status_source: preset.status_source,
+    trigger_statuses: [preset.trigger_status],
+    text_enabled: true,
+    text_template: preset.text_template,
+    audio_enabled: false,
+    audio_recording_id: null,
+    fallback_text_enabled: true,
+    fallback_text: preset.text_template,
+    channel_sequence: ["text"],
+    message_steps: [{ id: `${preset.rule_key}-text-1`, type: "text", text_template: preset.text_template, audio_recording_id: null }],
+    delay_minutes: 0,
+    expires_after_minutes: 1440,
+  };
+}
+
+function defaultStatusRules(orderStatuses: any[]): Rule[] {
+  const presets = [...STATUS_RULE_PRESETS];
+  const knownConfirmationStatuses = new Set(
+    presets.filter((preset) => preset.status_source === "status").map((preset) => preset.trigger_status.toLowerCase()),
+  );
+  for (const row of orderStatuses) {
+    const triggerStatus = String(row?.slug || row?.name || "").trim();
+    if (!triggerStatus || knownConfirmationStatuses.has(triggerStatus.toLowerCase())) continue;
+    const safeKey = encodeURIComponent(triggerStatus.toLowerCase()).replace(/%/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    presets.push({
+      rule_key: `status-${safeKey}`,
+      display_name: `${String(row?.name || triggerStatus)} message`,
+      status_source: "status",
+      trigger_status: triggerStatus,
+      text_template: "السلام عليكم {{customer_name}} 👋 تبدلات حالة الطلب {{order_number}}. جاوبنا هنا إلا بغيتي شي توضيح.",
+    });
+    knownConfirmationStatuses.add(triggerStatus.toLowerCase());
+  }
+  return presets.map(ruleFromPreset);
+}
+
+function mergeStatusRules(storedRules: Rule[], orderStatuses: any[]): Rule[] {
+  const defaults = defaultStatusRules(orderStatuses);
+  const storedByKey = new Map(storedRules.map((rule) => [rule.rule_key, rule]));
+  const identity = (rule: Rule) => `${rule.status_source}:${String(rule.trigger_statuses[0] || "").trim().toLowerCase()}`;
+  const storedByIdentity = new Map(storedRules.map((rule) => [identity(rule), rule]));
+  const mergedDefaults = defaults.map((fallback) => {
+    const stored = storedByKey.get(fallback.rule_key) || storedByIdentity.get(identity(fallback));
+    if (!stored) return fallback;
+    storedByKey.delete(stored.rule_key);
+    storedByIdentity.delete(identity(stored));
+    const merged = { ...fallback, ...stored } as Rule;
+    return { ...merged, message_steps: messageStepsFor(merged) };
+  });
+  return [...mergedDefaults, ...storedByKey.values()].map((rule) => ({ ...rule, message_steps: messageStepsFor(rule) }));
+}
 
 const DEFAULT_SETTINGS = {
   enabled: false,
@@ -326,7 +417,8 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
       } else {
         setAddressSettings({ ...DEFAULT_ADDRESS_SETTINGS });
       }
-      if (statusesResult && statusesResult.data) setOrderStatuses(statusesResult.data);
+      const loadedOrderStatuses = statusesResult?.data || [];
+      setOrderStatuses(loadedOrderStatuses);
       const nextRules: Record<BaseRuleKey, Rule> = { confirmation: { ...DEFAULT_RULES.confirmation }, delivery: { ...DEFAULT_RULES.delivery } };
       const nextStatusRules: Rule[] = [];
       for (const rule of rulesResult.data || []) {
@@ -340,7 +432,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
         }
       }
       setRules(nextRules);
-      setStatusRules(nextStatusRules);
+      setStatusRules(mergeStatusRules(nextStatusRules, loadedOrderStatuses));
       setDeletedRuleIds([]);
       if (aiSettingsResult.data) {
         setAiSettings({
@@ -486,7 +578,10 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
           text_template: firstText?.text_template || "",
           audio_recording_id: firstAudio?.audio_recording_id || null,
         };
-        if (id) payload.id = id;
+        // PostgREST normalizes bulk rows to a shared set of columns. Mixing rows
+        // with and without `id` can turn an omitted id into NULL and bypass the
+        // database default, so every row gets a concrete UUID here.
+        payload.id = id || crypto.randomUUID();
         return payload;
       });
       const { error: rulesError } = await supabase.from("whatsapp_automation_rules").upsert(rulesPayload, { onConflict: "workspace_id,rule_key" });
@@ -688,24 +783,6 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
     } catch (error: any) { toast.error(error.message || "Could not retry job"); }
   };
 
-  const addStatusRule = () => {
-    const triggerStatus = orderStatuses[0]?.slug || orderStatuses[0]?.name || "pending";
-    const ruleKey = `status_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-    const text = "سلام {{customer_name}}، الطلب ديالك {{order_number}} تبدلات الحالة ديالو.";
-    setStatusRules((current) => [...current, {
-      rule_key: ruleKey, display_name: `Message for ${triggerStatus}`, event_type: "status", enabled: false,
-      status_source: "status", trigger_statuses: [triggerStatus], text_enabled: true, text_template: text,
-      audio_enabled: false, audio_recording_id: null, fallback_text_enabled: true, fallback_text: text,
-      channel_sequence: ["text"], message_steps: [{ id: `text-${crypto.randomUUID()}`, type: "text", text_template: text, audio_recording_id: null }],
-      delay_minutes: 0, expires_after_minutes: 1440,
-    }]);
-  };
-
-  const removeStatusRule = (rule: Rule) => {
-    if (rule.id) setDeletedRuleIds((current) => [...current, rule.id!]);
-    setStatusRules((current) => current.filter((item) => item.rule_key !== rule.rule_key));
-  };
-
   const testAi = async () => {
     if (!workspace?.id || !aiTestMessage.trim()) return;
     setBusy(true); setAiTestResult(null);
@@ -798,22 +875,33 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
       text_template: next.find((step) => step.type === "text")?.text_template || "",
       audio_recording_id: next.find((step) => step.type === "audio")?.audio_recording_id || null,
     });
-    const addStep = (type: MessageStep["type"]) => updateSteps([...steps, { id: `${type}-${crypto.randomUUID()}`, type, text_template: "", audio_recording_id: null }]);
-    const moveStep = (index: number, direction: -1 | 1) => {
-      const target = index + direction;
-      if (target < 0 || target >= steps.length) return;
-      const next = [...steps]; [next[index], next[target]] = [next[target], next[index]]; updateSteps(next);
+    const textStep = steps.find((step) => step.type === "text") || {
+      id: `${rule.rule_key}-text-1`,
+      type: "text" as const,
+      text_template: rule.text_template,
+      audio_recording_id: null,
     };
-    return <article key={rule.rule_key} className="space-y-4 rounded-2xl border border-base-border p-4 md:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-[220px] flex-1"><FieldLabel>Automation name</FieldLabel><input value={rule.display_name} onChange={(e) => patchRule({ display_name: e.target.value })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div><div className="flex items-center gap-3 pt-6"><label className="flex items-center gap-2 text-[12px] font-semibold"><input type="checkbox" checked={rule.enabled} onChange={(e) => patchRule({ enabled: e.target.checked })} className="accent-[#25D366]" />Enabled</label><button onClick={() => removeStatusRule(rule)} className="rounded-lg p-2 text-danger hover:bg-danger/10"><Trash2 size={15} /></button></div></div>
-      <div className="grid gap-3 md:grid-cols-4"><div><FieldLabel>Status field</FieldLabel><select value={rule.status_source} onChange={(e) => patchRule({ status_source: e.target.value as Rule["status_source"] })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="status">Order status</option><option value="shipping_status">Shipping status</option><option value="delivery_status">Delivery status</option><option value="provider_status">Provider status</option></select></div><div><FieldLabel>Trigger status</FieldLabel>{rule.status_source === "status" && orderStatuses.length ? <select value={rule.trigger_statuses[0] || ""} onChange={(e) => patchRule({ trigger_statuses: [e.target.value] })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]">{orderStatuses.map((item) => <option key={item.id} value={item.slug || item.name}>{item.name}</option>)}</select> : <input value={rule.trigger_statuses[0] || ""} onChange={(e) => patchRule({ trigger_statuses: [e.target.value] })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" />}</div><div><FieldLabel>Delay (minutes)</FieldLabel><input type="number" min={0} value={rule.delay_minutes} onChange={(e) => patchRule({ delay_minutes: Number(e.target.value) })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div><div><FieldLabel>Expire after</FieldLabel><input type="number" min={5} value={rule.expires_after_minutes} onChange={(e) => patchRule({ expires_after_minutes: Number(e.target.value) })} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]" /></div></div>
-      <div className="flex flex-wrap gap-2"><button onClick={() => addStep("text")} className="rounded-xl border border-base-border px-3 py-2 text-[11px] font-bold">+ Text</button><button onClick={() => addStep("audio")} className="rounded-xl bg-[#25D366] px-3 py-2 text-[11px] font-bold text-white">+ Voice</button></div>
-      {steps.map((step, index) => <div key={step.id} className="rounded-xl bg-base-raised/35 p-3"><div className="mb-2 flex items-center justify-between"><strong className="text-[12px]">{index + 1}. {step.type === "text" ? "Text" : "Voice note"}</strong><div className="flex gap-1"><button disabled={index === 0} onClick={() => moveStep(index, -1)} className="rounded border border-base-border px-2 py-1 text-[10px] disabled:opacity-30">Up</button><button disabled={index === steps.length - 1} onClick={() => moveStep(index, 1)} className="rounded border border-base-border px-2 py-1 text-[10px] disabled:opacity-30">Down</button><button disabled={steps.length === 1} onClick={() => updateSteps(steps.filter((item) => item.id !== step.id))} className="px-2 py-1 text-[10px] text-danger disabled:opacity-30">Remove</button></div></div>{step.type === "text" ? <TemplateEditor value={step.text_template} onChange={(text_template) => updateSteps(steps.map((item) => item.id === step.id ? { ...item, text_template } : item))} /> : <select value={step.audio_recording_id || ""} onChange={(e) => updateSteps(steps.map((item) => item.id === step.id ? { ...item, audio_recording_id: e.target.value || null } : item))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="">Select a voice</option>{recordings.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}</option>)}</select>}</div>)}
+    const updateText = (text_template: string) => {
+      const nextSteps = steps.some((step) => step.type === "text")
+        ? steps.map((step) => step.type === "text" ? { ...step, text_template } : step)
+        : [{ ...textStep, text_template }, ...steps];
+      updateSteps(nextSteps);
+      patchRule({ fallback_text: text_template });
+    };
+    return <article key={rule.rule_key} className="rounded-2xl border border-base-border bg-base-surface p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h4 className="text-[13px] font-bold">{rule.display_name}</h4><p className="mt-1 text-[11px] text-ink-muted">{rule.status_source === "status" ? "Confirmation" : "Delivery"} status: <span className="font-mono">{rule.trigger_statuses[0]}</span></p></div>
+        <label className="flex items-center gap-2 text-[12px] font-semibold"><input type="checkbox" checked={rule.enabled} onChange={(e) => patchRule({ enabled: e.target.checked })} className="h-4 w-4 accent-[#25D366]" />{rule.enabled ? "Active" : "Disabled"}</label>
+      </div>
+      <details className="mt-3 rounded-xl bg-base-raised/35 p-3"><summary className="cursor-pointer text-[12px] font-semibold text-[#159447]">Edit message</summary><div className="mt-3"><TemplateEditor value={textStep.text_template} onChange={updateText} /></div></details>
     </article>;
   };
 
+  const confirmationStatusRules = statusRules.filter((rule) => rule.status_source === "status");
+  const deliveryStatusRules = statusRules.filter((rule) => rule.status_source !== "status");
+
   return (
-    <div className="app-modal-backdrop fixed inset-0 flex items-center justify-center bg-black/45 p-0 backdrop-blur-sm md:p-3" role="dialog" aria-modal="true" aria-label="WhatsApp Automation settings">
+    <div className="app-modal-backdrop fixed inset-0 flex h-dvh min-h-0 items-center justify-center overflow-hidden bg-black/45 p-0 backdrop-blur-sm md:p-3" role="dialog" aria-modal="true" aria-label="WhatsApp Automation settings">
       <div className="flex h-dvh w-full max-w-6xl overflow-hidden bg-base-surface shadow-2xl md:h-[min(900px,95dvh)] md:rounded-2xl md:border md:border-base-border">
         <aside className="hidden w-60 shrink-0 border-r border-base-border bg-base-raised/30 p-3 md:block">
           <div className="px-3 py-4"><div className="text-[15px] font-bold">WhatsApp Automation</div><div className="mt-1 text-[11px] text-ink-muted">Workspace-scoped controls</div></div>
@@ -866,7 +954,7 @@ export default function WhatsAppSettingsModal({ isOpen, onClose, initialSettings
                 <section><h3 className="mb-3 text-[13px] font-bold">Order confirmation trigger</h3>{ruleEditor("confirmation")}</section>
                 <section className="border-t border-base-border pt-6"><h3 className="mb-3 text-[13px] font-bold">Delivery trigger</h3>{ruleEditor("delivery")}</section>
               </div>}
-              {tab === "status_automations" && <div className="space-y-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-[14px] font-bold">Status → WhatsApp automations</h3><p className="mt-1 text-[12px] text-ink-muted">Create a separate text/voice sequence for any order or shipping status. Delayed messages are cancelled if the status changes.</p></div><button onClick={addStatusRule} className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-[12px] font-bold text-white"><Plus size={15} />Add automation</button></div>{statusRules.length ? statusRules.map(statusRuleEditor) : <div className="py-10"><EmptyState title="No automations found" description="Create an automation to update customers automatically." compact /></div>}</div>}
+              {tab === "status_automations" && <div className="space-y-7"><div><h3 className="text-[14px] font-bold">Status messages</h3><p className="mt-1 text-[12px] text-ink-muted">Every standard message is ready. Activate or disable it, and edit the text only when you need to.</p></div><section><h4 className="mb-3 text-[12px] font-bold uppercase tracking-wide text-ink-muted">Confirmation statuses</h4><div className="grid gap-3">{confirmationStatusRules.map(statusRuleEditor)}</div></section><section><h4 className="mb-3 text-[12px] font-bold uppercase tracking-wide text-ink-muted">Delivery statuses</h4><div className="grid gap-3">{deliveryStatusRules.map(statusRuleEditor)}</div></section></div>}
               {tab === "ai" && <div className="space-y-6"><Toggle checked={aiSettings.enabled} onChange={(enabled) => setAiSettings((current) => ({ ...current, enabled }))} label="Enable rule-first WhatsApp AI" description="Exact Reply Actions and active address collection always run before AI." /><section className="rounded-2xl border border-base-border p-5"><h3 className="text-[14px] font-bold">AI Teach</h3><p className="mt-1 text-[11.5px] text-ink-muted">Tell the AI about your business, tone, policies and promises it must never make. Prices, stock, orders and delivery data always come from Ecom OS.</p><textarea value={aiSettings.teach_text} onChange={(e) => setAiSettings((current) => ({ ...current, teach_text: e.target.value }))} placeholder="Tell your AI everything it should know about your business…" className="mt-4 min-h-[220px] w-full rounded-xl border border-base-border bg-base-raised/30 p-4 text-[13px] leading-6 outline-none focus:border-[#25D366]/50" maxLength={50000} /></section><section className="rounded-2xl border border-base-border p-5"><h3 className="text-[14px] font-bold">AI Unavailable Fallback</h3><p className="mt-1 text-[11.5px] text-ink-muted">Choose exactly what customers receive when AI cannot respond.</p><div className="mt-4 space-y-2"><Toggle checked={aiSettings.fallback_enabled} onChange={(value) => setAiSettings((current) => ({ ...current, fallback_enabled: value }))} label="Enable fallback reply" description="Send a safe reply instead of leaving the conversation silent." /><Toggle checked={aiSettings.fallback_show_options} onChange={(value) => setAiSettings((current) => ({ ...current, fallback_show_options: value }))} label="Show available Reply Actions" description="Replace {{available_options}} with enabled numeric actions." /></div><FieldLabel>Fallback message</FieldLabel><textarea value={aiSettings.fallback_reply} onChange={(e) => setAiSettings((current) => ({ ...current, fallback_reply: e.target.value }))} className="mt-2 min-h-[130px] w-full rounded-xl border border-base-border bg-base-raised/30 p-4 text-[13px] leading-6 outline-none focus:border-[#25D366]/50" maxLength={2000} /><div className="mt-4"><div className="mb-1.5 text-[12px] font-semibold text-ink">Preview</div><div className="min-h-[90px] whitespace-pre-wrap rounded-xl border border-[#25D366]/20 bg-[#25D366]/5 p-4 text-[13px] leading-relaxed">{renderFallbackPreview(aiSettings.fallback_reply, aiSettings.fallback_show_options, actions) || "(empty)"}</div></div></section><section className="rounded-2xl border border-base-border p-5"><h3 className="text-[14px] font-bold">Human Handoff</h3><p className="mt-1 text-[11.5px] text-ink-muted">Send the conversation to your team when AI cannot safely continue.</p><div className="mt-4 space-y-2"><Toggle checked={aiSettings.handoff_enabled} onChange={(value) => setAiSettings((current) => ({ ...current, handoff_enabled: value }))} label="Enable human handoff" /><div><FieldLabel>Human Handoff Status</FieldLabel><select value={aiSettings.handoff_status} onChange={(e) => setAiSettings((current) => ({ ...current, handoff_status: e.target.value }))} className="w-full rounded-xl border border-base-border bg-base-surface px-3 py-2.5 text-[13px]"><option value="">Keep current status</option>{orderStatuses.map((status) => <option key={status.id} value={status.slug || status.name}>{status.name}</option>)}</select></div><div><FieldLabel>Handoff message</FieldLabel><textarea value={aiSettings.handoff_message} onChange={(e) => setAiSettings((current) => ({ ...current, handoff_message: e.target.value }))} className="min-h-[90px] w-full rounded-xl border border-base-border bg-base-raised/30 p-4 text-[13px] leading-6 outline-none focus:border-[#25D366]/50" maxLength={2000} /></div><div><FieldLabel>Clarification attempts before handoff</FieldLabel><input type="number" min={0} max={3} value={aiSettings.clarification_attempt_limit} onChange={(e) => setAiSettings((current) => ({ ...current, clarification_attempt_limit: Math.max(0, Math.min(3, Number(e.target.value) || 0)) }))} className="w-full rounded-xl border border-base-border bg-base-raised/30 px-3 py-2.5 text-[13px]" /></div></div></section><section><h3 className="mb-3 text-[14px] font-bold">AI permissions</h3><div className="grid gap-2 md:grid-cols-2">{([['answer_questions','Answer questions'],['confirm_order','Confirm order'],['change_address','Change address'],['set_callback','Set callback'],['change_status','Change status'],['change_variant','Change color / variant'],['change_size','Change size'],['change_quantity','Change quantity'],['add_item','Add item'],['remove_item','Remove item'],['add_note','Add note'],['cancel_order','Cancel order']] as [keyof AiPermissions,string][]).map(([key,label]) => <Toggle key={key} checked={aiSettings.permissions[key]} onChange={(value) => setAiSettings((current) => ({ ...current, permissions: { ...current.permissions, [key]: value } }))} label={label} />)}</div></section><section className="rounded-2xl border border-base-border p-5"><h3 className="text-[14px] font-bold">Test AI safely</h3><p className="mt-1 text-[11.5px] text-ink-muted">Simulates understanding only. It never changes an order.</p><div className="mt-4 flex flex-col gap-2 md:flex-row"><input value={aiTestMessage} onChange={(e) => setAiTestMessage(e.target.value)} className="min-h-11 flex-1 rounded-xl border border-base-border bg-base-raised/30 px-3 text-[13px]" /><button onClick={testAi} disabled={busy || !aiSettings.enabled} className="rounded-xl bg-ink px-4 py-2.5 text-[12px] font-bold text-base-surface disabled:opacity-40">Test AI</button></div>{aiTestResult && <p className="mt-3 rounded-xl bg-base-raised p-3 text-[12px]">{aiTestResult}</p>}</section></div>}
               {tab === "confirmation" && <div className="space-y-4"><div><h3 className="text-[14px] font-bold">Confirmation messages</h3><p className="mt-1 text-[12px] text-ink-muted">Add text and recorded voice notes in the exact order the customer should receive them.</p></div>{messageEditor("confirmation")}</div>}
               {tab === "delivery" && <div className="space-y-4"><div><h3 className="text-[14px] font-bold">Delivery messages</h3><p className="mt-1 text-[12px] text-ink-muted">Build the delivery update as one, two, or three messages.</p></div>{messageEditor("delivery")}</div>}

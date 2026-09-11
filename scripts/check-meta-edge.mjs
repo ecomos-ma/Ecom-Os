@@ -16,6 +16,7 @@ const files = [
   "supabase/functions/meta-auth-start/index.ts",
   "supabase/functions/meta-assets/index.ts",
   "supabase/functions/meta-bulk/index.ts",
+  "supabase/functions/meta-legacy/index.ts",
 ];
 
 const program = ts.createProgram(files, {

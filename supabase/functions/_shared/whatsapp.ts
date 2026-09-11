@@ -14,8 +14,13 @@ export function serviceClient(): SupabaseClient {
 
 export function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") || "";
-  const allowed = (Deno.env.get("ALLOWED_FRONTEND_ORIGINS") || "http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173")
-    .split(",").map((value) => value.trim()).filter(Boolean);
+  const configured = Deno.env.get("ALLOWED_FRONTEND_ORIGINS") || "";
+  const allowed = [...configured.split(","),
+    "https://ecomos.ma",
+    "https://www.ecomos.ma",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+  ].map((value) => value.trim()).filter(Boolean);
   return {
     ...(allowed.includes(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -36,6 +41,26 @@ export async function authenticateUser(req: Request, client: SupabaseClient) {
   const { data, error } = await client.auth.getUser(token);
   if (error || !data.user) throw new Error("Invalid authorization token");
   return data.user;
+}
+
+export function classifyWhatsAppError(error: unknown): { code: string; message: string; status: number } {
+  const message = error instanceof Error ? error.message : String(error || "Unexpected error");
+  if (/Missing authorization token|Invalid authorization token/i.test(message)) {
+    return { code: "unauthorized", message, status: 401 };
+  }
+  if (/Workspace access denied|Workspace manager access required/i.test(message)) {
+    return { code: "forbidden", message, status: 403 };
+  }
+  if (/WHATSAPP_WORKER_URL/i.test(message)) {
+    return { code: "missing_worker_url", message: "WhatsApp worker URL is not configured", status: 503 };
+  }
+  if (/WHATSAPP_WORKER_API_SECRET/i.test(message)) {
+    return { code: "missing_worker_secret", message: "WhatsApp worker secret is not configured", status: 503 };
+  }
+  if (/timed out|abort/i.test(message)) {
+    return { code: "worker_timeout", message: "WhatsApp worker request timed out", status: 504 };
+  }
+  return { code: "worker_502", message: "WhatsApp worker request failed", status: 502 };
 }
 
 export async function authorizeWorkspace(client: SupabaseClient, userId: string, workspaceId: string) {

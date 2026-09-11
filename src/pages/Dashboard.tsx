@@ -200,6 +200,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
     [rangeType, customFrom, customTo]
   );
   const d = useDashboardData(startDate, endDate);
+  const adCurrency = d.currency || "USD";
   const { config: businessConfig } = useBusinessConfig();
   const { rules: costRules } = useCostRules();
   const { settings: affiliateSettings, skuCosts: affiliateSkuCosts } = useAffiliateCosts() as any;
@@ -696,7 +697,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
                     onClick={() => {
                       const today = new Date();
                       const weekAgo = new Date();
-                      weekAgo.setDate(weekAgo.getDate() - 7);
+                      weekAgo.setDate(weekAgo.getDate() - 6);
                       setCustomFrom(weekAgo.toISOString().slice(0, 10));
                       setCustomTo(today.toISOString().slice(0, 10));
                       setRangeType("custom");
@@ -709,7 +710,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
                     onClick={() => {
                       const today = new Date();
                       const monthAgo = new Date();
-                      monthAgo.setDate(monthAgo.getDate() - 30);
+                      monthAgo.setDate(monthAgo.getDate() - 29);
                       setCustomFrom(monthAgo.toISOString().slice(0, 10));
                       setCustomTo(today.toISOString().slice(0, 10));
                       setRangeType("custom");
@@ -804,7 +805,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
         />
         <StatCard
           icon={<DollarSign size={16} />}
-          value={`$${metrics.costPerDelivered.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          value={`${adCurrency} ${metrics.costPerDelivered.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           label="Cost Per Delivered"
         />
       </div>
@@ -818,12 +819,12 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
         />
         <StatCard
           icon={<DollarSign size={16} />}
-          value={`USD ${metrics.adSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          value={`${adCurrency} ${metrics.adSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           label="Ad Spend"
         />
         <StatCard
           icon={<DollarSign size={16} />}
-          value={`$${metrics.cpa.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          value={`${adCurrency} ${metrics.cpa.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           label="CPA"
         />
         <StatCard
@@ -840,7 +841,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
           icon={<TrendingUp size={16} />}
           value={mad(metrics.netProfit)}
           label="Net Profit"
-          tooltip={`Revenue: +${mad(metrics.revenue)}\nProducts: -${mad(metrics.totalProductCost)}\nAd Spend: -$${metrics.adSpend.toFixed(2)}\nShipping: -${mad(metrics.activeShippingCost)}\n${metrics.feeBreakdown?.map(f => `${f.name}: -${mad(f.amount)} (${f.orderCount}x)`).join('\n')}\n= ${mad(metrics.netProfit)}`}
+          tooltip={`Revenue: +${mad(metrics.revenue)}\nProducts: -${mad(metrics.totalProductCost)}\nAd Spend: -${adCurrency} ${metrics.adSpend.toFixed(2)}\nShipping: -${mad(metrics.activeShippingCost)}\n${metrics.feeBreakdown?.map(f => `${f.name}: -${mad(f.amount)} (${f.orderCount}x)`).join('\n')}\n= ${mad(metrics.netProfit)}`}
         />
       </div>
 

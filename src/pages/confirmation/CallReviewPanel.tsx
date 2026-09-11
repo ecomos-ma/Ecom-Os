@@ -11,17 +11,19 @@ export function CallReviewPanel({
   workspaceId,
   agents,
   onOpenOrder,
+  initialAgentId = "",
 }: {
   workspaceId: string;
   agents: ConfirmationAgent[];
   onOpenOrder: (orderId: string) => void;
+  initialAgentId?: string;
 }) {
   const { formatDateTime } = useI18n();
   const dateTime = (value: string) => formatDateTime(value);
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(initialAgentId);
   const [urls, setUrls] = useState<Record<string, string>>({});
 
   const agentsById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
@@ -71,6 +73,7 @@ export function CallReviewPanel({
   }, [workspaceId, agentId, agentsById]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setAgentId(initialAgentId); }, [initialAgentId]);
 
   const loadUrl = async (recording: ConfirmationRecording) => {
     if (urls[recording.id]) return;

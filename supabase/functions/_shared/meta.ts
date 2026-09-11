@@ -394,6 +394,7 @@ export async function metaRequest<T = JsonObject>(
     query?: Record<string, unknown>;
     body?: Record<string, unknown>;
     retries?: number;
+    appSecretProof?: boolean;
   } = {},
 ): Promise<T> {
   const token = options.token;
@@ -419,7 +420,7 @@ export async function metaRequest<T = JsonObject>(
     }
   };
   addParams(baseUrl.searchParams, options.query ?? {});
-  if (token) {
+  if (token && options.appSecretProof !== false) {
     baseUrl.searchParams.set("appsecret_proof", await appSecretProof(token));
   }
   const form = new URLSearchParams();
@@ -605,6 +606,7 @@ export async function fetchAllPages<T = JsonObject>(
     token: string;
     query?: Record<string, unknown>;
     maxPages?: number;
+    appSecretProof?: boolean;
   },
 ): Promise<T[]> {
   const rows: T[] = [];
@@ -622,7 +624,11 @@ export async function fetchAllPages<T = JsonObject>(
     const payload = await metaRequest<{
       data?: T[];
       paging?: { next?: string };
-    }>(next, { token: options.token, query });
+    }>(next, {
+      token: options.token,
+      query,
+      appSecretProof: options.appSecretProof,
+    });
     rows.push(...(Array.isArray(payload.data) ? payload.data : []));
     next = payload.paging?.next ?? null;
     query = undefined;

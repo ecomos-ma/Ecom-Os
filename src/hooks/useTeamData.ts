@@ -28,6 +28,10 @@ export interface TeamMember {
     xp: number;
     rank: string;
     last_seen_at: string | null;
+    current_path: string | null;
+    current_page: string | null;
+    active_call: boolean;
+    active_call_started_at: string | null;
 }
 
 export interface OrderAssignment {
@@ -82,7 +86,7 @@ export function useTeamData() {
         setLoading(true);
         try {
             // Load members (profiles + profile_workspaces + extended)
-            const [profilesRes, workspaceMembersRes, extRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
+            const [profilesRes, workspaceMembersRes, extRes, presenceRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
                 supabase
                     .from("profiles")
                     .select("id, full_name, role, workspace_id, allowed_sections, created_at, email, is_active, last_login_at, avatar_url")
@@ -96,6 +100,10 @@ export function useTeamData() {
                 supabase
                     .from("team_member_profiles")
                     .select("*")
+                    .eq("workspace_id", wid),
+                supabase
+                    .from("agent_presence")
+                    .select("profile_id, status, last_heartbeat, current_path, current_page, active_call, active_call_started_at")
                     .eq("workspace_id", wid),
                 supabase
                     .from("workspace_invitations")
@@ -125,11 +133,15 @@ export function useTeamData() {
             const workspaceMembersData = workspaceMembersRes.data ?? [];
             const extData = extRes.data ?? [];
             const extMap = new Map(extData.map((e: any) => [e.profile_id, e]));
+            const presenceMap = new Map((presenceRes.data ?? []).map((presence: any) => [presence.profile_id, presence]));
             const workspaceMembersMap = new Map(workspaceMembersData.map((wm: any) => [wm.profile_id, wm]));
 
             const merged: TeamMember[] = profileData.map((p: any) => {
                 const ext = extMap.get(p.id) as any;
+                const presence = presenceMap.get(p.id) as any;
                 const workspaceMember = workspaceMembersMap.get(p.id) as any;
+                const heartbeatAt = presence?.last_heartbeat ? new Date(presence.last_heartbeat).getTime() : 0;
+                const heartbeatIsFresh = heartbeatAt > Date.now() - 2 * 60_000;
                 return {
                     id: p.id,
                     profile_id: p.id,
@@ -146,13 +158,17 @@ export function useTeamData() {
                     phone: ext?.phone ?? null,
                     department: ext?.department ?? null,
                     avatar_url: ext?.avatar_url ?? p.avatar_url ?? null, // Use extension avatar first, fallback to profile avatar
-                    agent_status: ext?.agent_status ?? "offline",
+                    agent_status: heartbeatIsFresh ? (presence?.status ?? ext?.agent_status ?? "online") : "offline",
                     shift: ext?.shift ?? "morning",
                     daily_limit: ext?.daily_limit ?? 80,
                     max_active_orders: ext?.max_active_orders ?? 30,
                     xp: ext?.xp ?? 0,
                     rank: ext?.rank ?? "Bronze",
-                    last_seen_at: ext?.last_seen_at ?? p.last_login_at ?? null,
+                    last_seen_at: presence?.last_heartbeat ?? ext?.last_seen_at ?? p.last_login_at ?? null,
+                    current_path: presence?.current_path ?? null,
+                    current_page: presence?.current_page ?? null,
+                    active_call: heartbeatIsFresh && presence?.active_call === true,
+                    active_call_started_at: presence?.active_call_started_at ?? null,
                 };
             });
 
@@ -225,18 +241,45 @@ export function useTeamData() {
     }, [wid, load]);
 
     const updateMemberStatus = useCallback(async (profileId: string, isActive: boolean) => {
-        await supabase.from("profiles").update({ is_active: isActive }).eq("id", profileId);
+        if (!wid) throw new Error("Workspace is not available");
+        const { error } = await supabase.rpc("manage_workspace_team_member", {
+            p_workspace_id: wid,
+            p_profile_id: profileId,
+            p_action: "set_status",
+            p_role: null,
+            p_allowed_sections: null,
+            p_is_active: isActive,
+        });
+        if (error) throw error;
         setMembers(prev => prev.map(m => m.id === profileId ? { ...m, status: isActive ? "active" : "disabled" } : m));
-    }, []);
+    }, [wid]);
 
     const updateMemberRole = useCallback(async (profileId: string, role: string, sections: string[]) => {
-        await supabase.from("profiles").update({ role, allowed_sections: sections }).eq("id", profileId);
-        setMembers(prev => prev.map(m => m.id === profileId ? { ...m, role, allowed_sections: sections } : m));
-    }, []);
+        if (!wid) throw new Error("Workspace is not available");
+        const normalizedSections = normalizeAllowedSections(sections);
+        const { error } = await supabase.rpc("manage_workspace_team_member", {
+            p_workspace_id: wid,
+            p_profile_id: profileId,
+            p_action: "update",
+            p_role: role,
+            p_allowed_sections: normalizedSections,
+            p_is_active: null,
+        });
+        if (error) throw error;
+        setMembers(prev => prev.map(m => m.id === profileId ? { ...m, role, allowed_sections: normalizedSections } : m));
+    }, [wid]);
 
     const removeMember = useCallback(async (profileId: string) => {
-        // Remove from profile_workspaces instead of setting workspace_id to null
-        await supabase.from("profile_workspaces").delete().eq("profile_id", profileId).eq("workspace_id", wid);
+        if (!wid) throw new Error("Workspace is not available");
+        const { error } = await supabase.rpc("manage_workspace_team_member", {
+            p_workspace_id: wid,
+            p_profile_id: profileId,
+            p_action: "remove",
+            p_role: null,
+            p_allowed_sections: null,
+            p_is_active: null,
+        });
+        if (error) throw error;
         setMembers(prev => prev.filter(m => m.id !== profileId));
     }, [wid]);
 
