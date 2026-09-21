@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { PlatformAdminRole, PlatformPermission } from "./rbac";
+import { FOUNDER_EMAIL, type PlatformAdminRole, type PlatformPermission } from "./rbac";
 
 export type PlatformAuthorization = {
   profile_id: string;
@@ -496,6 +496,155 @@ async function rpc<T>(fn: string, args?: Record<string, unknown>) {
   return data as T;
 }
 
+function isAmbiguousSubscriptionRpc(error: unknown) {
+  const candidate = error as { code?: string; message?: string };
+  return candidate?.code === "42725"
+    || candidate?.message?.includes("get_effective_subscription_v1(uuid) is not unique");
+}
+
+function syntheticEffectiveSubscription(user: FounderUserV2): EffectiveSubscription {
+  const founder = user.email?.trim().toLowerCase() === FOUNDER_EMAIL;
+  const planCode = founder ? "founder" : user.subscription_plan || null;
+  const status = founder ? "active" : user.subscription_status || "missing";
+  const active = founder || ["active", "grace"].includes(status);
+  return {
+    owner_user_id: user.id,
+    subscription_id: null,
+    plan: planCode
+      ? { id: founder ? "founder-plan" : planCode, code: planCode, name: founder ? "Founder" : planCode }
+      : null,
+    billing_cycle: founder ? null : undefined,
+    status,
+    payment_status: founder ? "waived" : "unavailable",
+    migration_state: founder ? "founder_bypass" : "assigned",
+    current_period_start: null,
+    current_period_end: null,
+    grace_until: null,
+    timezone: "Africa/Casablanca",
+    operational_access: active,
+    access_reason: founder ? "founder_access" : active ? "active_subscription" : `subscription_${status}`,
+    limits: founder
+      ? { orders: null, order_period: "month", workspaces: null, team_members: null, integrations: null }
+      : null,
+    entitlements: founder
+      ? {
+          mobile_app: true,
+          whatsapp_automation: true,
+          ai_whatsapp_confirmation_agent: true,
+          sawty_os: true,
+          landing_page_os: true,
+          premium_support: true,
+        }
+      : {},
+    usage: {},
+  };
+}
+
+async function platformUsersFallback(args: {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  subscriptionStatus?: string;
+}) {
+  return rpc<PagedResult<FounderUserV2> & { page: number; page_size: number }>(
+    "platform_list_users_v1",
+    {
+      p_page: args.page ?? 1,
+      p_page_size: args.pageSize ?? 25,
+      p_query: args.query || null,
+      p_platform_role: null,
+      p_membership_role: null,
+      p_account_state: null,
+      p_subscription_status: args.subscriptionStatus || null,
+      p_has_workspace: null,
+      p_created_from: null,
+      p_created_to: null,
+    },
+  );
+}
+
+async function platformSubscriptionsWithFallback(args: {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  status?: string;
+  plan?: string;
+  migrationState?: string;
+} = {}): Promise<PagedResult<PlatformSubscription>> {
+  try {
+    return await rpc<PagedResult<PlatformSubscription>>("platform_list_subscriptions_v1", {
+      p_page: args.page ?? 1,
+      p_page_size: args.pageSize ?? 25,
+      p_query: args.query || null,
+      p_status: args.status || null,
+      p_plan_code: args.plan || null,
+      p_migration_state: args.migrationState || null,
+    });
+  } catch (error) {
+    if (!isAmbiguousSubscriptionRpc(error)) throw error;
+    const result = await platformUsersFallback({
+      page: args.page,
+      pageSize: args.pageSize,
+      query: args.query,
+      subscriptionStatus: args.status,
+    });
+    const rows = result.rows
+      .filter((user) => !args.plan || user.subscription_plan === args.plan
+        || (args.plan === "founder" && user.email?.trim().toLowerCase() === FOUNDER_EMAIL))
+      .map((user): PlatformSubscription => {
+        const effective = syntheticEffectiveSubscription(user);
+        const founder = user.email?.trim().toLowerCase() === FOUNDER_EMAIL;
+        return {
+          id: effective?.subscription_id || `fallback-${user.id}`,
+          owner_user_id: user.id,
+          seller_name: user.full_name,
+          seller_email: user.email,
+          plan_code: founder ? "founder" : user.subscription_plan || null,
+          plan_name: founder ? "Founder" : user.subscription_plan || null,
+          billing_cycle: founder ? null : effective?.billing_cycle || null,
+          status: founder ? "active" : user.subscription_status || "unassigned",
+          payment_status: founder ? "waived" : effective?.payment_status || "unavailable",
+          current_period_start: effective?.current_period_start || null,
+          current_period_end: effective?.current_period_end || null,
+          grace_until: effective?.grace_until || null,
+          timezone: "Africa/Casablanca",
+          migration_state: founder ? "founder_bypass" : "assigned",
+          workspace_count: user.memberships.length,
+          effective,
+          created_at: user.created_at,
+          updated_at: user.last_active || user.created_at,
+        };
+      });
+    return { rows, total: args.plan ? rows.length : result.total };
+  }
+}
+
+async function platformUser360WithFallback(profileId: string): Promise<FounderUser360> {
+  try {
+    return await rpc<FounderUser360>("platform_get_user_360_v1", { p_profile_id: profileId });
+  } catch (error) {
+    if (!isAmbiguousSubscriptionRpc(error)) throw error;
+    const result = await platformUsersFallback({ page: 1, pageSize: 1, query: profileId });
+    const user = result.rows.find((candidate) => candidate.id === profileId);
+    if (!user) throw error;
+    return {
+      user,
+      memberships: user.memberships,
+      owned_businesses: user.memberships
+        .filter((membership) => membership.is_owner)
+        .map((membership) => ({
+          workspace_id: membership.workspace_id,
+          workspace_name: membership.workspace_name,
+          status: membership.workspace_status,
+        })),
+      subscription: syntheticEffectiveSubscription(user),
+      activity: [],
+      notes: [],
+      tickets: [],
+    };
+  }
+}
+
 export const founderAdmin = {
   authorization: () => rpc<PlatformAuthorization>("platform_get_my_authorization_v1"),
   platformAdminRoles: () => rpc<PlatformAdminRoleDefinition[]>("platform_list_admin_roles_v1"),
@@ -552,10 +701,7 @@ export const founderAdmin = {
   reviewPaymentRequest: (requestId: string, decision: "approve" | "reject" | "waive", amountReceived?: number | null, adminNote?: string) => rpc<Record<string, unknown>>("platform_review_payment_request_v1", {
     p_request_id: requestId, p_decision: decision, p_amount_received_mad: amountReceived ?? null, p_admin_note: adminNote || null,
   }),
-  subscriptions: (args: { page?: number; pageSize?: number; query?: string; status?: string; plan?: string; migrationState?: string } = {}) => rpc<PagedResult<PlatformSubscription>>("platform_list_subscriptions_v1", {
-    p_page: args.page ?? 1, p_page_size: args.pageSize ?? 25, p_query: args.query || null,
-    p_status: args.status || null, p_plan_code: args.plan || null, p_migration_state: args.migrationState || null,
-  }),
+  subscriptions: platformSubscriptionsWithFallback,
   assignSubscription: (ownerUserId: string, planCode: OfficialPlan["code"], billingCycle: "monthly" | "annual", periodStart: string, periodEnd: string, reason: string) => rpc<EffectiveSubscription>("platform_assign_subscription_v1", {
     p_owner_user_id: ownerUserId, p_plan_code: planCode, p_billing_cycle: billingCycle,
     p_period_start: periodStart, p_period_end: periodEnd, p_reason: reason,
@@ -613,7 +759,7 @@ export const founderAdmin = {
     p_account_state: args.accountState || null, p_subscription_status: args.subscriptionStatus || null,
     p_has_workspace: args.hasWorkspace ?? null, p_created_from: args.createdFrom || null, p_created_to: args.createdTo || null,
   }),
-  platformUser360: (profileId: string) => rpc<FounderUser360>("platform_get_user_360_v1", { p_profile_id: profileId }),
+  platformUser360: platformUser360WithFallback,
   platformAccountAction: async (profileId: string, action: "ban" | "unban" | "force_logout" | "hard_delete", reason: string, banDuration?: string) => {
     const { data, error } = await supabase.functions.invoke("platform-account-admin", { body: { target_profile_id: profileId, action, reason, ban_duration: banDuration || undefined } });
     if (error) throw error;

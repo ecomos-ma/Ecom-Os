@@ -51,13 +51,6 @@ export interface Workspace {
   coliaty_secret_key?: string | null;
   coliaty_api_url?: string | null;
   language: "en" | "fr";
-  shopify_enabled?: boolean | null;
-  shopify_shop_domain?: string | null;
-  shopify_access_token?: string | null;
-  shopify_refresh_token?: string | null;
-  shopify_expires_at?: string | null;
-  shopify_scopes?: string | null;
-  shopify_connected_at?: string | null;
   ozon_api_key?: string | null;
   ozon_client_id?: string | null;
   ozon_warehouse_id?: string | null;
@@ -141,7 +134,7 @@ export interface Order {
   id: string;
   workspace_id: string;
   order_number: string;
-  order_source?: "youcan" | "google_sheets" | "shopify" | "manual" | string | null;
+  order_source?: "youcan" | "google_sheets" | "manual" | string | null;
   order_sequence_number?: number | null;
   display_order_id?: string | null;
   customer_id: string | null;

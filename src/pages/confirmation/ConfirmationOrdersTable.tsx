@@ -1,7 +1,8 @@
-import { ChevronRight, ImageOff, Package, Phone, UserRound } from "lucide-react";
+import { ChevronRight, ImageOff, LoaderCircle, Package, Phone, UserRound } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
 import type { ConfirmationOrder } from "./types";
 import { useI18n } from "../../i18n";
+import whatsappLogo from "../../assets/integrationicon/imgi_37_whatssap.png";
 
 function ProductPreview({ order }: { order: ConfirmationOrder }) {
   const visibleProducts = order.products.slice(0, 3);
@@ -47,11 +48,15 @@ export function ConfirmationOrdersTable({
   loading,
   onOpen,
   selectedId,
+  onSendStatusMessage,
+  sendingOrderId,
 }: {
   orders: ConfirmationOrder[];
   loading: boolean;
   onOpen: (order: ConfirmationOrder) => void;
   selectedId?: string | null;
+  onSendStatusMessage: (order: ConfirmationOrder) => Promise<void>;
+  sendingOrderId?: string | null;
 }) {
   const { formatCurrency, formatDate } = useI18n();
   const money = (value: number) => formatCurrency(Number(value || 0));
@@ -125,7 +130,10 @@ export function ConfirmationOrdersTable({
                     <div className="flex min-w-[160px] items-center gap-2">
                       <UserRound size={14} className="shrink-0 text-ink-faint" />
                       <div className="min-w-0">
-                        <div className="max-w-[150px] truncate text-[12.5px] font-semibold text-ink">{order.customerName}</div>
+                        <div className="flex max-w-[175px] items-center gap-1.5">
+                          <span className="min-w-0 truncate text-[12.5px] font-semibold text-ink">{order.customerName}</span>
+                          <button type="button" onClick={(event) => { event.stopPropagation(); void onSendStatusMessage(order); }} disabled={!order.phone || Boolean(sendingOrderId)} aria-label={`Send live WhatsApp message to ${order.customerName}`} title="Send live message" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#25D366]/10 text-[#159447] transition hover:bg-[#25D366]/20 disabled:cursor-not-allowed disabled:opacity-40">{sendingOrderId === order.id ? <LoaderCircle size={13} className="animate-spin" /> : <img src={whatsappLogo} alt="" className="h-4 w-4 object-contain" />}</button>
+                        </div>
                         <div className="mt-0.5 flex items-center gap-1 truncate text-[10.5px] text-ink-muted"><Phone size={10} /> {order.phone || "No phone"} · {order.city || "No city"}</div>
                       </div>
                     </div>

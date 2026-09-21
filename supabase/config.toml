@@ -74,6 +74,10 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
+[functions.meta-legacy]
+enabled = true
+verify_jwt = true
+
 [functions.whatsapp-control]
 enabled = true
 verify_jwt = true
@@ -149,3 +153,9 @@ verify_jwt = false
 [functions.save-youcan-credentials]
 enabled = true
 verify_jwt = true
+
+[functions.anti-fake-orders]
+enabled = true
+# Public storefront bootstrap requests do not carry a user JWT. Management
+# actions still authenticate and authorize explicitly inside the function.
+verify_jwt = false

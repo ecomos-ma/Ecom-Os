@@ -5,20 +5,21 @@ import {
   Clipboard,
   Clock3,
   Copy,
-  ExternalLink,
   FileText,
   History,
   LoaderCircle,
+  MapPin,
   MessageCircle,
   List,
   Package,
+  Pencil,
   Phone,
   Plus,
   Save,
   UserRound,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
 import { StatusSelect } from "../../components/StatusSelect";
 import { toast } from "../../components/Toast";
@@ -31,6 +32,7 @@ import {
   getConfirmationOrderDetails,
   getConfirmationRecordingUrl,
   scheduleConfirmationCallback,
+  updateConfirmationCustomerProfile,
   uploadConfirmationRecording,
 } from "../../services/confirmationCrmService";
 import { CallRecorder, SecureRecordingPlayer } from "./CallRecorder";
@@ -41,6 +43,7 @@ import type {
   ConfirmationRecording,
 } from "./types";
 import { useI18n } from "../../i18n";
+import whatsappLogo from "../../assets/integrationicon/imgi_37_whatssap.png";
 
 type DrawerTab = "overview" | "history" | "calls";
 
@@ -53,13 +56,6 @@ function age(value: string) {
 function toLocalDateTimeInput(date: Date) {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
-
-function phoneForWhatsApp(phone: string | null) {
-  const digits = (phone || "").replace(/\D/g, "");
-  if (digits.startsWith("0") && digits.length === 10) return `212${digits.slice(1)}`;
-  if (digits.length === 9 && /^[67]/.test(digits)) return `212${digits}`;
-  return digits;
 }
 
 function ConfirmationMethodBadge({ method }: { method: string | null | undefined }) {
@@ -100,8 +96,11 @@ export function ConfirmationOrderDrawer({
   onClose,
   onOrderSaved,
   onSaveStatus,
+  onCustomerUpdated,
   onOpenRelatedOrder,
   onSaveAndNext,
+  onSendStatusMessage,
+  sendingStatusMessage,
   presentation = "drawer",
 }: {
   workspaceId: string;
@@ -113,8 +112,17 @@ export function ConfirmationOrderDrawer({
   onClose: () => void;
   onOrderSaved: () => Promise<void>;
   onSaveStatus: (status: string) => Promise<void>;
+  onCustomerUpdated: (customer: {
+    customerId: string;
+    customerName: string;
+    phone: string | null;
+    city: string | null;
+    address: string | null;
+  }) => void;
   onOpenRelatedOrder: (orderId: string) => void;
   onSaveAndNext: () => void;
+  onSendStatusMessage: (order: ConfirmationOrder) => Promise<void>;
+  sendingStatusMessage: boolean;
   presentation?: "drawer" | "focus";
 }) {
   const focusMode = presentation === "focus";
@@ -139,6 +147,18 @@ export function ConfirmationOrderDrawer({
   const [assignment, setAssignment] = useState(order.assignedAgent?.id || "");
   const [savingAssignment, setSavingAssignment] = useState(false);
   const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerDraft, setCustomerDraft] = useState({
+    customerName: order.customerName,
+    phone: order.phone || "",
+    city: order.city || "",
+    address: order.address || "",
+  });
+  const [addressDraft, setAddressDraft] = useState(order.address || "");
+  const [addressSaveState, setAddressSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
+  const addressSaveTimerRef = useRef<number | null>(null);
+  const addressRequestRef = useRef(0);
 
   const refreshDetails = async () => {
     setLoadingDetails(true);
@@ -158,8 +178,26 @@ export function ConfirmationOrderDrawer({
     setAssignment(order.assignedAgent?.id || "");
     setTab("overview");
     setRecordingUrls({});
+    setEditingCustomer(false);
+    setCustomerDraft({
+      customerName: order.customerName,
+      phone: order.phone || "",
+      city: order.city || "",
+      address: order.address || "",
+    });
+    setAddressDraft(order.address || "");
+    setAddressSaveState("idle");
+    addressRequestRef.current += 1;
+    if (addressSaveTimerRef.current !== null) {
+      window.clearTimeout(addressSaveTimerRef.current);
+      addressSaveTimerRef.current = null;
+    }
     void refreshDetails();
-  }, [order.id]);
+  }, [order.id, order.customerId]);
+
+  useEffect(() => () => {
+    if (addressSaveTimerRef.current !== null) window.clearTimeout(addressSaveTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -196,7 +234,7 @@ export function ConfirmationOrderDrawer({
     try {
       await addConfirmationNote(workspaceId, order, userId, note);
       setNote("");
-      toast.success("Note added to the order timeline.");
+      toast.success("Note saved to the customer history.");
       await Promise.all([refreshDetails(), onOrderSaved()]);
     } catch (error: any) {
       toast.error(error?.message || "Could not save this note.");
@@ -243,6 +281,76 @@ export function ConfirmationOrderDrawer({
     } finally {
       setSavingAssignment(false);
     }
+  };
+
+  const saveCustomer = async () => {
+    if (savingCustomer) return;
+    setSavingCustomer(true);
+    try {
+      const updated = await updateConfirmationCustomerProfile(workspaceId, order.id, customerDraft);
+      onCustomerUpdated(updated);
+      setCustomerDraft({
+        customerName: updated.customerName,
+        phone: updated.phone || "",
+        city: updated.city || "",
+        address: updated.address || "",
+      });
+      setAddressDraft(updated.address || "");
+      setAddressSaveState("saved");
+      setEditingCustomer(false);
+      toast.success("Customer information saved.");
+      await onOrderSaved();
+    } catch (error: any) {
+      toast.error(error?.message || "Could not save customer information.");
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
+  const persistAddress = async (nextAddress: string) => {
+    if (addressSaveTimerRef.current !== null) {
+      window.clearTimeout(addressSaveTimerRef.current);
+      addressSaveTimerRef.current = null;
+    }
+    const normalizedAddress = nextAddress.trim();
+    if (normalizedAddress === (order.address || "").trim()) {
+      setAddressSaveState("idle");
+      return;
+    }
+    const requestId = ++addressRequestRef.current;
+    setAddressSaveState("saving");
+    try {
+      const updated = await updateConfirmationCustomerProfile(workspaceId, order.id, {
+        customerName: order.customerName,
+        phone: order.phone || "",
+        city: order.city || "",
+        address: nextAddress,
+      });
+      if (requestId !== addressRequestRef.current) return;
+      onCustomerUpdated(updated);
+      setAddressDraft(updated.address || "");
+      setCustomerDraft((current) => ({ ...current, address: updated.address || "" }));
+      setAddressSaveState("saved");
+    } catch (error: any) {
+      if (requestId !== addressRequestRef.current) return;
+      setAddressSaveState("error");
+      toast.error(error?.message || "Could not save the delivery address.");
+    }
+  };
+
+  const changeAddress = (nextAddress: string) => {
+    setAddressDraft(nextAddress);
+    if (addressSaveTimerRef.current !== null) window.clearTimeout(addressSaveTimerRef.current);
+    if (nextAddress.trim() === (order.address || "").trim()) {
+      addressSaveTimerRef.current = null;
+      setAddressSaveState("idle");
+      return;
+    }
+    setAddressSaveState("pending");
+    addressSaveTimerRef.current = window.setTimeout(() => {
+      addressSaveTimerRef.current = null;
+      void persistAddress(nextAddress);
+    }, 650);
   };
 
   const copyPhone = async () => {
@@ -304,7 +412,7 @@ export function ConfirmationOrderDrawer({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button onClick={() => void startPhoneCall()} disabled={!order.phone} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-[11.5px] font-semibold text-white shadow-sm hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Phone size={13} /> Call customer</button>
-            <a href={order.phone ? `https://wa.me/${phoneForWhatsApp(order.phone)}` : undefined} target="_blank" rel="noreferrer" onClick={(event) => { if (!order.phone) event.preventDefault(); }} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[11.5px] font-semibold text-ink hover:border-brand/25 disabled:opacity-50 max-md:flex-1 max-md:justify-center"><MessageCircle size={13} className="text-emerald-500" /> WhatsApp</a>
+            <button type="button" onClick={() => void onSendStatusMessage(order)} disabled={!order.phone || sendingStatusMessage} title="Send the WhatsApp Automation message configured for this order status" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#25D366]/30 bg-[#25D366]/10 px-3 py-2 text-[11.5px] font-semibold text-[#159447] hover:bg-[#25D366]/15 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center">{sendingStatusMessage ? <LoaderCircle size={13} className="animate-spin" /> : <img src={whatsappLogo} alt="" className="h-[15px] w-[15px] object-contain" />} {sendingStatusMessage ? "Sending…" : "Send live message"}</button>
             <button onClick={() => void copyPhone()} disabled={!order.phone} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[11.5px] font-semibold text-ink hover:border-brand/25 disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Copy size={13} /> Copy phone</button>
             {activeCallback && <span className="inline-flex items-center gap-1.5 rounded-lg bg-violet-500/10 px-2.5 py-2 text-[11px] font-semibold text-violet-600 dark:text-violet-300"><CalendarClock size={13} /> Callback {dateTime(activeCallback.scheduledAt)}</span>}
           </div>
@@ -333,10 +441,35 @@ export function ConfirmationOrderDrawer({
                   <button onClick={() => void saveStatus(true)} disabled={savingStatus} className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 py-2 text-[11.5px] font-semibold text-brand hover:bg-brand/15 disabled:opacity-50"><CheckCircle2 size={13} /> Save & next</button>
                 </div>
                 <div className="rounded-2xl border border-base-border p-4">
-                  <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Customer</div>
-                  <div className="mt-2 flex items-center gap-2 text-[12px] text-ink"><UserRound size={14} className="text-ink-muted" /> {order.customerName}</div>
-                  <div className="mt-1.5 flex items-center gap-2 text-[12px] text-ink"><Phone size={14} className="text-ink-muted" /> {order.phone || "No phone"}</div>
-                  <div className="mt-1.5 flex items-start gap-2 text-[12px] text-ink"><ExternalLink size={14} className="mt-0.5 shrink-0 text-ink-muted" /> <span>{order.address || order.city || "No address saved"}</span></div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Customer</div>
+                    {!editingCustomer && <button type="button" onClick={() => { if (addressSaveTimerRef.current !== null) { window.clearTimeout(addressSaveTimerRef.current); addressSaveTimerRef.current = null; } setCustomerDraft({ customerName: order.customerName, phone: order.phone || "", city: order.city || "", address: addressDraft }); setEditingCustomer(true); }} aria-label="Edit customer information" title="Edit customer information" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-base-border bg-base-raised text-ink-muted transition-colors hover:border-brand/30 hover:text-brand"><Pencil size={13} /></button>}
+                  </div>
+                  {editingCustomer ? (
+                    <div className="mt-3 space-y-2.5">
+                      <label className="block text-[10.5px] font-semibold text-ink-muted">Name<input autoFocus value={customerDraft.customerName} onChange={(event) => setCustomerDraft((current) => ({ ...current, customerName: event.target.value }))} maxLength={120} className="mt-1 w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                      <label className="block text-[10.5px] font-semibold text-ink-muted">Phone<input value={customerDraft.phone} onChange={(event) => setCustomerDraft((current) => ({ ...current, phone: event.target.value }))} maxLength={40} inputMode="tel" className="mt-1 w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                      <label className="block text-[10.5px] font-semibold text-ink-muted">City<input value={customerDraft.city} onChange={(event) => setCustomerDraft((current) => ({ ...current, city: event.target.value }))} maxLength={120} className="mt-1 w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                      <label className="block text-[10.5px] font-semibold text-ink-muted">Address<textarea value={customerDraft.address} onChange={(event) => setCustomerDraft((current) => ({ ...current, address: event.target.value }))} maxLength={500} rows={2} placeholder="Add the customer's delivery address manually" className="mt-1 w-full resize-none rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-brand/50" /></label>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button type="button" onClick={() => { setEditingCustomer(false); setAddressDraft(order.address || ""); setAddressSaveState("idle"); setCustomerDraft({ customerName: order.customerName, phone: order.phone || "", city: order.city || "", address: order.address || "" }); }} disabled={savingCustomer} className="rounded-lg border border-base-border px-3 py-2 text-[11.5px] font-semibold text-ink-muted hover:text-ink disabled:opacity-50">Cancel</button>
+                        <button type="button" onClick={() => void saveCustomer()} disabled={savingCustomer || !customerDraft.customerName.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-[11.5px] font-semibold text-white disabled:opacity-50">{savingCustomer ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />} {savingCustomer ? "Saving" : "Save customer"}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-2 flex items-center gap-2 text-[12px] text-ink"><UserRound size={14} className="text-ink-muted" /> {order.customerName}</div>
+                      <div className="mt-1.5 flex items-center gap-2 text-[12px] text-ink"><Phone size={14} className="text-ink-muted" /> {order.phone || "No phone"}</div>
+                      <label className="mt-2 block">
+                        <span className="sr-only">Customer delivery address</span>
+                        <span className="flex items-start gap-2 rounded-xl border border-base-border bg-base-raised/55 px-2.5 py-2 transition-colors focus-within:border-brand/45 focus-within:bg-base-surface">
+                          <MapPin size={14} className="mt-1 shrink-0 text-ink-muted" />
+                          <textarea value={addressDraft} onChange={(event) => changeAddress(event.target.value)} onBlur={() => void persistAddress(addressDraft)} maxLength={500} rows={2} placeholder="Type the delivery address…" className="min-h-[38px] w-full resize-none bg-transparent text-[12px] leading-relaxed text-ink outline-none placeholder:text-ink-faint" />
+                        </span>
+                        <span className={`mt-1 block text-right text-[10px] ${addressSaveState === "error" ? "text-danger" : "text-ink-faint"}`}>{addressSaveState === "saving" ? "Saving address…" : addressSaveState === "pending" ? "Auto-saves as you type" : addressSaveState === "saved" ? "Address saved" : addressSaveState === "error" ? "Address not saved" : "Auto-save"}</span>
+                      </label>
+                    </>
+                  )}
                 </div>
               </section>
 
@@ -376,14 +509,14 @@ export function ConfirmationOrderDrawer({
                   {activeCallback && <button onClick={() => void completeCallback(activeCallback.id)} className="ml-2 mt-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[11.5px] font-semibold text-emerald-600 dark:text-emerald-300"><Check size={13} /> Complete</button>}
                 </div>
                 <div className="rounded-2xl border border-base-border p-3.5">
-                  <div className="flex items-center gap-2 text-[12.5px] font-semibold text-ink"><FileText size={15} className="text-brand" /> Agent notes</div>
-                  <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a useful confirmation note…" rows={3} className="mt-3 w-full resize-none rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] text-ink placeholder:text-ink-faint focus:border-brand/50 focus:outline-none" />
+                  <div className="flex items-center gap-2 text-[12.5px] font-semibold text-ink"><FileText size={15} className="text-brand" /> Customer notes</div>
+                  <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note that stays with this customer…" rows={3} className="mt-3 w-full resize-none rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] text-ink placeholder:text-ink-faint focus:border-brand/50 focus:outline-none" />
                   <button onClick={() => void addNote()} disabled={savingNote || !note.trim()} className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-[11.5px] font-semibold text-white disabled:opacity-50"><Plus size={13} /> {savingNote ? "Saving" : "Add note"}</button>
                 </div>
               </section>
 
               <section>
-                <h3 className="mb-2 text-[13px] font-semibold text-ink">Recent notes</h3>
+                <h3 className="mb-2 text-[13px] font-semibold text-ink">Customer notes</h3>
                 {loadingDetails ? <div className="h-20 animate-pulse rounded-2xl bg-base-raised" /> : details?.notes.length ? <div className="space-y-2">{details.notes.slice(0, 3).map((item) => <div key={item.id} className="rounded-xl bg-base-raised/65 p-3"><p className="text-[12px] leading-relaxed text-ink">{item.body}</p><p className="mt-1.5 text-[10.5px] text-ink-muted">{item.authorName || "Agent"} · {dateTime(item.createdAt)}</p></div>)}</div> : <p className="rounded-xl bg-base-raised/45 px-3 py-4 text-[11.5px] text-ink-muted">No notes have been added yet.</p>}
               </section>
             </div>

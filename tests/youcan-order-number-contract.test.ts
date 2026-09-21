@@ -4,6 +4,7 @@ import test from "node:test";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const migration = read("supabase/migrations/20260909213901_canonical_source_order_numbers.sql");
+const immutableMigration = read("supabase/migrations/20260910015830_immutable_order_display_identity.sql");
 const youcan = read("supabase/functions/_shared/youcan.ts");
 const sheetsWebhook = read("supabase/functions/google-sheets-webhook/index.ts");
 const sheetsFast = read("supabase/functions/sync-google-sheets-fast/index.ts");
@@ -30,4 +31,10 @@ test("provider identifiers never overwrite the canonical display number", () => 
 test("the sequence allocator is not executable by sellers", () => {
   assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.next_order_display_sequence_v1\(uuid, text\) FROM PUBLIC, anon, authenticated/);
+});
+
+test("legacy upserts cannot renumber an existing order", () => {
+  assert.match(immutableMigration, /NEW\.order_number := OLD\.display_order_id/);
+  assert.match(immutableMigration, /BEFORE UPDATE OF workspace_id, source, source_platform, order_source/);
+  assert.match(immutableMigration, /REVOKE ALL ON FUNCTION public\.preserve_order_display_identity_v1/);
 });

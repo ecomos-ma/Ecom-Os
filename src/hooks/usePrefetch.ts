@@ -14,6 +14,7 @@ const routeImportMap: Record<string, () => Promise<unknown>> = {
     '/customers': () => import('../pages/Customers'),
     '/products-inventory': () => import('../pages/ProductsAndInventory'),
     '/ads-manager': () => import('../pages/AdsManager'),
+    '/ads-manager-legacy': () => import('../pages/LegacyAdsManager'),
     '/tiktok-ads': () => import('../pages/TikTokAds'),
     '/expenses': () => import('../pages/Expenses'),
     '/finance': () => import('../pages/Finance'),
@@ -29,11 +30,9 @@ export function prefetchRoute(path: string): void {
     const importer = routeImportMap[path];
     if (importer) {
         prefetchedRoutes.add(path);
-        // Use requestIdleCallback if available, otherwise setTimeout
-        const schedule = typeof requestIdleCallback === 'function'
-            ? requestIdleCallback
-            : (cb: () => void) => setTimeout(cb, 50);
-        schedule(() => {
+        // This runs only after explicit navigation intent (hover/focus/pointer
+        // down), so start immediately instead of waiting for an idle period.
+        queueMicrotask(() => {
             importer().catch(() => {
                 // If prefetch fails, allow retry
                 prefetchedRoutes.delete(path);

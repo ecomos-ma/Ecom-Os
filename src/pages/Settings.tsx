@@ -633,7 +633,7 @@ function ComingNext({ title, subtitle }: { title: string; subtitle: string }) {
 // ─── Integrations Tab ─────────────────────────────────────────────────────────
 
 const INTEGRATION_KEYS = [
-  "youcan", "google_sheets", "meta", "tiktok", "shopify", "ozon",
+  "youcan", "shopify", "google_sheets", "meta", "tiktok", "ozon",
   "coliaty", "forcelog", "ameex", "sendit", "whatsapp",
 ] as const;
 
@@ -653,13 +653,13 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
     google_sheets: false,
     meta: false,
     tiktok: false,
-    shopify: !!workspace?.shopify_access_token,
     ozon: !!workspace?.ozon_api_key,
     coliaty: !!workspace?.coliaty_public_key,
     forcelog: false,
     ameex: false,
     sendit: false,
     whatsapp: false,
+    shopify: false,
   });
   const connectionStatesRef = useRef(connectionStates);
   const reportedConnectionsRef = useRef(new Set<string>());
@@ -723,11 +723,10 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
   useEffect(() => {
     setConnectionStates(prev => ({
       ...prev,
-      shopify: !!workspace?.shopify_access_token,
       ozon: !!workspace?.ozon_api_key,
       coliaty: !!workspace?.coliaty_public_key,
     }));
-  }, [workspace?.shopify_access_token, workspace?.ozon_api_key, workspace?.coliaty_public_key]);
+  }, [workspace?.ozon_api_key, workspace?.coliaty_public_key]);
 
   // Define integration cards with their order and connection state tracking
   const integrationCards = [
@@ -736,6 +735,12 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
       connected: connectionStates.youcan,
       component: <YouCanIntegrationCard onConnectionChange={(connected) => reportConnectionState('youcan', connected)} />,
       order: 1
+    },
+    {
+      key: 'shopify',
+      connected: connectionStates.shopify || false,
+      component: <ShopifyIntegrationCard onConnectionChange={(connected) => reportConnectionState('shopify', connected)} />,
+      order: 2
     },
     {
       key: 'google_sheets',
@@ -755,12 +760,7 @@ function IntegrationsTab({ autoOpenAmeex = false, initialAmeexCity = "", autoOpe
       component: <TikTokIntegrationCard autoOpenAccountSelection={autoOpenTikTok} onConnectionChange={(connected) => reportConnectionState('tiktok', connected)} />,
       order: 4
     },
-    {
-      key: 'shopify',
-      connected: connectionStates.shopify,
-      component: <ShopifyIntegrationCard onConnectionChange={(connected) => reportConnectionState('shopify', connected)} />,
-      order: 5
-    },
+    
     {
       key: 'ozon',
       connected: connectionStates.ozon,

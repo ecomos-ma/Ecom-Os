@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "./useAuth";
 import { normalizeAllowedSections } from "../lib/rbac";
-import { normalizeStatus } from "../utils/status";
+import { normalizeStatus as normalizeShippingStatus } from "../utils/status";
+import { normalizeStatusOrNull } from "../lib/statusEngine";
 
 export interface TeamMember {
     id: string;
@@ -28,6 +29,10 @@ export interface TeamMember {
     xp: number;
     rank: string;
     last_seen_at: string | null;
+    current_path: string | null;
+    current_page: string | null;
+    active_call: boolean;
+    active_call_started_at: string | null;
 }
 
 export interface OrderAssignment {
@@ -64,6 +69,14 @@ export interface MemberPerformance {
     revenue_generated: number;
     avg_daily_orders: number;
     active_count: number;
+    contacted: number;
+    callbacks: number;
+    review: number;
+    delivery_rate: number;
+    calls: number;
+    total_call_seconds: number;
+    session_seconds: number;
+    recent_activity_count: number;
 }
 
 export function useTeamData() {
@@ -77,25 +90,37 @@ export function useTeamData() {
     const [performanceMap, setPerformanceMap] = useState<Record<string, MemberPerformance>>({});
     const [loading, setLoading] = useState(true);
     const channelRef = useRef<any>(null);
+    const loadVersionRef = useRef(0);
 
     const load = useCallback(async (wid: string) => {
+        const loadVersion = ++loadVersionRef.current;
         setLoading(true);
         try {
-            // Load members (profiles + profile_workspaces + extended)
-            const [profilesRes, workspaceMembersRes, extRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
-                supabase
-                    .from("profiles")
-                    .select("id, full_name, role, workspace_id, allowed_sections, created_at, email, is_active, last_login_at, avatar_url")
-                    .eq("workspace_id", wid)
-                    .order("created_at", { ascending: false }),
-                supabase
-                    .from("profile_workspaces")
-                    .select("profile_id, is_owner, role, status")
-                    .eq("workspace_id", wid)
-                    .eq("status", "active"),
+            // Membership is the source of truth. A profile can belong to several
+            // workspaces, so filtering profiles.workspace_id hides valid invitees.
+            const workspaceMembersRes = await supabase
+                .from("profile_workspaces")
+                .select("profile_id, is_owner, role, status, created_at")
+                .eq("workspace_id", wid)
+                .eq("status", "active");
+            if (workspaceMembersRes.error) throw workspaceMembersRes.error;
+            const workspaceMembersData = workspaceMembersRes.data ?? [];
+            const memberProfileIds = workspaceMembersData.map((membership: any) => membership.profile_id);
+
+            const profilesQuery = supabase
+                .from("profiles")
+                .select("id, full_name, role, workspace_id, allowed_sections, created_at, email, is_active, last_login_at, avatar_url")
+                .order("created_at", { ascending: false });
+
+            const [profilesRes, extRes, presenceRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
+                memberProfileIds.length > 0 ? profilesQuery.in("id", memberProfileIds) : profilesQuery.eq("id", "00000000-0000-0000-0000-000000000000"),
                 supabase
                     .from("team_member_profiles")
                     .select("*")
+                    .eq("workspace_id", wid),
+                supabase
+                    .from("agent_presence")
+                    .select("profile_id, status, last_heartbeat, current_path, current_page, active_call, active_call_started_at")
                     .eq("workspace_id", wid),
                 supabase
                     .from("workspace_invitations")
@@ -121,38 +146,50 @@ export function useTeamData() {
                     .not("assigned_to", "is", null),
             ]);
 
+            // A delete/revoke can trigger a reload while the initial load is
+            // still in flight. Never let that older response restore stale
+            // invitations (or any other team state) over the newest request.
+            if (loadVersion !== loadVersionRef.current) return;
+
             const profileData = profilesRes.data ?? [];
-            const workspaceMembersData = workspaceMembersRes.data ?? [];
             const extData = extRes.data ?? [];
             const extMap = new Map(extData.map((e: any) => [e.profile_id, e]));
+            const presenceMap = new Map((presenceRes.data ?? []).map((presence: any) => [presence.profile_id, presence]));
             const workspaceMembersMap = new Map(workspaceMembersData.map((wm: any) => [wm.profile_id, wm]));
 
             const merged: TeamMember[] = profileData.map((p: any) => {
                 const ext = extMap.get(p.id) as any;
+                const presence = presenceMap.get(p.id) as any;
                 const workspaceMember = workspaceMembersMap.get(p.id) as any;
+                const heartbeatAt = presence?.last_heartbeat ? new Date(presence.last_heartbeat).getTime() : 0;
+                const heartbeatIsFresh = heartbeatAt > Date.now() - 2 * 60_000;
                 return {
                     id: p.id,
                     profile_id: p.id,
-                    workspace_id: p.workspace_id,
+                    workspace_id: wid,
                     auth_user_id: p.id,
                     full_name: p.full_name,
                     email: p.email ?? "",
                     role: workspaceMember?.role || p.role || "agent", // Use profile_workspaces role first, fallback to profiles.role
                     status: p.is_active === false ? "disabled" : "active",
                     allowed_sections: normalizeAllowedSections(p.allowed_sections ?? []),
-                    joined_at: p.created_at,
+                    joined_at: workspaceMember?.created_at ?? p.created_at,
                     created_at: p.created_at,
                     is_owner: workspaceMember?.is_owner || false, // From profile_workspaces
                     phone: ext?.phone ?? null,
                     department: ext?.department ?? null,
                     avatar_url: ext?.avatar_url ?? p.avatar_url ?? null, // Use extension avatar first, fallback to profile avatar
-                    agent_status: ext?.agent_status ?? "offline",
+                    agent_status: heartbeatIsFresh ? (presence?.status ?? ext?.agent_status ?? "online") : "offline",
                     shift: ext?.shift ?? "morning",
                     daily_limit: ext?.daily_limit ?? 80,
                     max_active_orders: ext?.max_active_orders ?? 30,
                     xp: ext?.xp ?? 0,
                     rank: ext?.rank ?? "Bronze",
-                    last_seen_at: ext?.last_seen_at ?? p.last_login_at ?? null,
+                    last_seen_at: presence?.last_heartbeat ?? ext?.last_seen_at ?? p.last_login_at ?? null,
+                    current_path: presence?.current_path ?? null,
+                    current_page: presence?.current_page ?? null,
+                    active_call: heartbeatIsFresh && presence?.active_call === true,
+                    active_call_started_at: presence?.active_call_started_at ?? null,
                 };
             });
 
@@ -163,40 +200,64 @@ export function useTeamData() {
 
             // Compute performance from real order data
             const orders = ordersRes.data ?? [];
+            const logs = logRes.data ?? [];
             const perfMap: Record<string, MemberPerformance> = {};
 
             for (const m of merged) {
                 const myOrders = orders.filter((o: any) => o.assigned_to === m.id);
-                const confirmed = myOrders.filter((o: any) => normalizeStatus(o.shipping_status || o.delivery_status || o.status) === 'DELIVERED').length;
-                const cancelled = myOrders.filter((o: any) => normalizeStatus(o.shipping_status || o.delivery_status || o.status) === 'COMING_BACK').length;
+                const confirmationStatuses = myOrders.map((o: any) => normalizeStatusOrNull(o.status));
+                const shippingStatuses = myOrders.map((o: any) => normalizeShippingStatus(o.shipping_status || o.delivery_status || ""));
+                const confirmed = confirmationStatuses.filter((status) => status === "confirmed" || status === "shipped" || status === "delivered").length;
+                const delivered = shippingStatuses.filter((status) => status === "DELIVERED").length;
+                const cancelled = confirmationStatuses.filter((status) => status === "cancelled" || status === "returned" || status === "refused").length;
+                const noAnswer = confirmationStatuses.filter((status) => status === "no_answer" || status === "unreachable" || status === "wrong_number").length;
+                const refused = confirmationStatuses.filter((status) => status === "refused" || status === "blacklisted" || status === "duplicate").length;
+                const callbacks = confirmationStatuses.filter((status) => status === "scheduled" || status === "busy").length;
+                const contacted = confirmationStatuses.filter((status) => status !== null && status !== "new" && status !== "pending").length;
+                const review = confirmationStatuses.filter((status) => status === "cancelled" || status === "refused" || status === "blacklisted" || status === "duplicate" || status === "out_of_stock").length;
                 const revenue = myOrders
-                    .filter((o: any) => normalizeStatus(o.shipping_status || o.delivery_status || o.status) === 'DELIVERED')
+                    .filter((o: any) => normalizeShippingStatus(o.shipping_status || o.delivery_status || "") === "DELIVERED")
                     .reduce((s: number, o: any) => s + Number(o.total || 0), 0);
                 const active = myOrders.filter((o: any) => {
-                    const ns = normalizeStatus(o.shipping_status || o.delivery_status || o.status);
-                    return ns === 'CONFIRMED' || ns === 'OUT_FOR_DELIVERY' || ns === 'NEW';
+                    const status = normalizeStatusOrNull(o.status);
+                    return status === "new" || status === "pending" || status === "confirmed" || status === "scheduled" || status === "busy";
                 }).length;
+                const memberLogs = logs.filter((entry: any) => entry.profile_id === m.id);
+                const calls = memberLogs.filter((entry: any) => String(entry.action || "").toLowerCase().includes("call")).length;
+                const deliveryPopulation = delivered + shippingStatuses.filter((status) => status === "COMING_BACK").length;
+                const currentCallSeconds = m.active_call && m.active_call_started_at
+                    ? Math.max(0, Math.floor((Date.now() - new Date(m.active_call_started_at).getTime()) / 1000))
+                    : 0;
 
                 perfMap[m.id] = {
                     member_id: m.id,
                     total_assigned: myOrders.length,
                     confirmed,
                     cancelled,
-                    no_answer: 0,
-                    refused: 0,
+                    no_answer: noAnswer,
+                    refused,
                     pending: active,
                     confirmation_rate: myOrders.length > 0 ? (confirmed / myOrders.length) * 100 : 0,
                     revenue_generated: revenue,
                     avg_daily_orders: 0,
                     active_count: active,
+                    contacted,
+                    callbacks,
+                    review,
+                    delivery_rate: deliveryPopulation > 0 ? (delivered / deliveryPopulation) * 100 : 0,
+                    calls,
+                    total_call_seconds: currentCallSeconds,
+                    session_seconds: 0,
+                    recent_activity_count: memberLogs.length,
                 };
             }
 
             setPerformanceMap(perfMap);
         } catch (e) {
+            if (loadVersion !== loadVersionRef.current) return;
             console.error("[useTeamData] load error:", e);
         } finally {
-            setLoading(false);
+            if (loadVersion === loadVersionRef.current) setLoading(false);
         }
     }, []);
 
@@ -225,18 +286,45 @@ export function useTeamData() {
     }, [wid, load]);
 
     const updateMemberStatus = useCallback(async (profileId: string, isActive: boolean) => {
-        await supabase.from("profiles").update({ is_active: isActive }).eq("id", profileId);
+        if (!wid) throw new Error("Workspace is not available");
+        const { error } = await supabase.rpc("manage_workspace_team_member", {
+            p_workspace_id: wid,
+            p_profile_id: profileId,
+            p_action: "set_status",
+            p_role: null,
+            p_allowed_sections: null,
+            p_is_active: isActive,
+        });
+        if (error) throw error;
         setMembers(prev => prev.map(m => m.id === profileId ? { ...m, status: isActive ? "active" : "disabled" } : m));
-    }, []);
+    }, [wid]);
 
     const updateMemberRole = useCallback(async (profileId: string, role: string, sections: string[]) => {
-        await supabase.from("profiles").update({ role, allowed_sections: sections }).eq("id", profileId);
-        setMembers(prev => prev.map(m => m.id === profileId ? { ...m, role, allowed_sections: sections } : m));
-    }, []);
+        if (!wid) throw new Error("Workspace is not available");
+        const normalizedSections = normalizeAllowedSections(sections);
+        const { error } = await supabase.rpc("manage_workspace_team_member", {
+            p_workspace_id: wid,
+            p_profile_id: profileId,
+            p_action: "update",
+            p_role: role,
+            p_allowed_sections: normalizedSections,
+            p_is_active: null,
+        });
+        if (error) throw error;
+        setMembers(prev => prev.map(m => m.id === profileId ? { ...m, role, allowed_sections: normalizedSections } : m));
+    }, [wid]);
 
     const removeMember = useCallback(async (profileId: string) => {
-        // Remove from profile_workspaces instead of setting workspace_id to null
-        await supabase.from("profile_workspaces").delete().eq("profile_id", profileId).eq("workspace_id", wid);
+        if (!wid) throw new Error("Workspace is not available");
+        const { error } = await supabase.rpc("manage_workspace_team_member", {
+            p_workspace_id: wid,
+            p_profile_id: profileId,
+            p_action: "remove",
+            p_role: null,
+            p_allowed_sections: null,
+            p_is_active: null,
+        });
+        if (error) throw error;
         setMembers(prev => prev.filter(m => m.id !== profileId));
     }, [wid]);
 

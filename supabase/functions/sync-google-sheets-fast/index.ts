@@ -1,3 +1,4 @@
+import { resolveOrderCityFuzzy } from "../_shared/city-matcher.ts";
 // deno-lint-ignore-file no-explicit-any
 /**
  * sync-google-sheets-fast — Fast delta sync for Google Sheets
@@ -413,6 +414,23 @@ async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: Syn
   for (const row of deltaData) {
     try {
       const orderPayload = mapWebAppRow(row, workspaceId, fieldMappings, customStatusMappings);
+      if (orderPayload.city || orderPayload.raw_city) {
+        try {
+          const workspaceRes = await supabase.from("workspaces").select("carrier").eq("id", workspaceId).maybeSingle();
+          const carrier = workspaceRes.data?.carrier || "ozon";
+          const resolvedCity = await resolveOrderCityFuzzy(supabase, String(orderPayload.raw_city || orderPayload.city), carrier);
+          if (resolvedCity.city_mapping_status === 'resolved') {
+            orderPayload.ozon_city_id = resolvedCity.ozon_city_id;
+            orderPayload.provider_city_id = resolvedCity.provider_city_id;
+            orderPayload.city_name = resolvedCity.city_name;
+            orderPayload.city = resolvedCity.city_name;
+            orderPayload.city_mapping_status = 'resolved';
+            orderPayload.city_mapping_confidence = resolvedCity.city_mapping_confidence;
+          } else {
+            orderPayload.city_mapping_status = 'unresolved';
+          }
+        } catch {}
+      }
 
       const { data: existingOrder, error: checkError } = await supabase
         .from("orders")

@@ -28,6 +28,16 @@ function isPlanTier(value: string | null, plans: PublicPlanRecord[]) {
   return value !== null && plans.some((plan) => plan.code === value);
 }
 
+function invitationIdFromReturnPath(path: string) {
+  if (!path.startsWith("/invite?")) return null;
+  try {
+    const token = new URL(path, "https://ecomos.local").searchParams.get("token") || "";
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 function GoogleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
@@ -51,8 +61,11 @@ function friendlyAuthError(message: string) {
 export default function Login() {
   const { session, loading, profile, defaultRoute, subscriptionStatus, operationalAccess } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const safeReturnTo = getSafeReturnPath(searchParams.get("returnTo"), "");
+  const teamInvitationId = invitationIdFromReturnPath(safeReturnTo);
+  const isTeamInvite = Boolean(teamInvitationId);
   const [plans, setPlans] = useState<PublicPlanRecord[]>([]);
-  const [planLoaded, setPlanLoaded] = useState(false);
+  const [planLoaded, setPlanLoaded] = useState(isTeamInvite);
   const requestedPlan = searchParams.get("plan");
   const requestedBilling = searchParams.get("billing");
   const validRequestedPlan = isPlanTier(requestedPlan, plans) ? requestedPlan : null;
@@ -118,6 +131,10 @@ export default function Login() {
   }, []);
 
   useEffect(() => {
+    if (isTeamInvite) {
+      setPlanLoaded(true);
+      return;
+    }
     void fetchOfficialPlans().then((data) => {
       setPlans(data);
       setPlanLoaded(true);
@@ -131,7 +148,7 @@ export default function Login() {
       setPlanLoaded(true);
       setPlans([]);
     });
-  }, [searchParams]);
+  }, [isTeamInvite, searchParams]);
 
   const plan = plans.find((item) => item.code === selectedPlan) ?? plans[0];
   const planPrice = plan ? getPlanPrice(plan, billing) : 0;
@@ -142,7 +159,6 @@ export default function Login() {
   }
 
   if (!loading && session) {
-    const returnTo = searchParams.get("returnTo");
     let route = profile?.role === "supervisor" ? "/dashboard" : defaultRoute ?? "/dashboard";
 
     const waitingStatuses = new Set([
@@ -154,7 +170,9 @@ export default function Login() {
       "awaiting_verification",
     ]);
 
-    if (subscriptionStatus === "expired") {
+    if (isTeamInvite && safeReturnTo) {
+      route = safeReturnTo;
+    } else if (subscriptionStatus === "expired") {
       route = "/subscription-expired";
     } else if (waitingStatuses.has(subscriptionStatus)) {
       route = "/waiting-verification";
@@ -165,7 +183,6 @@ export default function Login() {
       if (searchParams.get("billing")) paymentParams.set("cycle", searchParams.get("billing") === "yearly" ? "annual" : "monthly");
       route = `/payment${paymentParams.toString() ? `?${paymentParams.toString()}` : ""}`;
     } else {
-      const safeReturnTo = getSafeReturnPath(returnTo, "");
       if (safeReturnTo && safeReturnTo !== "/login" && profile?.role !== "supervisor") route = safeReturnTo;
     }
 
@@ -179,8 +196,10 @@ export default function Login() {
     const next = new URLSearchParams(searchParams);
     if (nextMode === "sign-up") {
       next.set("mode", "signup");
-      if (selectedPlan) next.set("plan", selectedPlan);
-      next.set("billing", billing);
+      if (!isTeamInvite) {
+        if (selectedPlan) next.set("plan", selectedPlan);
+        next.set("billing", billing);
+      }
     } else {
       next.delete("mode");
       next.delete("plan");
@@ -214,16 +233,20 @@ export default function Login() {
   };
 
   const completeSignup = async () => {
-    rememberPlan();
+    if (!isTeamInvite) rememberPlan();
     setBusy(true);
     try {
-      console.log("[Login] Starting signup with:", { email: email.trim(), fullName: fullName.trim(), workspaceName: workspaceName.trim(), selectedPlan, billing });
       const { error: authError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: getAppUrlForPath("/login"),
-          data: {
+          emailRedirectTo: getAppUrlForPath(isTeamInvite && safeReturnTo
+            ? `/login?returnTo=${encodeURIComponent(safeReturnTo)}`
+            : "/login"),
+          data: isTeamInvite ? {
+            full_name: fullName.trim(),
+            team_invitation_id: teamInvitationId,
+          } : {
             full_name: fullName.trim(),
             workspace_name: workspaceName.trim(),
             selected_plan: selectedPlan,
@@ -236,7 +259,6 @@ export default function Login() {
         console.error("[Login] Signup failed:", authError);
         setError(friendlyAuthError(authError.message));
       } else {
-        console.log("[Login] Signup successful");
         setSignupSuccess(true);
       }
     } catch (caught) {
@@ -251,7 +273,7 @@ export default function Login() {
     event.preventDefault();
     setError(null);
     if (authMode === "sign-up" && !fullName.trim()) return setError("Enter your full name.");
-    if (authMode === "sign-up" && !workspaceName.trim()) return setError("Enter your workspace name.");
+    if (authMode === "sign-up" && !isTeamInvite && !workspaceName.trim()) return setError("Enter your workspace name.");
     if (!email.trim() || !email.includes("@")) return setError("Enter a valid email address.");
     if (!password) return setError("Enter your password.");
     if (password.length < 6) return setError("Password must contain at least 6 characters.");
@@ -299,13 +321,13 @@ export default function Login() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(219,63,115,0.14),transparent_35%)]" />
         <section className="relative w-full max-w-lg rounded-[30px] border border-slate-200/80 bg-white p-7 text-center shadow-[0_28px_90px_rgba(61,20,35,0.12)] sm:p-10" aria-live="polite">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/50"><CheckCircle2 className="h-8 w-8" /></div>
-          <p className="mt-7 text-xs font-black uppercase tracking-[0.2em] text-[#c53265]">Workspace requested</p>
+          <p className="mt-7 text-xs font-black uppercase tracking-[0.2em] text-[#c53265]">{isTeamInvite ? "Team invitation" : "Workspace requested"}</p>
           <h1 className="mt-3 text-3xl font-bold tracking-[-0.04em]">Check your inbox</h1>
-          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-slate-600">We sent a confirmation link to <strong className="text-slate-900">{email}</strong>. Confirm it to activate your workspace.</p>
-          <div className="mt-7 flex items-center justify-between rounded-2xl border border-[#f2d6e0] bg-[#fff7fa] p-4 text-left">
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-slate-600">We sent a confirmation link to <strong className="text-slate-900">{email}</strong>. {isTeamInvite ? "Confirm it to join the invited workspace—no separate plan or payment is required." : "Confirm it to activate your workspace."}</p>
+          {!isTeamInvite && plan && <div className="mt-7 flex items-center justify-between rounded-2xl border border-[#f2d6e0] bg-[#fff7fa] p-4 text-left">
             <div><p className="text-xs font-semibold text-slate-500">Selected plan</p><p className="mt-0.5 font-bold text-slate-950">{plan.name} · MAD {planPrice.toLocaleString("en-US")}</p></div>
             <BadgeCheck className="h-5 w-5 text-[#DB3F73]" />
-          </div>
+          </div>}
           <button type="button" onClick={() => updateMode("sign-in")} className="mt-7 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white transition hover:bg-slate-800">Continue to sign in <ArrowRight className="h-4 w-4" /></button>
         </section>
       </main>
@@ -326,8 +348,8 @@ export default function Login() {
           </div>
 
           <div className="mt-8">
-            <h1 className="text-4xl font-bold leading-tight tracking-[-0.045em]">{authMode === "sign-in" ? "Welcome back" : "Create your account"}</h1>
-            <p className="mt-2 text-base leading-7 text-slate-600">{authMode === "sign-in" ? "Enter your details to access your workspace." : "Enter your details first. You will choose your plan after email confirmation."}</p>
+            <h1 className="text-4xl font-bold leading-tight tracking-[-0.045em]">{authMode === "sign-in" ? "Welcome back" : isTeamInvite ? "Join your team" : "Create your account"}</h1>
+            <p className="mt-2 text-base leading-7 text-slate-600">{authMode === "sign-in" ? "Enter your details to access your workspace." : isTeamInvite ? "Create your member account. You will use the inviter's workspace and plan." : "Enter your details first. You will choose your plan after email confirmation."}</p>
           </div>
 
           {/* Reset password success banner */}
@@ -340,16 +362,18 @@ export default function Login() {
             </div>
           )}
 
-          <button type="button" onClick={onGoogleSignIn} disabled={isProcessing} className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-base font-bold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
-            {googleBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}{googleBusy ? "Connecting securely…" : "Continue with Google"}
-          </button>
+          {!(isTeamInvite && authMode === "sign-up") && <>
+            <button type="button" onClick={onGoogleSignIn} disabled={isProcessing} className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-base font-bold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
+              {googleBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}{googleBusy ? "Connecting securely…" : "Continue with Google"}
+            </button>
 
-          <div className="my-5 flex items-center gap-3" aria-hidden="true"><span className="h-px flex-1 bg-slate-200" /><span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">or use email</span><span className="h-px flex-1 bg-slate-200" /></div>
+            <div className="my-5 flex items-center gap-3" aria-hidden="true"><span className="h-px flex-1 bg-slate-200" /><span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">or use email</span><span className="h-px flex-1 bg-slate-200" /></div>
+          </>}
 
           <form onSubmit={onSubmit} noValidate>
             <div className="space-y-4">
               {authMode === "sign-up" && <label className="block text-sm font-bold text-slate-700">Full name<span className="relative mt-2 block"><UserRound className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" placeholder="Your full name" className={inputClass} /></span></label>}
-              {authMode === "sign-up" && <label className="block text-sm font-bold text-slate-700">Workspace name<span className="relative mt-2 block"><Building2 className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} autoComplete="organization" placeholder="Your store or brand" className={inputClass} /></span></label>}
+              {authMode === "sign-up" && !isTeamInvite && <label className="block text-sm font-bold text-slate-700">Workspace name<span className="relative mt-2 block"><Building2 className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} autoComplete="organization" placeholder="Your store or brand" className={inputClass} /></span></label>}
               <label className="block text-sm font-bold text-slate-700">Email address<span className="relative mt-2 block"><Mail className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@company.com" className={inputClass} /></span></label>
               <label className="block text-sm font-bold text-slate-700">Password<span className="relative mt-2 block"><LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={authMode === "sign-in" ? "current-password" : "new-password"} placeholder="At least 6 characters" className={`${inputClass} pr-12`} /><button type="button" onClick={() => setShowPassword((visible) => !visible)} className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}</button></span></label>
             </div>

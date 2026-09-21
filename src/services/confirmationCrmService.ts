@@ -38,7 +38,7 @@ const ORDER_COLUMNS = `
   confirmed_at,
   cancelled_at,
   confirmation_method,
-  customers(id, name, phone, city)
+  customers(id, name, phone, city, address)
 `;
 
 const CRM_ACTIVITY_LABELS: Record<string, string> = {
@@ -76,7 +76,7 @@ function toOrder(row: any, assignedAgent: ConfirmationAgent | null, products: Co
     customerName: rawCustomer?.name || row.customer_name || "Customer unavailable",
     phone: row.phone ?? rawCustomer?.phone ?? null,
     city: row.city || row.city_name || rawCustomer?.city || null,
-    address: row.address ?? null,
+    address: row.address ?? rawCustomer?.address ?? null,
     total: Number(row.total || 0),
     status: row.status || "pending",
     deliveryStatus: row.delivery_status ?? null,
@@ -490,8 +490,16 @@ export async function getConfirmationOrderById(workspaceId: string, orderId: str
 }
 
 export async function getConfirmationOrderDetails(workspaceId: string, order: ConfirmationOrder): Promise<ConfirmationOrderDetails> {
+  let notesQuery = supabase
+    .from("confirmation_notes")
+    .select("id, body, author_id, created_at")
+    .eq("workspace_id", workspaceId);
+  notesQuery = order.customerId
+    ? notesQuery.or(`customer_id.eq.${order.customerId},order_id.eq.${order.id}`)
+    : notesQuery.eq("order_id", order.id);
+
   const [notesResult, callbacksResult, activitiesResult, eventsResult, recordingsResult, historyResult] = await Promise.all([
-    supabase.from("confirmation_notes").select("id, body, author_id, created_at").eq("workspace_id", workspaceId).eq("order_id", order.id).order("created_at", { ascending: false }),
+    notesQuery.order("created_at", { ascending: false }),
     supabase.from("confirmation_callbacks").select("id, agent_id, scheduled_at, status, note, completed_at").eq("workspace_id", workspaceId).eq("order_id", order.id).order("scheduled_at", { ascending: true }),
     supabase.from("confirmation_activities").select("id, agent_id, activity_type, metadata, created_at").eq("workspace_id", workspaceId).eq("order_id", order.id).order("created_at", { ascending: false }),
     supabase.from("order_events").select("id, actor_id, event_type, source, previous_value, next_value, metadata, created_at").eq("workspace_id", workspaceId).eq("order_id", order.id).order("created_at", { ascending: false }),
@@ -581,7 +589,6 @@ export async function updateConfirmationStatus(workspaceId: string, order: Confi
     payload.confirmed_by_user_id = confirmedByUserId ?? null;
   }
   if (status === "cancelled") payload.cancelled_at = now;
-  console.log(`[DEBUG Confirmation] UPDATE PAYLOAD for order ${order.id}:`, JSON.stringify(payload, null, 2));
   const { data, error } = await supabase
     .from("orders")
     .update(payload)
@@ -589,10 +596,54 @@ export async function updateConfirmationStatus(workspaceId: string, order: Confi
     .eq("Order ID", order.id)
     .select('"Order ID", status, confirmed_at, cancelled_at, confirmation_method')
     .maybeSingle();
-  console.log(`[DEBUG Confirmation] UPDATE RESULT:`, error ? `Error: ${error.message}` : `Success - confirmation_method: ${data?.confirmation_method}`);
   if (error) throw error;
   if (!data) throw new Error("This order is no longer available in the current workspace.");
   return data;
+}
+
+export type ConfirmationCustomerUpdate = {
+  customerId: string;
+  customerName: string;
+  phone: string | null;
+  city: string | null;
+  address: string | null;
+};
+
+export async function updateConfirmationCustomerProfile(
+  workspaceId: string,
+  orderId: string,
+  values: { customerName: string; phone: string; city: string; address: string }
+): Promise<ConfirmationCustomerUpdate> {
+  const customerName = values.customerName.trim();
+  if (!customerName) throw new Error("Customer name is required.");
+
+  const { data, error } = await supabase
+    .rpc("update_confirmation_customer_profile", {
+      p_workspace_id: workspaceId,
+      p_order_id: orderId,
+      p_name: customerName,
+      p_phone: values.phone.trim() || null,
+      p_city: values.city.trim() || null,
+      p_address: values.address.trim() || null,
+    })
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error("That phone number already belongs to another customer in this workspace.");
+    }
+    throw error;
+  }
+  if (!data) throw new Error("Customer details could not be updated.");
+
+  const row = data as any;
+  return {
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    phone: row.phone ?? null,
+    city: row.city ?? null,
+    address: row.address ?? null,
+  };
 }
 
 export async function addConfirmationActivity(workspaceId: string, order: ConfirmationOrder, agentId: string, activityType: string, metadata: Record<string, unknown> = {}) {

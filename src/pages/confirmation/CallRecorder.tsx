@@ -23,6 +23,10 @@ function preferredMimeType() {
   return ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
 }
 
+function announceCallStatus(active: boolean) {
+  window.dispatchEvent(new CustomEvent("ecomos:agent-call-status", { detail: { active } }));
+}
+
 export function CallRecorder({
   onUpload,
   onActivity,
@@ -49,7 +53,10 @@ export function CallRecorder({
     recorderRef.current = null;
   };
 
-  useEffect(() => () => clearResources(), []);
+  useEffect(() => () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") announceCallStatus(false);
+    clearResources();
+  }, []);
 
   const start = async () => {
     if (recording || recorderRef.current || uploading) return;
@@ -90,6 +97,7 @@ export function CallRecorder({
       recorder.start(1000);
       setDuration(0);
       setRecording(true);
+      announceCallStatus(true);
       intervalRef.current = window.setInterval(() => setDuration((current) => current + 1), 1000);
       void onActivity("CALL_STARTED", { source: "browser_microphone_recording" }).catch(() => undefined);
     } catch (startError: any) {
@@ -109,6 +117,7 @@ export function CallRecorder({
     intervalRef.current = null;
     recorder.stop();
     setRecording(false);
+    announceCallStatus(false);
     void onActivity("CALL_ENDED", { duration_seconds: duration, source: "browser_microphone_recording" }).catch(() => undefined);
   };
 

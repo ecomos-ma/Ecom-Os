@@ -181,7 +181,6 @@ export default function FounderInternal() {
       sendit: 'bg-green-100 text-green-800',
       youcan: 'bg-orange-100 text-orange-800',
       whatsapp: 'bg-emerald-100 text-emerald-800',
-      shopify: 'bg-cyan-100 text-cyan-800',
     };
     
     const colorClass = colors[integration as keyof typeof colors] || 'bg-gray-100 text-gray-800';

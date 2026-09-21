@@ -152,7 +152,9 @@ export default function Payment() {
   if (operationalAccess && !isRenewalIntent) return <Navigate to="/dashboard" replace />;
 
   const requestStatus = String(request?.status || "").toLowerCase();
-  if (request && ["submitted", "reviewing", "under_review", "pending_payment", "awaiting_review", "awaiting_verification"].includes(requestStatus)) return <Navigate to="/waiting-verification" replace />;
+  if (operationalAccess !== true && request && ["submitted", "reviewing", "under_review", "pending_payment", "awaiting_review", "awaiting_verification"].includes(requestStatus)) {
+    return <Navigate to="/waiting-verification" replace />;
+  }
 
   const selectedPlanData = plans.find((plan) => plan.code === selectedPlan) ?? plans[0] ?? { code: selectedPlan, name: selectedPlan, description: "", monthlyPrice: 0, yearlyPrice: 0, currency: "MAD", billingEnabled: { monthly: true, annual: true }, isActive: true, isPublic: true, isInternal: false, isPopular: false, displayOrder: 100, badgeText: "", ctaText: "", limits: { ordersMonthly: 0, workspaces: 0, teamMembers: 0, integrations: 0 }, features: { mobileApp: false, whatsappAutomation: false, aiConfirmationAgent: false, sawtyOS: false, landingPageOS: false, premiumSupport: false } };
   const monthlyEquivalent = billing === "monthly" ? selectedPlanData.monthlyPrice : Math.round(selectedPlanData.yearlyPrice / 12);

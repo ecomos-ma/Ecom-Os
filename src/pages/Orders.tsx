@@ -17,6 +17,7 @@ import { StatusSelect } from "../components/StatusSelect";
 import { normalizeStatus, type CanonicalStatus } from "../lib/statusEngine";
 import { normalizeStatus as getInternalStatus } from "../utils/status";
 import { formatOzonAddress, initializeOzonCities } from "../services/ozonService";
+import { matchCityFuzzy } from "../services/fuzzyCityMatcher";
 import { useGlobalOrders } from "../contexts/OrdersContext";
 import { isShippingModuleEnabled } from "../lib/shippingModule";
 import MobileBottomSheet from "../components/MobileBottomSheet";
@@ -197,6 +198,16 @@ export async function runGoogleSheetSync(
   return request;
 }
 
+function isCityUnresolved(o: any): boolean {
+  if (o.city_mapping_status === 'unresolved') return true;
+  if (o.city_mapping_status === 'resolved') return false;
+  const hasCityText = Boolean(o.city || o.raw_city);
+  const noCityId = (o.ozon_city_id === null || o.ozon_city_id === undefined) &&
+                   (o.provider_city_id === null || o.provider_city_id === undefined) &&
+                   (o.coliaty_city_id === null || o.coliaty_city_id === undefined);
+  return hasCityText && noCityId;
+}
+
 export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -205,6 +216,7 @@ export default function Orders() {
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "youcan" | "sheets" | "manual">("all");
+  const [cityFilter, setCityFilter] = useState<"all" | "unresolved" | "resolved">("all");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
@@ -213,7 +225,6 @@ export default function Orders() {
   useEffect(() => {
     const navigationState = location.state as { createOrder?: boolean; viewOrderId?: string } | null;
     if (!navigationState?.createOrder) return;
-
     setShowNew(true);
     navigate(location.pathname, {
       replace: true,
@@ -229,7 +240,7 @@ export default function Orders() {
     navigate(location.pathname, { replace: true, state: null });
   }, [allOrders, location.pathname, location.state, navigate]);
 
-  // Infinite Scroll state
+    // Infinite Scroll state
   const [visibleCount, setVisibleCount] = useState(50);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -257,13 +268,13 @@ export default function Orders() {
       // Search filter
       if (search) {
         const searchLower = search.toLowerCase();
-        const haystack = `${o.order_number} ${o.customer?.name ?? o.customer_name ?? ''} ${o.customer?.phone} ${o.city} ${o.address}`.toLowerCase();
+        const haystack = `${o.order_number} ${o.customer?.name ?? o.customer_name ?? ''} ${o.customer?.phone} ${(o as any).city_name ?? ''} ${o.city} ${o.address}`.toLowerCase();
         return haystack.includes(searchLower);
       }
 
       return true;
     });
-  }, [allOrders, status, sourceFilter, search]);
+  }, [allOrders, status, sourceFilter, cityFilter, search]);
 
   const displayOrders = useMemo(() => orders.slice(0, visibleCount), [orders, visibleCount]);
 
@@ -355,7 +366,7 @@ export default function Orders() {
             </select>
           </label>
           <div className="grid grid-cols-2 gap-2 pt-2">
-            <button type="button" onClick={() => { setStatus("all"); setSourceFilter("all"); }} className="min-h-12 rounded-xl border border-base-border font-bold text-ink-muted">Reset</button>
+            <button type="button" onClick={() => { setStatus("all"); setSourceFilter("all"); setCityFilter("all"); }} className="min-h-12 rounded-xl border border-base-border font-bold text-ink-muted">Reset</button>
             <button type="button" onClick={() => setMobileFiltersOpen(false)} className="min-h-12 rounded-xl bg-brand font-bold text-white">Show {orders.length} orders</button>
           </div>
         </div>
@@ -395,7 +406,7 @@ export default function Orders() {
                     primaryAction={
                       allOrders.length === 0
                         ? <button onClick={() => navigate("/settings")} className="rounded-lg bg-brand px-4 py-2 text-[13px] font-medium text-white hover:bg-brand/90">Connect Store</button>
-                        : <button onClick={() => { setStatus("all"); setSearch(""); setSourceFilter("all"); }} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>
+                        : <button onClick={() => { setStatus("all"); setSearch(""); setSourceFilter("all"); setCityFilter("all"); }} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>
                     }
                     secondaryAction={allOrders.length === 0 ? <button onClick={() => setShowNew(true)} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Add Order</button> : undefined}
                   />
@@ -411,12 +422,21 @@ export default function Orders() {
                   <td className="px-4 py-3 font-mono text-ink">{o.order_number}</td>
                   <td className="px-4 py-3 text-ink">{o.customer_name ?? o.customer?.name ?? "—"}</td>
                   <td className="px-4 py-3 text-ink-muted font-mono">{o.phone ?? o.customer?.phone ?? "—"}</td>
-                  <td className="px-4 py-3 text-ink-muted">{o.city ?? "—"}</td>
+                  <td className="px-4 py-3 text-ink-muted">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{(o as any).city_name ?? o.city ?? "—"}</span>
+                      {isCityUnresolved(o) && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600 border border-amber-500/20 whitespace-nowrap">
+                          ⚠️ City to verify
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-ink-muted">{o.address ? o.address : "No address"}</td>
                   <td className="px-4 py-3 font-mono text-ink">{mad(o.total)}</td>
                   {showShippingColumn && (
                     <td className="px-4 py-3 font-mono text-ink-muted">
-                      {(o as any).ozon_city_id === null ? (
+                      {(o as any).ozon_city_id === null && (o as any).provider_city_id === null && (o as any).coliaty_city_id === null ? (
                         <span className="text-warning text-[11px]">Ville à vérifier</span>
                       ) : (o as any).shipping_cost !== null ? (
                         <span>{mad((o as any).shipping_cost)}</span>
@@ -489,11 +509,20 @@ export default function Orders() {
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="text-[16px] font-bold text-ink mb-0.5">{o.customer_name ?? o.customer?.name ?? "Unknown"}</div>
-                  <div className="text-[13px] text-ink-muted">{o.city || "No City"} • <span className="font-mono text-ink-muted">{o.phone ?? o.customer?.phone ?? "No phone"}</span></div>
+                  <div className="text-[13px] text-ink-muted flex items-center gap-1.5 flex-wrap">
+                    <span>{(o as any).city_name || o.city || "No City"}</span>
+                    {isCityUnresolved(o) && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-600 border border-amber-500/20 whitespace-nowrap">
+                        ⚠️ City to verify
+                      </span>
+                    )}
+                    <span>•</span>
+                    <span className="font-mono text-ink-muted">{o.phone ?? o.customer?.phone ?? "No phone"}</span>
+                  </div>
                   <div className="mt-2 text-[12px] text-ink-muted">Address: {o.address ? o.address : "No address"}</div>
                   {showShippingColumn && (
                     <div className="mt-1 text-[12px] text-ink-muted">
-                      Shipping: {(o as any).ozon_city_id === null ? (
+                      Shipping: {(o as any).ozon_city_id === null && (o as any).provider_city_id === null && (o as any).coliaty_city_id === null ? (
                         <span className="text-warning">Ville à vérifier</span>
                       ) : (o as any).shipping_cost !== null ? (
                         <span className="font-mono">{mad((o as any).shipping_cost)}</span>

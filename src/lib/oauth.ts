@@ -36,12 +36,14 @@ export async function shopifyAuthorizeUrl(workspaceId: string, shopDomain: strin
   });
 
   if (error) throw error;
-
-  const authorizeUrl = data.authorize_url;
-
-  if (!authorizeUrl) {
-    throw new Error("Missing authorize_url from generate-state response");
+  
+  const authorizeUrl = typeof data?.url === "string" ? data.url : "";
+  let parsed: URL;
+  try {
+    parsed = new URL(authorizeUrl);
+  } catch {
+    throw new Error("Shopify returned an invalid authorization URL");
   }
-
-  return authorizeUrl;
+  
+  return parsed.toString();
 }

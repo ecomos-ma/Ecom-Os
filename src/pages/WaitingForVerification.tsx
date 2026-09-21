@@ -153,6 +153,8 @@ export default function WaitingForVerification() {
 
   if (loading && !previewMode) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
+
+
   if (operationalAccess && !previewMode && !hasPaymentIntent) return <Navigate to="/dashboard" replace />;
   if (!receipt && !error) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
 

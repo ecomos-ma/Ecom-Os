@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 
-export type WhatsAppWorkerAction = "connect" | "disconnect" | "status" | "test" | "reconnect" | "logout" | "send" | "send_audio" | "send_media" | "profile_photo" | "ai_test";
+export type WhatsAppWorkerAction = "connect" | "disconnect" | "status" | "test" | "reconnect" | "logout" | "send" | "send_audio" | "send_media" | "send_order_status" | "profile_photo" | "ai_test";
 
 type WorkerRequest = {
   action: WhatsAppWorkerAction;
@@ -20,8 +20,8 @@ const VALID_WHATSAPP_STATUS = new Set([
   "error",
 ]);
 
-// Use local worker in development, production Edge Function otherwise
-const useLocalWorker = import.meta.env.DEV;
+// The secure Edge Function is the default in every environment. Direct worker access is opt-in for local worker debugging only.
+const useLocalWorker = import.meta.env.VITE_WHATSAPP_USE_LOCAL_WORKER === "true";
 const LOCAL_WORKER_URL = "/api/whatsapp-worker";
 
 async function safeJsonResponse(response: Response) {
@@ -121,6 +121,7 @@ async function callLocalWorker(action: WhatsAppWorkerAction, workspaceId: string
     send: `/sessions/${workspaceId}/send`,
     send_audio: `/sessions/${workspaceId}/send`,
     send_media: `/sessions/${workspaceId}/send-media`,
+    send_order_status: `/sessions/${workspaceId}/send`,
     profile_photo: `/sessions/${workspaceId}/profile-photo`,
     ai_test: `/sessions/${workspaceId}/ai/test`,
   };
@@ -165,7 +166,7 @@ export async function callWhatsAppWorker({ action, workspaceId, payload = {} }: 
   if (!workspaceId) throw new Error("Workspace not found");
 
   // Use local worker in development, production Edge Function otherwise
-  if (useLocalWorker && action !== "send_audio") {
+  if (useLocalWorker && action !== "send_audio" && action !== "send_order_status") {
     return callLocalWorker(action, workspaceId, payload);
   }
 
@@ -181,7 +182,14 @@ export async function callWhatsAppWorker({ action, workspaceId, payload = {} }: 
   });
 
   if (error) {
-    const message = typeof error === "object" && error && "message" in error ? String((error as { message?: string }).message) : "WhatsApp control request failed.";
+    let message = typeof error === "object" && error && "message" in error ? String((error as { message?: string }).message) : "WhatsApp control request failed.";
+    const context = typeof error === "object" && error && "context" in error
+      ? (error as { context?: unknown }).context
+      : null;
+    if (context instanceof Response) {
+      const payload = await context.clone().json().catch(() => null) as { error?: unknown } | null;
+      if (typeof payload?.error === "string" && payload.error.trim()) message = payload.error;
+    }
     throw new Error(message || "WhatsApp control request failed.");
   }
 
@@ -195,6 +203,17 @@ export async function callWhatsAppWorker({ action, workspaceId, payload = {} }: 
     state: connection_status ?? data.state ?? data.status ?? null,
     worker_available: typeof data.worker_available === "boolean" ? data.worker_available : true,
   };
+}
+
+export async function sendOrderStatusWhatsAppMessage(workspaceId: string, orderId: string) {
+  return callWhatsAppWorker({
+    action: "send_order_status",
+    workspaceId,
+    payload: {
+      order_id: orderId,
+      request_id: crypto.randomUUID(),
+    },
+  });
 }
 
 export async function connectWhatsApp(workspaceId: string) {

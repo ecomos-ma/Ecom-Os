@@ -1,3 +1,4 @@
+import { resolveOrderCityFuzzy } from "../_shared/city-matcher.ts";
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -421,6 +422,23 @@ serve(async (req) => {
     for (const row of webAppData) {
       try {
         const orderPayload = mapWebAppRow(row, workspace_id, fieldMappings, customStatusMappings);
+        if (orderPayload.city || orderPayload.raw_city) {
+          try {
+            const workspaceRes = await supabase.from("workspaces").select("carrier").eq("id", workspace_id).maybeSingle();
+            const carrier = workspaceRes.data?.carrier || "ozon";
+            const resolvedCity = await resolveOrderCityFuzzy(supabase, String(orderPayload.raw_city || orderPayload.city), carrier);
+            if (resolvedCity.city_mapping_status === 'resolved') {
+              orderPayload.ozon_city_id = resolvedCity.ozon_city_id;
+              orderPayload.provider_city_id = resolvedCity.provider_city_id;
+              orderPayload.city_name = resolvedCity.city_name;
+              orderPayload.city = resolvedCity.city_name;
+              orderPayload.city_mapping_status = 'resolved';
+              orderPayload.city_mapping_confidence = resolvedCity.city_mapping_confidence;
+            } else {
+              orderPayload.city_mapping_status = 'unresolved';
+            }
+          } catch {}
+        }
 
         // Check if order already exists (for determining order_number)
         const { data: existingOrder, error: checkError } = await supabase

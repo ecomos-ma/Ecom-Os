@@ -2,20 +2,16 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const workerSecret = env.WHATSAPP_WORKER_API_SECRET?.trim();
-  const workerUrl = env.WHATSAPP_WORKER_URL?.trim();
-  if (!workerUrl) {
-    throw new Error("WHATSAPP_WORKER_URL must point to the production VPS worker");
-  }
-  if (/trycloudflare\.com|localhost|127\.0\.0\.1/i.test(workerUrl)) {
-    throw new Error("WHATSAPP_WORKER_URL must be the current production VPS worker URL, not a local address or tunnel");
-  }
-  if (!workerSecret) {
+  const workerUrl = env.WHATSAPP_WORKER_URL?.trim() || "http://127.0.0.1:5000";
+  if (command === "serve" && !workerSecret) {
     throw new Error("WHATSAPP_WORKER_API_SECRET is required for the server-side WhatsApp worker proxy");
   }
-  console.info(`[Vite] WhatsApp worker proxy target: ${new URL(workerUrl).origin}`);
+  if (command === "serve") {
+    console.info(`[Vite] WhatsApp worker proxy target: ${new URL(workerUrl).origin}`);
+  }
 
   return {
   plugins: [
@@ -60,6 +56,16 @@ export default defineConfig(({ mode }) => {
       },
       injectManifest: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,webmanifest}"],
+        // These large, route-only bundles are cached on first use by the
+        // runtime StaleWhileRevalidate route below. Keeping them out of the
+        // install precache prevents a service-worker update from downloading
+        // several megabytes while the user is actively using another page.
+        globIgnores: [
+          "**/LiveGlobe-*.js",
+          "**/vendor-charts-*.js",
+          "**/vendor-utils-*.js",
+          "**/html2canvas-*.js",
+        ],
         maximumFileSizeToCacheInBytes: 4000000,
       },
     }),

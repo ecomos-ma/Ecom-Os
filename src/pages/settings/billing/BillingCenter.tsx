@@ -37,10 +37,21 @@ export default function BillingCenter() {
   const [drawerPayment, setDrawerPayment] = useState<PaymentDrawerData | null>(null);
   const refreshTimer = useRef<number | null>(null);
 
-  const isBillingOwner = ["owner", "founder", "super_admin"].includes(String(profile?.role ?? ""));
+  const isFounderAccount = isFounder(profile?.role, session?.user.email);
+  const isBillingOwner = isFounderAccount
+    || ["owner", "founder", "super_admin", "root_founder"].includes(String(profile?.role ?? ""));
 
   useEffect(() => {
     if (!isBillingOwner) { setLoading(false); return; }
+    if (isFounderAccount) {
+      // Founder billing is a permanent platform entitlement. Avoid querying
+      // seller-subscription RPCs, including while an older database still has
+      // the ambiguous get_effective_subscription_v1 overload.
+      setOverview(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let active = true;
     setLoading(true);
     setError(null);
@@ -62,7 +73,7 @@ export default function BillingCenter() {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [isBillingOwner, nonce, session?.user.id]);
+  }, [isBillingOwner, isFounderAccount, nonce, session?.user.id]);
 
   // Realtime: admin approvals/rejections, subscription and plan changes refresh
   // the page in place — no hard browser reload.
@@ -85,7 +96,6 @@ export default function BillingCenter() {
     };
   }, [session?.user.id, isBillingOwner]);
 
-  const isFounderAccount = isFounder(profile?.role, session?.user.email);
   // The founder is a platform-level account, not a seller subscription. Keep
   // a first-class display plan so Billing never shows “No plan selected” or a
   // pending payment state for the account that owns the platform.

@@ -143,14 +143,14 @@ function OzonShippingIntegrationCard({ onConnectionChange }: { onConnectionChang
       </div>
 
       {isOzonModalOpen && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={handleClose}>
+        <div className="app-modal-backdrop fixed inset-0 flex h-dvh min-h-0 items-center justify-center overflow-hidden p-4" onClick={handleClose}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div
-            className="relative z-10 w-full max-w-lg rounded-[28px] border border-base-border bg-base-surface shadow-2xl overflow-hidden"
+            className="relative z-10 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-base-border bg-base-surface shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center gap-4 px-7 py-6 border-b border-base-border/60 bg-base-raised/30">
+            <div className="flex shrink-0 items-center gap-4 border-b border-base-border/60 bg-base-raised/30 px-7 py-6">
               <div className="h-11 w-11 rounded-2xl overflow-hidden border border-base-border/50 flex-shrink-0 flex items-center justify-center bg-base-raised">
                 <img src={getIntegrationLogo("ozon") || ""} alt="Ozon" className="h-8 w-8 object-contain" />
               </div>
@@ -164,7 +164,7 @@ function OzonShippingIntegrationCard({ onConnectionChange }: { onConnectionChang
             </div>
 
             {/* Body */}
-            <div className="flex flex-col gap-4 px-7 py-6">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 py-6"><div className="flex flex-col gap-4">
               <div>
                 <label className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-ink">
                   <KeyRound size={13} className="text-brand" /> API Key
@@ -206,10 +206,10 @@ function OzonShippingIntegrationCard({ onConnectionChange }: { onConnectionChang
                   <CheckCircle2 size={14} /> Integration saved successfully!
                 </div>
               )}
-            </div>
+            </div></div>
 
             {/* Footer */}
-            <div className="flex items-center gap-3 px-7 py-5 border-t border-base-border/60 bg-base-raised/20">
+            <div className="flex shrink-0 items-center gap-3 border-t border-base-border/60 bg-base-raised/20 px-7 py-5">
               <button onClick={handleClose} disabled={saving} className="flex-1 rounded-xl bg-base-raised py-2.5 text-[13px] font-semibold text-ink hover:bg-base-border transition-colors disabled:opacity-60">
                 Cancel
               </button>

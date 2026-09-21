@@ -7,6 +7,7 @@ import {
 } from "../lib/metrics";
 import { useBusinessConfig } from "./useBusinessConfig";
 import { getDemoDataStore, shouldUseDemoData, calculateDemoDashboardMetrics } from "../demo/index";
+import { metaLegacyService } from "../services/metaLegacyService";
 
 export interface DashboardData {
   loading: boolean;
@@ -78,6 +79,25 @@ function formatDateUTC(d: Date) {
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+const DASHBOARD_ORDER_LIMIT = 5000;
+const LEGACY_REPORT_TIMEOUT_MS = 2500;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
 }
 
 /** Hoisted outside component — no GC pressure per render */
@@ -174,14 +194,28 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    // ── PARALLEL: all initial queries at once ──
-    const [ordersRes, expensesRes, adSpendRes, productsRes, metaCampaignsRes] = await Promise.all([
+    const legacyReportRequest = withTimeout(metaLegacyService.report(
+      actualStart.getTime() <= 0 || actualStart.getFullYear() < 2000
+        ? { datePreset: "maximum" }
+        : { since: startDateStr, until: endDateStr },
+    ).catch((error) => {
+      console.warn(
+        "[Dashboard] Legacy Meta spend is unavailable; using the existing spend source.",
+        error instanceof Error ? error.message : "Unknown error",
+      );
+      return null;
+    }), LEGACY_REPORT_TIMEOUT_MS, null);
+
+    // ── PARALLEL: all initial queries and the server-only Legacy Meta report ──
+    const [ordersRes, expensesRes, adSpendRes, productsRes, metaCampaignsRes, legacyReport] = await Promise.all([
       supabase
         .from("orders")
         .select('"Order ID", order_number, customer_id, city, city_name, address, total, status, delivery_status, shipping_status, phone, sku, product_variant, tracking_number, campaign_id, created_at, order_received_at, ozon_city_id, source')
         .eq("workspace_id", wid)
         .gte("created_at", startParamDb)
-        .lte("created_at", endParamDb),
+        .lte("created_at", endParamDb)
+        .order("created_at", { ascending: false })
+        .limit(DASHBOARD_ORDER_LIMIT),
       supabase
         .from("expenses")
         .select("amount, date")
@@ -207,9 +241,9 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
         .eq("status", "ACTIVE") // ← Filtre: seulement les campagnes actives
         .order("campaign_name")
         .limit(50), // ← Pagination: charge seulement 50 campagnes actives
+      legacyReportRequest,
     ]);
 
-    console.log("[Dashboard] Orders query result:", ordersRes);
     console.log("[Dashboard] Date range:", { startParamDb, endParamDb, startDateStr, endDateStr });
     console.log("[Dashboard] Workspace ID:", wid);
 
@@ -223,7 +257,15 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
       // Don't throw - allow dashboard to show what data we can get
     }
 
-    const adSpendRows = adSpendRes.data ?? [];
+    const existingAdSpendRows = adSpendRes.data ?? [];
+    const useLegacySpend = legacyReport?.connected === true;
+    const adSpendRows = useLegacySpend
+      ? legacyReport.daily.map((row) => ({
+        amount: row.amount,
+        date: row.date,
+        campaign_id: null,
+      }))
+      : existingAdSpendRows;
     const productsList = productsRes.data ?? [];
     const expensesData = expensesRes.data ?? [];
     const activeMetaCampaigns = metaCampaignsRes.data ?? [];
@@ -246,7 +288,8 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
           .from("orders")
           .select('"Order ID", order_number, customer_id, city, city_name, address, total, status, delivery_status, shipping_status, phone, sku, product_variant, tracking_number, campaign_id, created_at, order_received_at, ozon_city_id, source')
           .eq("workspace_id", wid)
-          .limit(5000);
+          .order("created_at", { ascending: false })
+          .limit(DASHBOARD_ORDER_LIMIT);
         if (!(fallback as any)?.error) {
           orders = (fallback as any).data ?? [];
           console.log("[Dashboard] Fallback orders count:", orders.length);
@@ -313,15 +356,18 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
       productsList.map((p: any) => [p.sku, Number(p.cost || 0)])
     );
 
-    let metaTotalSpend = 0;
-    let metaTotalResults = 0;
+    let metaTotalSpend = useLegacySpend ? Number(legacyReport?.spend || 0) : 0;
+    let metaTotalResults = useLegacySpend ? Number(legacyReport?.results || 0) : 0;
     (metaCampaignsRes.data ?? []).forEach((c: any) => {
-      metaTotalSpend += Number(c.spend || 0);
-      metaTotalResults += Number(c.results || 0);
+      if (!useLegacySpend) {
+        metaTotalSpend += Number(c.spend || 0);
+        metaTotalResults += Number(c.results || 0);
+      }
     });
 
-    const rawAdSpend =
-      metaTotalSpend > 0
+    const rawAdSpend = useLegacySpend
+      ? metaTotalSpend
+      : metaTotalSpend > 0
         ? metaTotalSpend
         : adSpendRows.reduce((sum: number, a: any) => sum + Number(a.amount || 0), 0);
     const adSpend = Number(rawAdSpend || 0);
@@ -495,6 +541,7 @@ export function useDashboardData(startDate?: Date, endDate?: Date): DashboardDat
         productsList,
         expenses: expensesData,
         metaCampaigns: activeMetaCampaigns,
+        currency: useLegacySpend ? legacyReport?.currency ?? null : null,
       });
     }
   }, [actualStart, actualEnd, config]);

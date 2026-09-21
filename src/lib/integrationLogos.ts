@@ -8,9 +8,9 @@ import IconColiaty from "../assets/integrationicon/imgi_34_coliaty.jpg";
 import IconMeta from "../assets/integrationicon/imgi_35_meta.jpg";
 import IconForceLog from "../assets/integrationicon/imgi_36_forcelog.jpg";
 import IconWhatsApp from "../assets/integrationicon/imgi_37_whatssap.png";
-import IconShopify from "../assets/integrationicon/imgi_38_shopify.png";
 import IconSendit from "../assets/integrationicon/imgi_40_sendit.png";
 import IconTikTok from "../assets/integrationicon/imgi_39_tiktok.png";
+import IconShopify from "../assets/integrationicon/imgi_38_shopify.png";
 
 export const integrationLogos = {
   ozon: IconOzon,
@@ -22,9 +22,9 @@ export const integrationLogos = {
   meta: IconMeta,
   forcelog: IconForceLog,
   whatsapp: IconWhatsApp,
-  shopify: IconShopify,
   sendit: IconSendit,
   tiktok: IconTikTok,
+  shopify: IconShopify,
   livo: IconLivo,
   digylog: IconDigylog,
 } as const;

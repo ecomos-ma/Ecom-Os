@@ -90,7 +90,12 @@ export type PlatformPermission = (typeof PLATFORM_PERMISSION_KEYS)[number];
 export type PlatformAdminRole = "root_founder" | "platform_admin" | "support_admin" | "billing_admin" | "security_admin";
 
 export function isFounder(role: string | null | undefined, email: string | null | undefined): boolean {
-  return role === "founder" && email?.trim().toLowerCase() === FOUNDER_EMAIL;
+  // Client-side founder presentation follows the protected Auth identity.
+  // Server-side RPCs independently enforce the same exact-email allowlist.
+  // Do not require a legacy profile role here: a recreated founder account may
+  // temporarily be reported as owner, super_admin, or root_founder.
+  void role;
+  return email?.trim().toLowerCase() === FOUNDER_EMAIL;
 }
 
 /** @deprecated Kept as a compatibility alias while legacy admin screens are retired. */

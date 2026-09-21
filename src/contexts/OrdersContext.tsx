@@ -151,7 +151,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
       `)
                 .eq("workspace_id", requestedWorkspaceId)
                 .order("created_at", { ascending: false })
-                .limit(500);
+                .limit(5000);
 
             if (error) {
                 // Fallback: flat query without joins
@@ -160,7 +160,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                     .select('"Order ID", order_number, customer_id, customer_name, city, city_name, address, total, status, delivery_status, shipping_status, shipping_provider, tracking_number, shipment_id, shipment_status, shipping_status_raw, shipping_updated_at, last_tracking_sync, last_shipping_sync_at, shipping_company, shipping_cost, parcel_created_at, delivery_note_ref, ozon_raw_response, coliaty_parcel_code, phone, sku, product_variant, campaign_id, created_at, ozon_city_id, coliaty_city_id, source, confirmation_method, whatsapp_handoff_active, whatsapp_handoff_reason, whatsapp_handoff_at')
                     .eq("workspace_id", requestedWorkspaceId)
                     .order("created_at", { ascending: false })
-                    .limit(500);
+                    .limit(5000);
 
                 if (!fbRes.error && fbRes.data) {
                     const fallbackData = fbRes.data as any[];

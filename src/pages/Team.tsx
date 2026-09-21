@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { useTeamData, type TeamMember } from "../hooks/useTeamData";
+import { useTeamData, type MemberPerformance, type TeamMember } from "../hooks/useTeamData";
 import { ALL_ALLOWED_SECTIONS, normalizeAllowedSections, ROLE_LABELS, ROLE_OPTIONS } from "../lib/rbac";
 import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
@@ -14,8 +15,10 @@ import { CallReviewPanel } from "./confirmation/CallReviewPanel";
 import {
   UserPlus, Clock, X, Send, CheckCircle, XCircle, Trash2, Edit3, Lock,
   Unlock, Users, Trophy, Activity, LayoutDashboard, Shield, Star,
-  TrendingUp, Package, Wifi, Coffee, AlertCircle, ChevronRight,
+  Coffee, AlertCircle, ChevronRight,
   Search, RefreshCw, Award, Zap, Target, BarChart2, MessageSquare,
+  Copy, Link2, MonitorUp, Headphones, Mic, PhoneCall, Timer,
+  PhoneIncoming, RotateCcw, Inbox, CircleAlert, CalendarClock,
 } from "lucide-react";
 
 async function invitationFunctionError(error: unknown, data: any) {
@@ -45,9 +48,24 @@ async function invokeInvitationFunction(body: Record<string, unknown>) {
   });
 }
 
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "assignment" | "leaderboard" | "auditlog" | "callreview";
+type Tab = "overview" | "invitations" | "assignment" | "leaderboard" | "auditlog" | "callreview";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   online: { label: "Online", color: "text-emerald-400", dot: "bg-emerald-400" },
@@ -116,14 +134,38 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-// ─── Stat Mini Card ───────────────────────────────────────────────────────────
+function formatDuration(totalSeconds: number) {
+  if (!totalSeconds) return "—";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
 
-function MiniStat({ label, value, icon, color = "text-ink" }: { label: string; value: string | number; icon: React.ReactNode; color?: string }) {
+function PercentRing({ value, tone = "emerald" }: { value: number; tone?: "emerald" | "violet" }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+  const stroke = tone === "violet" ? "#8b5cf6" : "#10b981";
   return (
-    <div className="flex flex-col items-center gap-1 rounded-xl border border-base-border bg-base-raised/50 p-3 text-center">
-      <div className={`${color} opacity-70`}>{icon}</div>
-      <div className={`text-[18px] font-bold font-mono ${color}`}>{value}</div>
-      <div className="text-[10.5px] text-ink-muted">{label}</div>
+    <div className="relative grid h-11 w-11 shrink-0 place-items-center">
+      <svg className="h-11 w-11 -rotate-90" viewBox="0 0 44 44" aria-hidden="true">
+        <circle cx="22" cy="22" r="17" fill="none" stroke="currentColor" strokeWidth="4" className="text-slate-200 dark:text-slate-700" />
+        <circle cx="22" cy="22" r="17" fill="none" stroke={stroke} strokeWidth="4" strokeLinecap="round" pathLength="100" strokeDasharray={`${safeValue} 100`} />
+      </svg>
+      <span className="absolute text-[10px] font-bold text-slate-700 dark:text-slate-200">{Math.round(safeValue)}%</span>
+    </div>
+  );
+}
+
+function AgentMetric({ label, value, icon, tone }: { label: string; value: string | number; icon: React.ReactNode; tone: string }) {
+  return (
+    <div className={`rounded-xl border border-slate-200/80 px-3 py-2.5 dark:border-slate-700/70 ${tone}`}>
+      <div className="flex items-center gap-2">
+        <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/75 dark:bg-slate-950/25">{icon}</span>
+        <span className="text-[17px] font-bold leading-none text-slate-700 dark:text-slate-100">{value}</span>
+      </div>
+      <div className="mt-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">{label}</div>
     </div>
   );
 }
@@ -133,88 +175,79 @@ function MiniStat({ label, value, icon, color = "text-ink" }: { label: string; v
 function MemberCard({
   member,
   perf,
-  onEdit,
   onSelect,
-  isOwner,
 }: {
   member: TeamMember;
-  perf?: any;
-  onEdit: (m: TeamMember) => void;
+  perf?: MemberPerformance;
   onSelect: (m: TeamMember) => void;
-  isOwner: boolean;
 }) {
+  const conversionRate = perf?.confirmation_rate ?? 0;
+  const deliveryRate = perf?.delivery_rate ?? 0;
   return (
-    <div
-      className="group relative rounded-2xl border border-base-border bg-base-surface/80 backdrop-blur-sm p-4 transition-all duration-200 hover:border-brand/30 hover:shadow-lg hover:shadow-brand/5 cursor-pointer"
+    <button
+      type="button"
+      className="group w-full overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900"
       onClick={() => onSelect(member)}
     >
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <div className="flex items-center gap-3">
           <MemberAvatar member={member} />
           <div className="min-w-0">
-            <div className="text-[14px] font-semibold text-ink leading-tight truncate max-w-[140px]">
-              {member.full_name || "Unknown"}
-            </div>
-            <div className="text-[11px] text-ink-muted truncate max-w-[140px]">{member.email}</div>
-            <div className="flex items-center gap-1.5 mt-1">
-              <StatusDot status={member.agent_status} />
-              <span className={`text-[10.5px] font-medium ${STATUS_CONFIG[member.agent_status]?.color ?? "text-ink-faint"}`}>
-                {STATUS_CONFIG[member.agent_status]?.label ?? "Offline"}
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[13px] font-bold text-slate-800 dark:text-white">{member.full_name || "Unknown"}</span>
+              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${member.status === "active" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10" : "bg-rose-50 text-rose-600 dark:bg-rose-500/10"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${member.status === "active" ? "bg-emerald-500" : "bg-rose-500"}`} />
+                {member.status === "active" ? "Active" : "Suspended"}
               </span>
             </div>
+            <div className="max-w-[220px] truncate text-[10.5px] text-slate-500 dark:text-slate-400">{member.email}</div>
           </div>
         </div>
-        <RoleBadge role={member.role} />
+        <ChevronRight size={16} className="text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
       </div>
 
-      {/* Performance mini row */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="rounded-lg bg-base-raised px-2 py-1.5 text-center">
-          <div className="text-[13px] font-bold text-ink font-mono">{perf?.total_assigned ?? 0}</div>
-          <div className="text-[9.5px] text-ink-muted">Assigned</div>
-        </div>
-        <div className="rounded-lg bg-emerald-500/10 px-2 py-1.5 text-center">
-          <div className="text-[13px] font-bold text-emerald-400 font-mono">{perf?.confirmed ?? 0}</div>
-          <div className="text-[9.5px] text-ink-muted">Confirmed</div>
-        </div>
-        <div className="rounded-lg bg-brand/10 px-2 py-1.5 text-center">
-          <div className="text-[13px] font-bold text-brand font-mono">
-            {perf ? `${perf.confirmation_rate.toFixed(0)}%` : "—"}
+      <div className="grid grid-cols-2 gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+          <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">Conv. rate</div>
+          <div className="flex items-center gap-3">
+            <PercentRing value={conversionRate} tone="violet" />
+            <div><div className="text-[19px] font-bold text-slate-800 dark:text-white">{Math.round(conversionRate)}%</div><div className="text-[9px] text-slate-500">{perf?.confirmed ?? 0} / {perf?.total_assigned ?? 0} confirmed</div></div>
           </div>
-          <div className="text-[9.5px] text-ink-muted">Rate</div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+          <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">Delivery rate</div>
+          <div className="flex items-center gap-3">
+            <PercentRing value={deliveryRate} />
+            <div><div className="text-[19px] font-bold text-slate-800 dark:text-white">{Math.round(deliveryRate)}%</div><div className="text-[9px] text-slate-500">Delivered orders</div></div>
+          </div>
         </div>
       </div>
 
-      {/* Status / Rank */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Award size={12} className={RANK_COLORS[member.rank] ?? "text-amber-700"} />
-          <span className={`text-[11px] font-semibold ${RANK_COLORS[member.rank] ?? "text-amber-700"}`}>{member.rank}</span>
-          <span className="text-[10px] text-ink-faint">· {member.xp} XP</span>
-        </div>
-        {member.status === "disabled" && (
-          <span className="rounded-full bg-danger/15 px-2 py-0.5 text-[10px] text-danger font-semibold">Suspended</span>
-        )}
+      <div className="grid grid-cols-3 gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-700">
+        <div className="flex items-center gap-2"><PhoneCall size={13} className="text-sky-500" /><div><div className="text-[13px] font-bold text-slate-700 dark:text-slate-100">{perf?.calls ?? 0}</div><div className="text-[9px] text-slate-500">Calls</div></div></div>
+        <div className="flex items-center gap-2"><Clock size={13} className="text-violet-500" /><div><div className="text-[13px] font-bold text-slate-700 dark:text-slate-100">{formatDuration(perf?.total_call_seconds ?? 0)}</div><div className="text-[9px] text-slate-500">Total call time</div></div></div>
+        <div className="flex items-center gap-2"><Activity size={13} className="text-fuchsia-500" /><div><div className="text-[13px] font-bold text-slate-700 dark:text-slate-100">{formatDuration(perf?.session_seconds ?? 0)}</div><div className="text-[9px] text-slate-500">Session duration</div></div></div>
       </div>
 
-      {/* Action overlay on hover */}
-      {isOwner && !member.is_owner && (
-        <div className="absolute inset-0 rounded-2xl bg-base-surface/95 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdit(member); }}
-            className="flex items-center gap-1.5 rounded-xl bg-brand/10 text-brand px-3 py-2 text-[12px] font-medium hover:bg-brand/20"
-          >
-            <Edit3 size={13} /> Edit
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onSelect(member); }}
-            className="flex items-center gap-1.5 rounded-xl bg-base-raised px-3 py-2 text-[12px] font-medium text-ink hover:bg-base-border"
-          >
-            <ChevronRight size={13} /> Profile
-          </button>
-        </div>
-      )}
-    </div>
+      <div className="grid grid-cols-2 gap-2 p-4">
+        <AgentMetric label="Assigned" value={perf?.total_assigned ?? 0} icon={<Inbox size={14} className="text-slate-500" />} tone="bg-slate-50 dark:bg-slate-800/70" />
+        <AgentMetric label="Contacted" value={perf?.contacted ?? 0} icon={<PhoneIncoming size={14} className="text-sky-500" />} tone="bg-sky-50/80 dark:bg-sky-500/10" />
+        <AgentMetric label="Confirmed" value={perf?.confirmed ?? 0} icon={<CheckCircle size={14} className="text-emerald-500" />} tone="bg-emerald-50/80 dark:bg-emerald-500/10" />
+        <AgentMetric label="Conv. rate" value={`${Math.round(conversionRate)}%`} icon={<Target size={14} className="text-violet-500" />} tone="bg-violet-50/80 dark:bg-violet-500/10" />
+      </div>
+
+      <div className="grid grid-cols-4 gap-1.5 px-4 pb-3">
+        <AgentMetric label="In progress" value={perf?.pending ?? 0} icon={<Clock size={12} className="text-amber-500" />} tone="bg-amber-50/80 dark:bg-amber-500/10" />
+        <AgentMetric label="Callbacks" value={perf?.callbacks ?? 0} icon={<RotateCcw size={12} className="text-violet-500" />} tone="bg-violet-50/80 dark:bg-violet-500/10" />
+        <AgentMetric label="No answer" value={perf?.no_answer ?? 0} icon={<XCircle size={12} className="text-rose-500" />} tone="bg-rose-50/80 dark:bg-rose-500/10" />
+        <AgentMetric label="Review" value={perf?.review ?? 0} icon={<CircleAlert size={12} className="text-orange-500" />} tone="bg-orange-50/80 dark:bg-orange-500/10" />
+      </div>
+
+      <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 text-[10px] dark:border-slate-700">
+        <span className="flex items-center gap-1 text-slate-500"><Activity size={11} /> {perf?.recent_activity_count ?? 0} recent activity</span>
+        <span className="font-semibold text-slate-700 group-hover:text-brand dark:text-slate-200">View details →</span>
+      </div>
+    </button>
   );
 }
 
@@ -224,7 +257,7 @@ export default function Team() {
   const { workspace, profile, session } = useAuth();
   const navigate = useNavigate();
   const {
-    members, invitations, assignments, activityLog, performanceMap, loading,
+    members, invitations, activityLog, performanceMap, loading,
     reload, updateMemberStatus, updateMemberRole, removeMember, setInvitations,
   } = useTeamData();
 
@@ -234,6 +267,7 @@ export default function Team() {
   const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [callReviewAgentId, setCallReviewAgentId] = useState("");
 
   useEffect(() => {
     if (!selectedMember) return;
@@ -241,12 +275,16 @@ export default function Team() {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = previousOverflow; };
   }, [selectedMember]);
+  useEffect(() => {
+    setSelectedMember((current) => current ? members.find((member) => member.id === current.id) ?? null : null);
+  }, [members]);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
   // Invite form
   const [inviteForm, setInviteForm] = useState({ fullName: "", email: "", role: "agent" as TeamRole, allowedSections: ["Dashboard"] });
   const [inviteBusy, setInviteBusy] = useState(false);
+  const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
 
   // Assignment
   const [assignMode, setAssignMode] = useState<"manual" | "auto" | "roundrobin">("manual");
@@ -272,10 +310,14 @@ export default function Team() {
     (m) => !search || m.full_name?.toLowerCase().includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase())
   );
 
-  const onlineCount = members.filter(m => m.agent_status === "online" || m.agent_status === "busy").length;
-  const activeCount = members.filter(m => m.status === "active").length;
-  const totalAssigned = assignments.filter(a => a.result === "pending").length;
+  const totalCalls = Object.values(performanceMap).reduce((sum, value) => sum + value.calls, 0);
+  const totalCallSeconds = Object.values(performanceMap).reduce((sum, value) => sum + value.total_call_seconds, 0);
+  const totalSessionSeconds = Object.values(performanceMap).reduce((sum, value) => sum + value.session_seconds, 0);
+  const totalContacted = Object.values(performanceMap).reduce((sum, value) => sum + value.contacted, 0);
+  const totalAssignedOrders = Object.values(performanceMap).reduce((sum, value) => sum + value.total_assigned, 0);
   const totalConfirmed = Object.values(performanceMap).reduce((s, p) => s + p.confirmed, 0);
+  const teamConversionRate = totalAssignedOrders > 0 ? (totalConfirmed / totalAssignedOrders) * 100 : 0;
+  const pendingInvitationCount = invitations.filter((invitation: any) => invitation.status === "pending").length;
 
   const leaderboard = [...members]
     .map(m => ({ member: m, perf: performanceMap[m.id] }))
@@ -283,7 +325,7 @@ export default function Team() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleInvite = async () => {
+  const handleInvite = async (delivery: "email" | "link") => {
     if (!inviteForm.email || !workspace?.id || !session?.user?.id) { toast.error("Fill in all fields."); return; }
     setInviteBusy(true);
     try {
@@ -295,12 +337,19 @@ export default function Team() {
         full_name: inviteForm.fullName,
         role: inviteForm.role,
         allowed_sections: allowedSections,
+        delivery,
       });
       if (error || data?.error) throw new Error(await invitationFunctionError(error, data));
-      toast.success(data?.invitation?.resent ? "Invitation resent." : "Invitation email sent.");
-
-      setShowInviteModal(false);
-      setInviteForm({ fullName: "", email: "", role: "agent", allowedSections: ["Dashboard"] });
+      if (delivery === "link") {
+        if (!data?.invite_url) throw new Error("Invitation link was not returned");
+        const inviteUrl = String(data.invite_url);
+        setGeneratedInviteUrl(inviteUrl);
+        await copyText(inviteUrl);
+        toast.success("Invitation link copied.");
+      } else {
+        if (data?.invite_url) setGeneratedInviteUrl(String(data.invite_url));
+        toast.success(data?.invitation?.resent ? "Invitation resent." : "Invitation email sent.");
+      }
       reload();
     } catch (e: any) {
       toast.error(e.message || "Failed to send invite");
@@ -309,25 +358,91 @@ export default function Team() {
     }
   };
 
+  const handleRevokeInvitation = async (invitation: any) => {
+    const { data, error } = await invokeInvitationFunction({ action: "revoke", workspace_id: workspace?.id, invitation_id: invitation.id });
+    if (error || data?.error) { toast.error(await invitationFunctionError(error, data)); return; }
+    setInvitations((current: any[]) => current.map((item) => item.id === invitation.id ? { ...item, status: "revoked", revoked_at: new Date().toISOString() } : item));
+    toast.success("Invitation revoked.");
+  };
+
+  const handleDeleteInvitation = async (invitation: any) => {
+    if (!confirm(`Delete the invitation for ${invitation.email}?`)) return;
+    if (!workspace?.id) return;
+    const { data, error } = await invokeInvitationFunction({ action: "delete", workspace_id: workspace.id, invitation_id: invitation.id });
+    if (error || data?.error) {
+      // Keep deletion working while an older deployed Edge Function is being
+      // replaced. RLS still limits this fallback to workspace managers.
+      const directDelete = await supabase
+        .from("workspace_invitations")
+        .delete()
+        .eq("workspace_id", workspace.id)
+        .eq("id", invitation.id);
+      if (directDelete.error) {
+        toast.error(await invitationFunctionError(error || directDelete.error, data));
+        return;
+      }
+    }
+    setInvitations((current: any[]) => current.filter((item) => item.id !== invitation.id));
+    await reload();
+    toast.success("Invitation deleted.");
+  };
+
+  const handleDeleteAllInvitations = async () => {
+    if (!workspace?.id || invitations.length === 0) return;
+    if (!confirm("Delete every invitation in this workspace? This removes pending, accepted, expired, and revoked invitation records.")) return;
+    const { data, error } = await invokeInvitationFunction({ action: "delete_all", workspace_id: workspace.id });
+    if (error || data?.error) {
+      const directDelete = await supabase
+        .from("workspace_invitations")
+        .delete()
+        .eq("workspace_id", workspace.id);
+      if (directDelete.error) {
+        toast.error(await invitationFunctionError(error || directDelete.error, data));
+        return;
+      }
+    }
+    setInvitations([]);
+    await reload();
+    toast.success("All invitations deleted.");
+  };
+
+  const handleResendInvitation = async (invitation: any) => {
+    const { data, error } = await invokeInvitationFunction({ action: "create", workspace_id: workspace?.id, email: invitation.email, full_name: invitation.full_name || "", role: invitation.role, allowed_sections: invitation.allowed_sections, delivery: "email" });
+    if (error || data?.error) toast.error(await invitationFunctionError(error, data));
+    else { toast.success("Invitation resent."); reload(); }
+  };
+
   const handleSaveEdit = async () => {
     if (!editingMember) return;
-    await updateMemberRole(editingMember.id, editingMember.role, editingMember.allowed_sections);
-    toast.success("Member updated.");
-    setEditingMember(null);
+    try {
+      await updateMemberRole(editingMember.id, editingMember.role, editingMember.allowed_sections);
+      toast.success("Member updated.");
+      setEditingMember(null);
+    } catch (error: any) {
+      toast.error(error?.message || "Member could not be updated.");
+    }
   };
 
   const handleToggleStatus = async (m: TeamMember) => {
     if (m.is_owner) return;
-    await updateMemberStatus(m.id, m.status !== "active");
-    toast.success(m.status === "active" ? "Member suspended." : "Member activated.");
+    try {
+      await updateMemberStatus(m.id, m.status !== "active");
+      toast.success(m.status === "active" ? "Member suspended." : "Member activated.");
+    } catch (error: any) {
+      toast.error(error?.message || "Member status could not be changed.");
+    }
   };
 
   const handleRemove = async (m: TeamMember) => {
     if (m.is_owner) return;
     if (!confirm(`Remove ${m.full_name || m.email} from the team?`)) return;
-    await removeMember(m.id);
-    if (selectedMember?.id === m.id) setSelectedMember(null);
-    toast.success("Member removed.");
+    try {
+      await removeMember(m.id);
+      if (selectedMember?.id === m.id) setSelectedMember(null);
+      toast.success("Member removed.");
+    } catch (error: any) {
+      toast.error(error?.message || "Member could not be removed.");
+    }
   };
 
   const handleAssignOrder = async (orderId: string, agentId: string) => {
@@ -370,6 +485,7 @@ export default function Team() {
 
   const tabs = [
     { id: "overview", label: "Overview", icon: <LayoutDashboard size={14} /> },
+    ...(isAdmin ? [{ id: "invitations" as const, label: `Invitations${pendingInvitationCount ? ` (${pendingInvitationCount})` : ""}`, icon: <UserPlus size={14} /> }] : []),
     { id: "assignment", label: "Order Assignment", icon: <Target size={14} /> },
     { id: "leaderboard", label: "Leaderboard", icon: <Trophy size={14} /> },
     { id: "auditlog", label: "Audit Log", icon: <Activity size={14} /> },
@@ -404,10 +520,10 @@ export default function Team() {
       {/* ── Stat Cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Members Online", value: onlineCount, icon: <Wifi size={16} />, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-          { label: "Active Members", value: activeCount, icon: <Users size={16} />, color: "text-blue-400", bg: "bg-blue-500/10" },
-          { label: "Pending Orders", value: totalAssigned, icon: <Package size={16} />, color: "text-amber-400", bg: "bg-amber-500/10" },
-          { label: "Total Confirmed", value: totalConfirmed, icon: <CheckCircle size={16} />, color: "text-brand", bg: "bg-brand/10" },
+          { label: "Avg handling time", value: formatDuration(totalCalls ? totalCallSeconds / totalCalls : 0), icon: <Timer size={16} />, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10" },
+          { label: "Avg session duration", value: formatDuration(members.length ? totalSessionSeconds / members.length : 0), icon: <Activity size={16} />, color: "text-violet-500", bg: "bg-violet-50 dark:bg-violet-500/10" },
+          { label: "Contacted (team)", value: totalContacted, icon: <PhoneIncoming size={16} />, color: "text-sky-500", bg: "bg-sky-50 dark:bg-sky-500/10" },
+          { label: "Team conv. rate", value: `${Math.round(teamConversionRate)}%`, icon: <Target size={16} />, color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-500/10" },
         ].map(({ label, value, icon, color, bg }) => (
           <div key={label} className="rounded-2xl border border-base-border bg-base-surface/80 p-4 flex items-center gap-3">
             <div className={`rounded-xl ${bg} p-2.5 ${color}`}>{icon}</div>
@@ -448,9 +564,9 @@ export default function Team() {
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="h-48 rounded-2xl bg-base-raised animate-pulse" />
+                <div key={i} className="h-[450px] rounded-2xl bg-base-raised animate-pulse" />
               ))}
             </div>
           ) : members.length <= 1 ? (
@@ -478,58 +594,51 @@ export default function Team() {
               />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
               {filteredMembers.map(m => (
                 <MemberCard
                   key={m.id}
                   member={m}
                   perf={performanceMap[m.id]}
-                  onEdit={setEditingMember}
                   onSelect={setSelectedMember}
-                  isOwner={isAdmin}
                 />
               ))}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Pending invitations */}
-          {invitations.length > 0 && (
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 divide-y divide-amber-500/10">
-              <div className="px-4 py-3 flex items-center gap-2 text-[13px] font-semibold text-amber-400">
-                <Clock size={14} /> Team Invitations ({invitations.length})
-              </div>
+      {/* ── Tab: Invitations ──────────────────────────────────────────────── */}
+      {tab === "invitations" && isAdmin && (
+        <div className="overflow-hidden rounded-2xl border border-base-border bg-base-surface">
+          <div className="flex items-center justify-between border-b border-base-border px-5 py-4">
+            <div>
+              <h2 className="text-[14px] font-bold text-ink">Team invitations</h2>
+              <p className="mt-0.5 text-[11px] text-ink-muted">Create, copy, resend, revoke, or permanently delete invitation links.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {invitations.length > 0 && <button onClick={() => void handleDeleteAllInvitations()} className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-2 text-[12px] font-semibold text-danger"><Trash2 size={14} /> Delete all</button>}
+              <button onClick={() => { setGeneratedInviteUrl(""); setShowInviteModal(true); }} className="flex items-center gap-2 rounded-lg bg-brand px-3.5 py-2 text-[12px] font-semibold text-white"><UserPlus size={14} /> New invitation</button>
+            </div>
+          </div>
+          {invitations.length === 0 ? (
+            <div className="py-16"><EmptyState title="No invitations" description="Create an invitation link when you are ready to add an agent." compact /></div>
+          ) : (
+            <div className="divide-y divide-base-border">
               {invitations.map((inv: any) => (
-                <div key={inv.id} className="flex items-center justify-between px-4 py-3">
-                  <div>
-                    <div className="text-[13px] text-ink font-medium">{inv.full_name || inv.email}</div>
-                    <div className="text-[11px] text-ink-muted">{inv.email} · {inv.role} · {Array.isArray(inv.allowed_sections) ? `${inv.allowed_sections.length} sections` : "Configured permissions"}</div>
-                    <div className="text-[10px] text-ink-faint">Sent {new Date(inv.last_sent_at || inv.created_at).toLocaleDateString()} · {inv.status === "pending" && inv.expires_at ? `Expires ${new Date(inv.expires_at).toLocaleDateString()}` : inv.status}</div>
+                <div key={inv.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2"><span className="truncate text-[13px] font-semibold text-ink">{inv.full_name || inv.email}</span><span className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase ${inv.status === "accepted" ? "bg-emerald-500/10 text-emerald-600" : inv.status === "pending" ? "bg-amber-500/10 text-amber-600" : "bg-base-raised text-ink-muted"}`}>{inv.status}</span></div>
+                    <div className="mt-0.5 truncate text-[11px] text-ink-muted">{inv.email} · {ROLE_LABELS[inv.role as TeamRole] || inv.role} · {Array.isArray(inv.allowed_sections) ? `${inv.allowed_sections.length} sections` : "Configured access"}</div>
+                    <div className="mt-1 flex items-center gap-1 text-[10px] text-ink-faint"><CalendarClock size={11} /> Created {new Date(inv.created_at).toLocaleDateString()}{inv.status === "pending" && inv.expires_at ? ` · expires ${new Date(inv.expires_at).toLocaleDateString()}` : ""}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${inv.status === "accepted" ? "bg-emerald-500/15 text-emerald-500" : inv.status === "pending" ? "bg-amber-500/15 text-amber-400" : "bg-base-raised text-ink-muted"}`}>{inv.status}</span>
-                  {inv.status !== "accepted" && inv.status !== "revoked" && <>
-                    <button
-                      onClick={async () => {
-                        const { data, error } = await invokeInvitationFunction({ action: "revoke", workspace_id: workspace?.id, invitation_id: inv.id });
-                        if (error || data?.error) { toast.error(await invitationFunctionError(error, data)); return; }
-                        reload();
-                        toast.success("Invitation revoked.");
-                      }}
-                      className="rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5 text-[11.5px] text-danger hover:bg-danger/20"
-                    >
-                      <X size={12} />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const { data, error } = await invokeInvitationFunction({ action: "create", workspace_id: workspace?.id, email: inv.email, full_name: inv.full_name || "", role: inv.role, allowed_sections: inv.allowed_sections });
-                        if (error || data?.error) toast.error(await invitationFunctionError(error, data));
-                        else { toast.success("Invitation resent."); reload(); }
-                      }}
-                      className="rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:text-ink"
-                    >
-                      <Send size={12} />
-                    </button>
-                  </>}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {inv.status === "pending" && <>
+                      <button onClick={() => void copyText(`${window.location.origin}/invite?token=${encodeURIComponent(inv.id)}`).then(() => toast.success("Invitation link copied."))} aria-label={`Copy invitation link for ${inv.email}`} className="inline-flex items-center gap-1.5 rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11px] font-medium text-ink"><Copy size={12} /> Copy</button>
+                      <button onClick={() => void handleResendInvitation(inv)} className="inline-flex items-center gap-1.5 rounded-lg border border-base-border bg-base-raised px-2.5 py-1.5 text-[11px] font-medium text-ink"><Send size={12} /> Resend</button>
+                      <button onClick={() => void handleRevokeInvitation(inv)} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-600"><X size={12} /> Revoke</button>
+                    </>}
+                    <button onClick={() => void handleDeleteInvitation(inv)} aria-label={`Delete invitation for ${inv.email}`} className="inline-flex items-center gap-1.5 rounded-lg border border-danger/20 bg-danger/10 px-2.5 py-1.5 text-[11px] font-medium text-danger"><Trash2 size={12} /> Delete</button>
                   </div>
                 </div>
               ))}
@@ -737,6 +846,7 @@ export default function Team() {
       {tab === "callreview" && isAdmin && workspace?.id && (
         <CallReviewPanel
           workspaceId={workspace.id}
+          initialAgentId={callReviewAgentId}
           agents={members.map((member) => ({
             id: member.id,
             fullName: member.full_name || member.email || "Agent",
@@ -747,54 +857,28 @@ export default function Team() {
         />
       )}
 
-      {selectedMember && (
-        <div className="app-modal-backdrop fixed inset-0 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setSelectedMember(null)} role="dialog" aria-modal="true" aria-label="Member profile">
+      {selectedMember && createPortal(
+        <div className="app-modal-backdrop fixed inset-0 flex justify-end bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setSelectedMember(null)} role="dialog" aria-modal="true" aria-label="Member profile">
           <div
-            className="h-dvh w-full max-w-[420px] overflow-y-auto overscroll-contain border-l border-base-border bg-base-surface pb-[env(safe-area-inset-bottom)] shadow-2xl"
+            className="h-dvh w-full max-w-[720px] overflow-y-auto overscroll-contain border-l border-base-border bg-base-surface pb-[env(safe-area-inset-bottom)] shadow-[-24px_0_80px_-28px_rgba(2,6,23,0.65)] animate-in slide-in-from-right duration-200 dark:shadow-[-28px_0_90px_-28px_rgba(0,0,0,0.9)] max-sm:max-w-none"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-base-border bg-base-surface/95 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-sm">
               <span className="text-[14px] font-bold text-ink">Member Profile</span>
-              <button onClick={() => setSelectedMember(null)} aria-label="Close member profile" className="grid h-11 w-11 place-items-center rounded-xl text-ink-muted hover:bg-base-raised hover:text-ink"><X size={16} /></button>
+              <button onClick={() => setSelectedMember(null)} aria-label="Close member profile" className="grid h-10 w-10 place-items-center rounded-xl border border-transparent bg-base-raised/70 text-ink-muted transition-colors hover:border-base-border hover:text-ink"><X size={16} /></button>
             </div>
 
-            {/* Profile hero */}
-            <div className="px-5 py-6 border-b border-base-border">
-              <div className="flex items-center gap-4 mb-4">
-                <MemberAvatar member={selectedMember} size="lg" />
-                <div>
-                  <div className="text-[18px] font-bold text-ink">{selectedMember.full_name || "Unknown User"}</div>
-                  <div className="text-[12.5px] text-ink-muted">{selectedMember.email}</div>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <RoleBadge role={selectedMember.role} />
-                    <span className={`text-[11px] font-medium ${STATUS_CONFIG[selectedMember.agent_status]?.color ?? "text-ink-faint"}`}>
-                      <StatusDot status={selectedMember.agent_status} /> {STATUS_CONFIG[selectedMember.agent_status]?.label}
-                    </span>
-                  </div>
-                </div>
+            {/* The full agent dashboard uses the same visual language as the overview. */}
+            <div className="border-b border-base-border bg-slate-50/60 p-4 dark:bg-slate-950/20">
+              <MemberCard member={selectedMember} perf={performanceMap[selectedMember.id]} onSelect={() => undefined} />
+              <div className="mt-3 flex items-center justify-between rounded-xl border border-base-border bg-base-surface px-3 py-2.5">
+                <div className="flex items-center gap-2"><RoleBadge role={selectedMember.role} /><span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${STATUS_CONFIG[selectedMember.agent_status]?.color ?? "text-ink-faint"}`}><StatusDot status={selectedMember.agent_status} /> {STATUS_CONFIG[selectedMember.agent_status]?.label}</span></div>
+                <div className="flex items-center gap-1.5"><Award size={14} className={RANK_COLORS[selectedMember.rank] ?? "text-amber-600"} /><span className={`text-[11px] font-bold ${RANK_COLORS[selectedMember.rank] ?? "text-amber-600"}`}>{selectedMember.rank}</span><span className="text-[10px] text-ink-faint">· {selectedMember.xp} XP</span></div>
               </div>
-
-              <div className={`flex items-center gap-2 rounded-xl px-3 py-2 ${RANK_COLORS[selectedMember.rank] ? `bg-${selectedMember.rank.toLowerCase()}-500/10` : "bg-amber-500/10"}`}>
-                <Award size={16} className={RANK_COLORS[selectedMember.rank] ?? "text-amber-600"} />
-                <span className={`text-[13px] font-bold ${RANK_COLORS[selectedMember.rank] ?? "text-amber-600"}`}>{selectedMember.rank}</span>
-                <span className="text-[12px] text-ink-muted ml-auto">{selectedMember.xp} XP</span>
-              </div>
-            </div>
-
-            {/* Performance stats */}
-            <div className="px-5 py-4 border-b border-base-border">
-              <div className="text-[12px] font-semibold text-ink-muted uppercase tracking-wide mb-3">Performance</div>
-              <div className="grid grid-cols-3 gap-2">
-                <MiniStat label="Assigned" value={performanceMap[selectedMember.id]?.total_assigned ?? 0} icon={<Package size={14} />} />
-                <MiniStat label="Confirmed" value={performanceMap[selectedMember.id]?.confirmed ?? 0} icon={<CheckCircle size={14} />} color="text-emerald-400" />
-                <MiniStat label="Rate" value={`${(performanceMap[selectedMember.id]?.confirmation_rate ?? 0).toFixed(1)}%`} icon={<TrendingUp size={14} />} color="text-brand" />
-              </div>
-              <div className="mt-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] text-ink-muted">Revenue Generated</span>
-                  <span className="text-[12px] font-bold font-mono text-ink">{Number(performanceMap[selectedMember.id]?.revenue_generated ?? 0).toLocaleString()} MAD</span>
-                </div>
+              <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-3 py-2.5">
+                <span className="text-[11px] font-medium text-ink-muted">Revenue generated</span>
+                <span className="font-mono text-[13px] font-bold text-ink">{Number(performanceMap[selectedMember.id]?.revenue_generated ?? 0).toLocaleString()} MAD</span>
               </div>
             </div>
 
@@ -826,6 +910,42 @@ export default function Team() {
               </div>
             </div>
 
+            {/* Manager-visible live route and consented call status */}
+            {isAdmin && (
+              <div className="border-b border-base-border px-5 py-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Live agent activity</div>
+                  <span className="inline-flex items-center gap-1.5 text-[10.5px] text-ink-muted"><StatusDot status={selectedMember.agent_status} /> {selectedMember.agent_status === "offline" ? "Last known" : "Live"}</span>
+                </div>
+                <div className="rounded-xl border border-base-border bg-base-raised/60 p-3">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold text-ink"><MonitorUp size={14} className="text-brand" /> {selectedMember.current_page || "No active page reported"}</div>
+                  {selectedMember.current_path && <div className="mt-1 truncate font-mono text-[10.5px] text-ink-muted">{selectedMember.current_path}</div>}
+                  {selectedMember.current_path?.startsWith("/") && !selectedMember.current_path.startsWith("//") && (
+                    <button onClick={() => { navigate(selectedMember.current_path!); setSelectedMember(null); }} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-brand/20 bg-brand/10 px-2.5 py-1.5 text-[11px] font-semibold text-brand hover:bg-brand/15"><MonitorUp size={12} /> Open this page</button>
+                  )}
+                </div>
+                <div className={`mt-2 flex items-center gap-2 rounded-xl border p-3 text-[11.5px] ${selectedMember.active_call ? "border-danger/25 bg-danger/5 text-danger" : "border-base-border bg-base-raised/40 text-ink-muted"}`}>
+                  <Mic size={14} className={selectedMember.active_call ? "animate-pulse" : ""} />
+                  {selectedMember.active_call ? "Agent is making a visible, permitted microphone recording now." : "No permitted microphone recording is active."}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {activityLog.filter((entry) => entry.profile_id === selectedMember.id).slice(0, 6).map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between gap-3 text-[11px]">
+                      <span className="truncate text-ink">{entry.entity_label || entry.page || entry.action.replace(/_/g, " ")}</span>
+                      <span className="shrink-0 text-ink-faint">{new Date(entry.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => { setCallReviewAgentId(selectedMember.id); setTab("callreview"); setSelectedMember(null); }}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-2.5 text-[12px] font-semibold text-violet-500 hover:bg-violet-500/15"
+                >
+                  <Headphones size={14} /> Open consented call recordings
+                </button>
+                <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">Page presence is operational activity. Microphone audio is never opened silently; recordings only exist after the agent grants browser permission and starts recording.</p>
+              </div>
+            )}
+
             {/* Actions */}
             {isAdmin && selectedMember.role !== "owner" && (
               <div className="px-5 py-4 space-y-2">
@@ -855,7 +975,8 @@ export default function Team() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ── Edit Member Modal ─────────────────────────────────────────────── */}
@@ -916,13 +1037,13 @@ export default function Team() {
 
       {/* ── Invite Modal ──────────────────────────────────────────────────── */}
       {showInviteModal && (
-        <Modal title="Invite Team Member" onClose={() => setShowInviteModal(false)}>
+        <Modal title="Invite Team Member" onClose={() => { setShowInviteModal(false); setGeneratedInviteUrl(""); }}>
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-[12px] font-medium text-ink-muted">Full Name</label>
               <input
                 value={inviteForm.fullName}
-                onChange={e => setInviteForm({ ...inviteForm, fullName: e.target.value })}
+                onChange={e => { setGeneratedInviteUrl(""); setInviteForm({ ...inviteForm, fullName: e.target.value }); }}
                 placeholder="Sara El Idrissi"
                 className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-[13px] text-ink focus:border-brand/50 focus:outline-none"
               />
@@ -931,7 +1052,7 @@ export default function Team() {
               <label className="mb-1.5 block text-[12px] font-medium text-ink-muted">Email *</label>
               <input
                 value={inviteForm.email}
-                onChange={e => setInviteForm({ ...inviteForm, email: e.target.value })}
+                onChange={e => { setGeneratedInviteUrl(""); setInviteForm({ ...inviteForm, email: e.target.value }); }}
                 placeholder="sara@yourstore.ma"
                 type="email"
                 className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-[13px] text-ink focus:border-brand/50 focus:outline-none"
@@ -941,7 +1062,7 @@ export default function Team() {
               <label className="mb-1.5 block text-[12px] font-medium text-ink-muted">Role</label>
               <select
                 value={inviteForm.role}
-                onChange={e => setInviteForm({ ...inviteForm, role: e.target.value as TeamRole, allowedSections: e.target.value === "supervisor" ? ALL_ALLOWED_SECTIONS : inviteForm.allowedSections })}
+                onChange={e => { setGeneratedInviteUrl(""); setInviteForm({ ...inviteForm, role: e.target.value as TeamRole, allowedSections: e.target.value === "supervisor" ? ALL_ALLOWED_SECTIONS : inviteForm.allowedSections }); }}
                 className="w-full rounded-xl border border-base-border bg-base-raised px-3 py-2 text-[13px] text-ink focus:border-brand/50 focus:outline-none"
               >
                 {ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -958,6 +1079,7 @@ export default function Team() {
                         checked={inviteForm.allowedSections.includes(section)}
                         onChange={() => {
                           const curr = inviteForm.allowedSections;
+                          setGeneratedInviteUrl("");
                           setInviteForm({ ...inviteForm, allowedSections: curr.includes(section) ? curr.filter(s => s !== section) : [...curr, section] });
                         }}
                         className="h-4 w-4 rounded border-base-border text-brand"
@@ -968,13 +1090,32 @@ export default function Team() {
                 </div>
               </div>
             )}
-            <button
-              onClick={handleInvite}
-              disabled={inviteBusy}
-              className="w-full rounded-xl bg-brand py-2.5 text-[13.5px] font-medium text-white hover:bg-brand/90 disabled:opacity-60"
-            >
-              {inviteBusy ? "Sending…" : "Send Invitation"}
-            </button>
+            {generatedInviteUrl && (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-emerald-600"><CheckCircle size={14} /> Invitation link ready</div>
+                <div className="flex gap-2">
+                  <input readOnly value={generatedInviteUrl} aria-label="Generated invitation link" className="min-w-0 flex-1 rounded-lg border border-base-border bg-base-surface px-3 py-2 font-mono text-[10.5px] text-ink" />
+                  <button onClick={() => void copyText(generatedInviteUrl).then(() => toast.success("Invitation link copied."))} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-semibold text-white"><Copy size={13} /> Copy</button>
+                </div>
+              </div>
+            )}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                onClick={() => void handleInvite("email")}
+                disabled={inviteBusy}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand py-2.5 text-[13px] font-medium text-white hover:bg-brand/90 disabled:opacity-60"
+              >
+                <Send size={14} /> {inviteBusy ? "Working…" : "Send by email"}
+              </button>
+              <button
+                onClick={() => void handleInvite("link")}
+                disabled={inviteBusy}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand/25 bg-brand/10 py-2.5 text-[13px] font-medium text-brand hover:bg-brand/15 disabled:opacity-60"
+              >
+                <Link2 size={14} /> {inviteBusy ? "Working…" : "Create & copy link"}
+              </button>
+            </div>
+            <p className="text-[10.5px] leading-relaxed text-ink-muted">The invitee joins this workspace and uses its subscription. They are not sent to a separate payment flow.</p>
           </div>
         </Modal>
       )}
