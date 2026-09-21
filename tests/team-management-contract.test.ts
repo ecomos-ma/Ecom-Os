@@ -68,6 +68,25 @@ test("a valid invitation signup joins the owner workspace without a payment deto
   assert.doesNotMatch(acceptEdge, /SUPABASE_SERVICE_ROLE_KEY/);
 });
 
+test("invited signup keeps auth provisioning independent from billing records", () => {
+  const migration = read("supabase/migrations/20260921161000_fix_invited_user_signup_trigger.sql");
+
+  assert.match(migration, /create or replace function public\.handle_new_user\(\)/);
+  assert.match(migration, /team_invitation_id/);
+  assert.match(migration, /v_has_invite boolean/);
+  assert.match(migration, /invitation\.id = v_invitation_id/);
+  assert.match(migration, /insert into public\.profiles \(\s*id, full_name, email, role, workspace_id, is_active, allowed_sections/);
+  assert.match(migration, /values \(\s*new\.id, v_full_name, lower\(new\.email\), 'agent', null, true, '\[\]'::jsonb/);
+
+  const invitedBranchStart = migration.indexOf("if not v_is_founder and v_has_invite then");
+  const invitedBranchEnd = migration.indexOf("return new;", invitedBranchStart);
+  assert.ok(invitedBranchStart >= 0 && invitedBranchEnd > invitedBranchStart);
+  assert.doesNotMatch(
+    migration.slice(invitedBranchStart, invitedBranchEnd),
+    /workspace_limits|workspace_subscriptions|user_subscriptions/
+  );
+});
+
 test("team mutations and live activity are tenant scoped", () => {
   const migration = read("supabase/migrations/20260910104248_team_management_presence_and_permissions.sql");
   const hook = read("src/hooks/useTeamData.ts");
