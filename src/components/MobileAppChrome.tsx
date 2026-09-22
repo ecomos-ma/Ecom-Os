@@ -182,10 +182,39 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
     };
   }, [sidebarOpen]);
 
-  // Active state for the "More / All Pages" tab in bottom navigation
-  const sidebarTabActive =
+  // Keep the phone tab bar compact.  These are the tasks people use most
+  // often; the drawer remains the single source of truth for every other page.
+  const mobilePrimaryNav = useMemo(() => {
+    const preferredPaths = [
+      "/dashboard",
+      "/orders",
+      "/confirmation",
+      "/products-inventory",
+    ];
+    const preferred = preferredPaths
+      .map((path) => accessiblePages.find((page) => page.to === path))
+      .filter((page): page is PageEntry => Boolean(page));
+    const selected = new Set(preferred.map((page) => page.to));
+    const fallback = accessiblePages.filter(
+      (page) => !selected.has(page.to) && page.to !== "/notifications",
+    );
+
+    return [...preferred, ...fallback].slice(0, 4).map((page) => ({
+      ...page,
+      label:
+        page.to === "/dashboard"
+          ? "Home"
+          : page.to === "/confirmation"
+            ? "Confirm"
+            : page.to === "/products-inventory"
+              ? "Products"
+              : page.label.replace(" Management", "").replace(" Directory", ""),
+    }));
+  }, [accessiblePages]);
+
+  const moreTabActive =
     sidebarOpen ||
-    !["/dashboard", "/orders", "/delivering"].some((t) => isActive(location.pathname, t));
+    !mobilePrimaryNav.some((page) => isActive(location.pathname, page.to));
 
   return (
     <>
@@ -584,68 +613,36 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         </div>
       </MobileBottomSheet>
 
-      {/* ── Mobile Bottom Navigation Bar (5 Floating Tabs) ─────────────── */}
-      <nav className="mobile-bottom-nav md:hidden" aria-label="Main navigation">
-        {/* 1 · Home */}
-        <NavLink
-          to="/dashboard"
-          onPointerDown={getPrefetchHandler("/dashboard")}
-          onMouseEnter={getPrefetchHandler("/dashboard")}
-          onClick={haptic}
-          className={({ isActive: a }) => `mobile-nav-item ${a ? "is-active" : ""}`}
-        >
-          <Home size={20} strokeWidth={1.8} />
-          <span>Home</span>
-        </NavLink>
+      {/* ── Phone / PWA bottom navigation ──────────────────────────────── */}
+      <nav
+        className="mobile-bottom-nav md:hidden"
+        aria-label="Main navigation"
+        style={{ gridTemplateColumns: `repeat(${Math.max(mobilePrimaryNav.length + 1, 2)}, minmax(0, 1fr))` }}
+      >
+        {mobilePrimaryNav.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            onPointerDown={getPrefetchHandler(to)}
+            onMouseEnter={getPrefetchHandler(to)}
+            onClick={haptic}
+            className={({ isActive: active }) => `mobile-nav-item ${active ? "is-active" : ""}`}
+          >
+            <Icon size={20} strokeWidth={1.9} />
+            <span>{label}</span>
+          </NavLink>
+        ))}
 
-        {/* 2 · Orders */}
-        <NavLink
-          to="/orders"
-          onPointerDown={getPrefetchHandler("/orders")}
-          onMouseEnter={getPrefetchHandler("/orders")}
-          onClick={haptic}
-          className={({ isActive: a }) => `mobile-nav-item ${a ? "is-active" : ""}`}
-        >
-          <Package size={20} strokeWidth={1.8} />
-          <span>Orders</span>
-        </NavLink>
-
-        {/* 3 · Quick actions */}
-        <button
-          type="button"
-          onClick={() => { haptic(); setQuickOpen(true); }}
-          className="mobile-nav-item"
-          aria-label="Quick actions"
-          aria-haspopup="dialog"
-        >
-          <span className="mobile-center-fab" aria-hidden="true">
-            <Plus size={20} strokeWidth={2.5} />
-          </span>
-          <span>Quick</span>
-        </button>
-
-        {/* 4 · Delivering */}
-        <NavLink
-          to="/delivering"
-          onPointerDown={getPrefetchHandler("/delivering")}
-          onMouseEnter={getPrefetchHandler("/delivering")}
-          onClick={haptic}
-          className={({ isActive: a }) => `mobile-nav-item ${a ? "is-active" : ""}`}
-        >
-          <Truck size={20} strokeWidth={1.8} />
-          <span>Delivering</span>
-        </NavLink>
-
-        {/* 5 · Sidebar / All Pages Drawer Trigger */}
+        {/* All remaining, permission-filtered destinations live here. */}
         <button
           type="button"
           onClick={() => { haptic(); setSidebarOpen(true); }}
-          className={`mobile-nav-item ${sidebarTabActive ? "is-active" : ""}`}
-          aria-label="Sidebar and all pages"
+          className={`mobile-nav-item ${moreTabActive ? "is-active" : ""}`}
+          aria-label="More pages"
           aria-haspopup="dialog"
         >
           <LayoutGrid size={20} strokeWidth={1.8} />
-          <span>Sidebar</span>
+          <span>More</span>
         </button>
       </nav>
 

@@ -1,11 +1,13 @@
 import { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { isFounder } from "../lib/rbac";
 import { PlatformLoading } from "./PlatformLoading";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { session, loading, profile, operationalAccess, subscriptionStatus, isDemoMode } = useAuth();
   const location = useLocation();
+  const founderAccess = isFounder(profile?.role, session?.user.email);
 
   // HARD GATE: Wait for complete auth check before rendering anything
   if (loading) {
@@ -22,11 +24,11 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }
 
   // HARD GATE: Profile must be active
-  if (profile?.is_active === false) return <Navigate to="/disabled" replace />;
+  if (!founderAccess && profile?.is_active === false) return <Navigate to="/disabled" replace />;
 
   // HARD GATE: Subscription status must be explicitly checked and positive
   // operationalAccess is NULL while checking, FALSE when denied, TRUE when approved
-  if (operationalAccess !== true) {
+  if (!founderAccess && operationalAccess !== true) {
     // If null, still loading subscription state - show loading screen
     if (operationalAccess === null) {
       return <PlatformLoading />;

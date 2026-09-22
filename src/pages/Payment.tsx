@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 import type { BillingPeriod, PlanTier } from "../config/pricing";
 import { fetchOfficialPlans, getPlanPrice, type PublicPlanRecord } from "../lib/planEngine";
 import { downloadPaymentReceiptPdf } from "../lib/paymentReceipt";
+import { isFounder } from "../lib/rbac";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 
@@ -62,7 +63,7 @@ const inputClass = "h-12 w-full rounded-xl border border-slate-200 bg-white px-3
 const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID?.trim() || "";
 
 export default function Payment() {
-  const { session, loading, operationalAccess, subscriptionStatus, refreshProfile } = useAuth();
+  const { session, loading, profile, operationalAccess, subscriptionStatus, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const previewMode = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "checkout";
   const [searchParams] = useSearchParams();
@@ -93,6 +94,7 @@ export default function Payment() {
   const [notice, setNotice] = useState("");
   const [referralDiscountPct, setReferralDiscountPct] = useState(0);
   const paypalActionInFlightRef = useRef(false);
+  const founderAccess = isFounder(profile?.role, session?.user.email);
 
   const normalizedBlockReason = subscriptionStatus === "pending_payment" ? "subscription_pending_payment" : subscriptionStatus === "expired" ? "subscription_expired" : subscriptionStatus === "grace" ? "grace_period" : subscriptionStatus;
   const blockMessage = normalizedBlockReason === "order_limit_reached" ? "Your current plan reached its monthly order limit. Complete a new payment to regain access." : normalizedBlockReason === "subscription_expired" ? "Your subscription expired. Complete a new payment to reactivate access." : normalizedBlockReason === "grace_period" ? "Your subscription is in its grace period until payment is resolved." : normalizedBlockReason === "subscription_suspended" ? "Your subscription is suspended. Complete a payment to restore access." : "Your workspace will activate after the payment is verified.";
@@ -147,6 +149,7 @@ export default function Payment() {
 
   if (loading) return <Screen><Loader2 className="h-7 w-7 animate-spin text-[#e73773]" /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
+  if (founderAccess && !previewMode) return <Navigate to="/dashboard" replace />;
   if (busy) return <Screen><Loader2 className="h-7 w-7 animate-spin text-[#e73773]" /></Screen>;
   // Active subscribers land here only through an explicit renew/upgrade intent.
   if (operationalAccess && !isRenewalIntent) return <Navigate to="/dashboard" replace />;

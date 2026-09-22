@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { getAppUrlForPath, getSafeReturnPath } from "../lib/appUrl";
+import { isFounder } from "../lib/rbac";
 import { useAuth } from "../hooks/useAuth";
 import type { BillingPeriod, PlanTier } from "../config/pricing";
 import { fetchOfficialPlans, getPlanPrice, type PublicPlanRecord } from "../lib/planEngine";
@@ -160,6 +161,7 @@ export default function Login() {
 
   if (!loading && session) {
     let route = profile?.role === "supervisor" ? "/dashboard" : defaultRoute ?? "/dashboard";
+    const founderAccess = isFounder(profile?.role, session.user.email);
 
     const waitingStatuses = new Set([
       "under_review",
@@ -170,7 +172,9 @@ export default function Login() {
       "awaiting_verification",
     ]);
 
-    if (isTeamInvite && safeReturnTo) {
+    if (founderAccess) {
+      route = "/dashboard";
+    } else if (isTeamInvite && safeReturnTo) {
       route = safeReturnTo;
     } else if (subscriptionStatus === "expired") {
       route = "/subscription-expired";

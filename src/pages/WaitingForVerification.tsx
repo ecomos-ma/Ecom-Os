@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import { PaymentReceiptCard } from "../components/PaymentReceiptCard";
 import type { PaymentReceiptData } from "../lib/paymentReceipt";
+import { isFounder } from "../lib/rbac";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 
 type PaymentRequest = {
@@ -37,7 +38,7 @@ const previewReceipt: PaymentReceiptData = {
 };
 
 export default function WaitingForVerification() {
-  const { session, loading, operationalAccess, defaultRoute, refreshProfile, workspace } = useAuth();
+  const { session, loading, profile, operationalAccess, defaultRoute, refreshProfile, workspace } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // Active sellers only see this flow after an explicit renewal or upgrade.
@@ -50,6 +51,7 @@ export default function WaitingForVerification() {
   const approvalChangeDetectedRef = useRef(false);
   const refreshInFlightRef = useRef(false);
   const redirectedRef = useRef(false);
+  const founderAccess = isFounder(profile?.role, session?.user.email);
 
   useEffect(() => {
     const userId = session?.user.id;
@@ -153,6 +155,7 @@ export default function WaitingForVerification() {
 
   if (loading && !previewMode) return <Screen><Loader2 className="animate-spin text-[#e73773]" size={34} /></Screen>;
   if (!session && !previewMode) return <Navigate to="/login" replace />;
+  if (founderAccess && !previewMode) return <Navigate to="/dashboard" replace />;
 
 
   if (operationalAccess && !previewMode && !hasPaymentIntent) return <Navigate to="/dashboard" replace />;

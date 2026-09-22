@@ -99,8 +99,10 @@ test("mobile navigation is an adaptive safe-area dock on portrait and landscape 
   assert.match(styles, /\.app-main \{[\s\S]*?padding-bottom: var\(--mobile-nav-total\)/);
   assert.match(styles, /@media \(orientation: landscape\) and \(max-width: 932px\) and \(max-height: 520px\)/);
   assert.match(layout, /<main className="app-main/);
-  assert.match(mobileChrome, /className="mobile-nav-item"[\s\S]*aria-label="Quick actions"/);
-  assert.match(mobileChrome, /className="mobile-center-fab"[\s\S]*<span>Quick<\/span>/);
+  assert.match(mobileChrome, /const mobilePrimaryNav = useMemo/);
+  assert.match(mobileChrome, /Phone \/ PWA bottom navigation/);
+  assert.match(mobileChrome, /aria-label="More pages"/);
+  assert.doesNotMatch(mobileChrome, /mobile-center-fab/);
 });
 
 test("only EcomOS PNG favicon references remain", () => {

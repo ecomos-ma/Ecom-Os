@@ -32,17 +32,22 @@ insert into public.subscription_plans (
   premium_support, is_popular, is_active, is_public, is_official,
   display_order, custom_limits, custom_benefits
 )
-values (
+select
   'Founder', 'Internal founder entitlement. Not available for purchase.',
   'founder', 0, 0, null, 'month', null, null, null,
   true, true, true, true, true, true,
   false, true, false, true, -100,
   jsonb_build_object('unlimited', true),
   jsonb_build_array('Full platform access', 'No payment required')
-)
-on conflict (code) do update
-set name = excluded.name,
-    description = excluded.description,
+where not exists (
+  select 1 from public.subscription_plans where code = 'founder'
+);
+
+-- subscription_plans.code is backed by a partial unique index, which cannot
+-- be inferred by ON CONFLICT(code). Normalize the row separately.
+update public.subscription_plans
+set name = 'Founder',
+    description = 'Internal founder entitlement. Not available for purchase.',
     monthly_price_mad = 0,
     annual_price_mad = 0,
     order_limit = null,
@@ -61,7 +66,8 @@ set name = excluded.name,
     display_order = -100,
     custom_limits = jsonb_build_object('unlimited', true),
     custom_benefits = jsonb_build_array('Full platform access', 'No payment required'),
-    updated_at = now();
+    updated_at = now()
+where code = 'founder';
 
 -- Repair the existing founder account without relying on its old UUID.
 update public.profiles profile

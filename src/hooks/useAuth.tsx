@@ -78,6 +78,21 @@ function resolveProfilePermissions(profile: Profile | null) {
   };
 }
 
+function isLegacyWorkspaceBillingResolverError(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+} | null | undefined) {
+  if (!error) return false;
+  const text = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
+  return (
+    error.code === "42883" && text.includes("get_effective_subscription_v1(uuid, boolean)")
+  ) || (
+    error.code === "PGRST202" && text.includes("resolve_workspace_access_v1")
+  );
+}
+
 interface PreviewWorkspaceState {
   profile: Profile | null;
   workspace: Workspace | null;
@@ -291,6 +306,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let localProfile = profileData as Profile;
     const userEmail = currentSession?.user?.email ?? null;
+    const founderBypass = isFounder(localProfile.role, userEmail);
+
+    // The protected founder identity is determined by the verified Auth email,
+    // not by mutable profile or billing rows. Keep the in-memory profile usable
+    // while a database repair/migration is rolling out.
+    if (founderBypass) {
+      localProfile = {
+        ...localProfile,
+        role: "founder",
+        is_active: true,
+        deleted_at: null,
+      } as Profile;
+    }
 
     const loadWorkspaceMemberships = async (profileId: string) => {
       setWorkspacePlan("");
@@ -429,6 +457,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const workspaceId = localProfile.workspace_id;
 
     if (!workspaceId) {
+      if (founderBypass) {
+        const founderSubscription = {
+          plan: "founder",
+          workspaceLimit: 2_147_483_647,
+          status: "root_founder_access",
+          allowed: true,
+        };
+        baseSubscriptionRef.current = founderSubscription;
+        setWorkspacePlan(founderSubscription.plan);
+        setWorkspaceLimit(founderSubscription.workspaceLimit);
+        setSubscriptionStatus(founderSubscription.status);
+        setOperationalAccess(true);
+        subscriptionVerifiedRef.current = true;
+        setTeamPermissions(buildPermissionsForOwner());
+        setDefaultRoute("/dashboard");
+        setPermissionsLoading(false);
+        return;
+      }
       console.error("[useAuth] HARD GATE BLOCKED: No workspace assigned");
       setSubscriptionStatus("workspace_missing");
       setOperationalAccess(false); // DENY ACCESS
@@ -439,11 +485,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Founder access is a recovery invariant. Do not let an unavailable,
+    // stale, or under-review billing RPC override the verified Auth identity.
+    if (founderBypass) {
+      const founderSubscription = {
+        plan: "founder",
+        workspaceLimit: 2_147_483_647,
+        status: "root_founder_access",
+        allowed: true,
+      };
+      baseSubscriptionRef.current = founderSubscription;
+      if (!previewWorkspaceRef.current) {
+        setWorkspacePlan(founderSubscription.plan);
+        setWorkspaceLimit(founderSubscription.workspaceLimit);
+        setSubscriptionStatus(founderSubscription.status);
+        setOperationalAccess(true);
+      }
+      subscriptionVerifiedRef.current = true;
+      setTeamPermissions(buildPermissionsForOwner());
+      setDefaultRoute("/dashboard");
+      setPermissionsLoading(false);
+      return;
+    }
+
     // HARD GATE: Verify subscription status from backend before allowing any access
-    const { data: accessData, error: accessError } = await supabase.rpc("resolve_workspace_access_v1", {
+    let { data: accessData, error: accessError } = await supabase.rpc("resolve_workspace_access_v1", {
       p_user_id: userId,
       p_workspace_id: workspaceId,
     });
+
+    // A team member inherits the workspace owner's subscription; the member
+    // never owns a separate subscription and must never be sent to checkout.
+    // During the database rollout, recover only from the known stale resolver
+    // signature by verifying both active membership and the owner's canonical
+    // subscription blocker. Any other billing error remains fail-closed.
+    const isInvitedTeamMember = ["agent", "supervisor"].includes(String(localProfile.role || "").toLowerCase());
+    if (accessError && isInvitedTeamMember && isLegacyWorkspaceBillingResolverError(accessError)) {
+      const [membershipResult, ownerBillingResult] = await Promise.all([
+        supabase
+          .from("profile_workspaces")
+          .select("workspace_id,is_owner,role,status")
+          .eq("profile_id", userId)
+          .eq("workspace_id", workspaceId)
+          .eq("status", "active")
+          .maybeSingle(),
+        supabase.rpc("is_subscription_blocked_v1", { p_workspace_id: workspaceId }),
+      ]);
+      const ownerBilling = ownerBillingResult.data && typeof ownerBillingResult.data === "object"
+        ? ownerBillingResult.data as Record<string, any>
+        : null;
+      const inheritedSubscription = ownerBilling?.subscription && typeof ownerBilling.subscription === "object"
+        ? ownerBilling.subscription as Record<string, any>
+        : null;
+      const hasActiveMemberAccess = Boolean(
+        membershipResult.data
+        && membershipResult.data.is_owner === false
+        && ["agent", "supervisor"].includes(String(membershipResult.data.role || "").toLowerCase()),
+      );
+      const ownerAllowsAccess = Boolean(
+        !ownerBillingResult.error
+        && ownerBilling
+        && ownerBilling.blocked === false
+        && inheritedSubscription?.operational_access === true,
+      );
+
+      if (hasActiveMemberAccess && ownerAllowsAccess) {
+        console.warn("[useAuth] Recovered team-member access through the workspace owner's subscription.");
+        accessData = {
+          allowed: true,
+          reason: "team_member_inherited_access",
+          workspace_id: workspaceId,
+          subscription: inheritedSubscription,
+        };
+        accessError = null;
+      }
+    }
 
     // HARD GATE: If subscription check fails, deny all access
     if (accessError) {
@@ -461,14 +577,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const access = accessData && typeof accessData === "object" ? accessData as Record<string, any> : null;
     const effective = access?.subscription && typeof access.subscription === "object" ? access.subscription as Record<string, any> : null;
-    // The exact root-founder identity remains available for recovery and
-    // platform administration even if a workspace plan is removed.
-    const founderBypass = isFounder(localProfile.role, userEmail);
-    const isAccessAllowed = founderBypass || Boolean(access?.allowed);
+    const isAccessAllowed = Boolean(access?.allowed);
     const nextSubscription = {
       plan: String(effective?.plan?.code || ""),
       workspaceLimit: Number(effective?.limits?.workspaces || 0),
-      status: founderBypass ? "root_founder_access" : String(effective?.status || access?.reason || "subscription_missing"),
+      status: String(effective?.status || access?.reason || "subscription_missing"),
       allowed: isAccessAllowed,
     };
     baseSubscriptionRef.current = nextSubscription;
@@ -492,7 +605,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (founderBypass || isOwnerLikeRole(localProfile.role)) {
+    if (isOwnerLikeRole(localProfile.role)) {
       setTeamPermissions(buildPermissionsForOwner());
       // A newly activated owner should land in the guided setup, not an empty
       // dashboard. Completion is kept per workspace so switching businesses
