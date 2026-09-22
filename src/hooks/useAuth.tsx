@@ -514,51 +514,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       p_workspace_id: workspaceId,
     });
 
-    // A team member inherits the workspace owner's subscription; the member
-    // never owns a separate subscription and must never be sent to checkout.
-    // During the database rollout, recover only from the known stale resolver
-    // signature by verifying both active membership and the owner's canonical
-    // subscription blocker. Any other billing error remains fail-closed.
+    // An accepted agent/supervisor is a workspace member, never a billing
+    // customer. Verify the active membership directly and make that membership
+    // sufficient for app entry; team members must never see checkout or a
+    // payment-review screen because they have no subscription of their own.
     const isInvitedTeamMember = ["agent", "supervisor"].includes(String(localProfile.role || "").toLowerCase());
-    if (accessError && isInvitedTeamMember && isLegacyWorkspaceBillingResolverError(accessError)) {
-      const [membershipResult, ownerBillingResult] = await Promise.all([
-        supabase
-          .from("profile_workspaces")
-          .select("workspace_id,is_owner,role,status")
-          .eq("profile_id", userId)
-          .eq("workspace_id", workspaceId)
-          .eq("status", "active")
-          .maybeSingle(),
-        supabase.rpc("is_subscription_blocked_v1", { p_workspace_id: workspaceId }),
-      ]);
-      const ownerBilling = ownerBillingResult.data && typeof ownerBillingResult.data === "object"
-        ? ownerBillingResult.data as Record<string, any>
-        : null;
-      const inheritedSubscription = ownerBilling?.subscription && typeof ownerBilling.subscription === "object"
-        ? ownerBilling.subscription as Record<string, any>
-        : null;
-      const hasActiveMemberAccess = Boolean(
-        membershipResult.data
-        && membershipResult.data.is_owner === false
-        && ["agent", "supervisor"].includes(String(membershipResult.data.role || "").toLowerCase()),
-      );
-      const ownerAllowsAccess = Boolean(
-        !ownerBillingResult.error
-        && ownerBilling
-        && ownerBilling.blocked === false
-        && inheritedSubscription?.operational_access === true,
-      );
-
-      if (hasActiveMemberAccess && ownerAllowsAccess) {
-        console.warn("[useAuth] Recovered team-member access through the workspace owner's subscription.");
-        accessData = {
-          allowed: true,
-          reason: "team_member_inherited_access",
-          workspace_id: workspaceId,
-          subscription: inheritedSubscription,
-        };
-        accessError = null;
-      }
+    const membershipResult = isInvitedTeamMember
+      ? await supabase
+        .from("profile_workspaces")
+        .select("workspace_id,is_owner,role,status")
+        .eq("profile_id", userId)
+        .eq("workspace_id", workspaceId)
+        .eq("status", "active")
+        .maybeSingle()
+      : null;
+    const hasActiveTeamMembership = Boolean(
+      membershipResult?.data
+      && membershipResult.data.is_owner === false
+      && ["agent", "supervisor"].includes(String(membershipResult.data.role || "").toLowerCase()),
+    );
+    if (hasActiveTeamMembership) {
+      accessData = {
+        allowed: true,
+        reason: "team_member_workspace_access",
+        workspace_id: workspaceId,
+        subscription: {
+          status: "active",
+          operational_access: true,
+          access_reason: "team_member_workspace_access",
+          plan: { code: "team_member" },
+          limits: { workspaces: 0 },
+        },
+      };
+      accessError = null;
+    } else if (accessError && isInvitedTeamMember && isLegacyWorkspaceBillingResolverError(accessError)) {
+      console.warn("[useAuth] Team membership could not be verified during a legacy billing resolver error.");
     }
 
     // HARD GATE: If subscription check fails, deny all access

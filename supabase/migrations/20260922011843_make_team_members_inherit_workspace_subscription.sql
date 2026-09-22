@@ -18,6 +18,8 @@ declare
   owner_id uuid;
   effective jsonb;
   member_access boolean;
+  member_is_owner boolean;
+  member_role text;
   blocked jsonb;
 begin
   if p_user_id <> (select auth.uid())
@@ -37,16 +39,37 @@ begin
     );
   end if;
 
-  select exists (
-    select 1
-    from public.profile_workspaces membership
-    where membership.profile_id = p_user_id
-      and membership.workspace_id = p_workspace_id
-      and coalesce(membership.status, 'active') = 'active'
-  ) into member_access;
+  select
+    true,
+    coalesce(membership.is_owner, false),
+    lower(coalesce(membership.role, ''))
+  into member_access, member_is_owner, member_role
+  from public.profile_workspaces membership
+  where membership.profile_id = p_user_id
+    and membership.workspace_id = p_workspace_id
+    and coalesce(membership.status, 'active') = 'active';
 
-  if not member_access then
+  if not coalesce(member_access, false) then
     return jsonb_build_object('allowed', false, 'reason', 'not_active_workspace_member');
+  end if;
+
+  -- An accepted agent or supervisor is covered by workspace membership, not
+  -- a personal subscription. They must be able to open their assigned
+  -- workspace immediately, even while owner billing is reviewed or changed.
+  if not coalesce(member_is_owner, false)
+     and member_role = any (array['agent', 'supervisor']::text[]) then
+    return jsonb_build_object(
+      'allowed', true,
+      'reason', 'team_member_workspace_access',
+      'workspace_id', p_workspace_id,
+      'subscription', jsonb_build_object(
+        'status', 'active',
+        'operational_access', true,
+        'access_reason', 'team_member_workspace_access',
+        'plan', jsonb_build_object('code', 'team_member'),
+        'limits', jsonb_build_object('workspaces', 0)
+      )
+    );
   end if;
 
   select billing_owner.owner_user_id into owner_id
@@ -89,7 +112,7 @@ end;
 $$;
 
 comment on function public.resolve_workspace_access_v1(uuid, uuid) is
-  'Authorizes an active workspace member using the workspace billing owner subscription; invited members never need a separate plan.';
+  'Authorizes active agents and supervisors by workspace membership; invited members never need a separate plan or payment review.';
 
 revoke all on function public.resolve_workspace_access_v1(uuid, uuid) from public, anon;
 grant execute on function public.resolve_workspace_access_v1(uuid, uuid) to authenticated, service_role;

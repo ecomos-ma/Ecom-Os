@@ -105,6 +105,7 @@ test("invited members never become workspace billing owners", () => {
   const migration = read("supabase/migrations/20260921180000_fix_invited_member_workspace_membership.sql");
   const billingInheritance = read("supabase/migrations/20260922011843_make_team_members_inherit_workspace_subscription.sql");
   const auth = read("src/hooks/useAuth.tsx");
+  const payment = read("src/pages/Payment.tsx");
 
   assert.match(migration, /lower\(coalesce\(new\.role, ''\)\) in \('agent', 'supervisor'\)/);
   assert.match(migration, /values \(\s*new\.id, new\.workspace_id, false, normalized_member_role, 'active'/);
@@ -117,10 +118,13 @@ test("invited members never become workspace billing owners", () => {
   assert.match(billingInheritance, /from public\.workspace_subscription_owners billing_owner/);
   assert.match(billingInheritance, /get_effective_subscription_v1\(owner_id\)/);
   assert.doesNotMatch(billingInheritance, /get_effective_subscription_v1\(owner_id,\s*(true|false)\)/);
-  assert.match(billingInheritance, /'team_member_inherited_access'/);
+  assert.match(billingInheritance, /'team_member_workspace_access'/);
+  assert.match(billingInheritance, /member_role = any \(array\['agent', 'supervisor'\]::text\[\]\)/);
   assert.match(auth, /isLegacyWorkspaceBillingResolverError/);
-  assert.match(auth, /rpc\("is_subscription_blocked_v1"/);
+  assert.match(auth, /const hasActiveTeamMembership/);
   assert.match(auth, /membershipResult\.data\.is_owner === false/);
+  assert.match(payment, /const isTeamMember = \["agent", "supervisor"\]/);
+  assert.match(payment, /isTeamMember && !previewMode && !isRenewalIntent/);
 });
 
 test("team mutations and live activity are tenant scoped", () => {
