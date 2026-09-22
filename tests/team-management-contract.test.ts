@@ -46,6 +46,7 @@ test("a valid invitation signup joins the owner workspace without a payment deto
   const autoAcceptance = read("supabase/migrations/20260910174306_automatic_team_invitation_acceptance.sql");
   const hardenedAcceptance = read("supabase/migrations/20260921142914_harden_team_invitation_acceptance.sql");
   const reliableAcceptance = read("supabase/migrations/20260921154500_reliable_team_invitation_acceptance.sql");
+  const arrayTypeFix = read("supabase/migrations/20260921172000_fix_invitation_allowed_sections_array.sql");
   const acceptEdge = read("supabase/functions/accept-team-invitation/index.ts");
 
   assert.match(login, /isTeamInvite && safeReturnTo/);
@@ -61,22 +62,25 @@ test("a valid invitation signup joins the owner workspace without a payment deto
   assert.match(hardenedAcceptance, /for update/);
   assert.match(hardenedAcceptance, /TEAM_MEMBER_LIMIT_REACHED/);
   assert.match(hardenedAcceptance, /invitation_row\.role = 'supervisor'/);
-  assert.match(reliableAcceptance, /allowed_sections = coalesce\(invitation_row\.allowed_sections, '\[\]'::jsonb\)/);
   assert.doesNotMatch(reliableAcceptance, /workspace_subscription_owners/);
   assert.match(reliableAcceptance, /create or replace function public\.accept_pending_workspace_invitation\(\)/);
+  assert.match(arrayTypeFix, /allowed_sections = normalized_sections/);
+  assert.match(arrayTypeFix, /to_jsonb\(invitation_row\.allowed_sections\)/);
+  assert.match(arrayTypeFix, /normalized_sections text\[\]/);
   assert.match(acceptEdge, /userClient\.rpc\("accept_workspace_invitation"/);
   assert.doesNotMatch(acceptEdge, /SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test("invited signup keeps auth provisioning independent from billing records", () => {
-  const migration = read("supabase/migrations/20260921161000_fix_invited_user_signup_trigger.sql");
+  const migration = read("supabase/migrations/20260921172000_fix_invitation_allowed_sections_array.sql");
 
   assert.match(migration, /create or replace function public\.handle_new_user\(\)/);
   assert.match(migration, /team_invitation_id/);
   assert.match(migration, /v_has_invite boolean/);
   assert.match(migration, /invitation\.id = v_invitation_id/);
   assert.match(migration, /insert into public\.profiles \(\s*id, full_name, email, role, workspace_id, is_active, allowed_sections/);
-  assert.match(migration, /values \(\s*new\.id, v_full_name, lower\(new\.email\), 'agent', null, true, '\[\]'::jsonb/);
+  assert.match(migration, /values \(\s*new\.id, v_full_name, lower\(new\.email\), 'agent', null, true, array\[\]::text\[\]/);
+  assert.doesNotMatch(migration, /allowed_sections = '\[\]'::jsonb/);
 
   const invitedBranchStart = migration.indexOf("if not v_is_founder and v_has_invite then");
   const invitedBranchEnd = migration.indexOf("return new;", invitedBranchStart);
@@ -84,6 +88,29 @@ test("invited signup keeps auth provisioning independent from billing records", 
   assert.doesNotMatch(
     migration.slice(invitedBranchStart, invitedBranchEnd),
     /workspace_limits|workspace_subscriptions|user_subscriptions/
+  );
+});
+
+test("subscription lookup remains unambiguous during invited-user provisioning", () => {
+  const migration = read("supabase/migrations/20260921173000_remove_ambiguous_subscription_function_overload.sql");
+
+  assert.match(migration, /drop function if exists public\.get_effective_subscription_v1\(uuid, boolean\)/);
+  assert.match(
+    migration,
+    /drop function if exists public\.get_effective_subscription_v1\(uuid, boolean\);\s*$/m
+  );
+});
+
+test("invited members never become workspace billing owners", () => {
+  const migration = read("supabase/migrations/20260921180000_fix_invited_member_workspace_membership.sql");
+
+  assert.match(migration, /lower\(coalesce\(new\.role, ''\)\) in \('agent', 'supervisor'\)/);
+  assert.match(migration, /values \(\s*new\.id, new\.workspace_id, false, normalized_member_role, 'active'/);
+  assert.match(migration, /insert into public\.team_member_profiles \(profile_id, workspace_id\)/);
+  assert.match(migration, /v_member_role := case/);
+  assert.doesNotMatch(
+    migration.slice(0, migration.indexOf("if not exists (")),
+    /user_subscriptions|workspace_subscription_owners/
   );
 });
 
