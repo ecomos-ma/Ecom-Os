@@ -31,6 +31,7 @@ import {
   Scale,
   Trash2,
   ClipboardList,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
@@ -110,6 +111,7 @@ const navGroups: NavGroup[] = [
       { to: "/admin/operations?tab=activity", label: "Audit trail", icon: Activity, permission: "security.read" },
       { to: "/admin/platform?tab=security", label: "Security", icon: ShieldCheck, permission: "security.read" },
       { to: "/admin/platform", label: "Platform settings", icon: Settings2, permission: "settings.read" },
+      { to: "/admin/theme-domains", label: "Theme domains", icon: KeyRound, permission: "settings.manage" },
     ],
   },
 ];

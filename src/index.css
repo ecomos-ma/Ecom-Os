@@ -599,7 +599,6 @@ body {
   .mobile-topbar { display: flex !important; }
   .mobile-bottom-nav { display: grid !important; }
   .mobile-navigation-overlay { display: flex !important; }
-  .mobile-plan-gate { display: block !important; }
   .support-ticket-launcher {
     right: max(.75rem, var(--safe-right)) !important;
     width: 2.75rem !important;

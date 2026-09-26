@@ -955,7 +955,7 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
       </div>
 
       <Suspense fallback={<div className="h-64 flex items-center justify-center rounded-2xl border border-base-border/50 bg-base-surface/80 shadow-sm mt-6"><Loader2 className="h-6 w-6 animate-spin text-brand-accent/50" /></div>}>
-        <DashboardAnalytics data={d} metrics={metrics} startDate={startInclusive} endDate={endInclusive} />
+        <DashboardAnalytics data={d} metrics={metrics} startDate={startInclusive} endDate={endInclusive} workspaceId={workspace?.id} />
       </Suspense>
 
     </div>

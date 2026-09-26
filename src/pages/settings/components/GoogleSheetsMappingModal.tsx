@@ -125,6 +125,10 @@ export default function GoogleSheetsMappingModal({ workspaceId, webAppUrl, isOpe
   const handleSaveMappings = async () => {
     setSaving(true);
     try {
+      if (!sheetHeaders.length || !mappings.some(m => m.destinationField && m.destinationField !== 'do_not_import')) {
+        toast.error('Map at least one Sheet column before saving');
+        return;
+      }
       // Validate no duplicate destinations (except for "do not import")
       const usedDestinations = new Set<string>();
       const conflicts: string[] = [];
@@ -148,13 +152,18 @@ export default function GoogleSheetsMappingModal({ workspaceId, webAppUrl, isOpe
         .update({
           field_mappings: mappings,
           custom_status_mappings: unknownStatusValues,
-          mapping_version: 1
+          mapping_version: 1,
+          mapping_saved_at: new Date().toISOString(),
+          sync_enabled: false,
+          sync_error_count: 0,
         })
-        .eq('workspace_id', workspaceId);
+        .eq('workspace_id', workspaceId)
+        .select('workspace_id')
+        .single();
 
       if (error) throw error;
 
-      toast.success('Mapping saved successfully');
+      toast.success('Mapping saved. Click Sync now to import orders.');
       onMappingSaved();
       onClose();
     } catch (error: any) {

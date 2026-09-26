@@ -18,6 +18,7 @@ import {
   Save,
   UserRound,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -31,6 +32,7 @@ import {
   completeConfirmationCallback,
   getConfirmationOrderDetails,
   getConfirmationRecordingUrl,
+  markConfirmationOrderUpsell,
   scheduleConfirmationCallback,
   updateConfirmationCustomerProfile,
   uploadConfirmationRecording,
@@ -135,6 +137,9 @@ export function ConfirmationOrderDrawer({
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [status, setStatus] = useState(normalizeStatus(order.status));
   const [savingStatus, setSavingStatus] = useState(false);
+  const [savingUpsell, setSavingUpsell] = useState(false);
+  const [upsellEnabled, setUpsellEnabled] = useState(order.isUpsell);
+  const [upsellPrice, setUpsellPrice] = useState(String(order.upsellValue ?? order.total));
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [callbackAt, setCallbackAt] = useState(() => {
@@ -175,6 +180,9 @@ export function ConfirmationOrderDrawer({
 
   useEffect(() => {
     setStatus(normalizeStatus(order.status));
+    setSavingUpsell(false);
+    setUpsellEnabled(order.isUpsell);
+    setUpsellPrice(String(order.upsellValue ?? order.total));
     setAssignment(order.assignedAgent?.id || "");
     setTab("overview");
     setRecordingUrls({});
@@ -212,10 +220,35 @@ export function ConfirmationOrderDrawer({
     [details]
   );
 
+  const adjustedUpsellTotal = Number(upsellPrice);
+  const upsellDirty = upsellEnabled !== order.isUpsell
+    || (upsellEnabled && Math.abs(adjustedUpsellTotal - Number(order.upsellValue ?? order.total)) > 0.009);
+
+  const saveUpsell = async (quiet = false) => {
+    if (savingUpsell) return;
+    if (upsellEnabled && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0)) {
+      throw new Error("Enter the adjusted total before saving the upsell.");
+    }
+    setSavingUpsell(true);
+    try {
+      await markConfirmationOrderUpsell(workspaceId, order, userId, upsellEnabled, adjustedUpsellTotal);
+      if (!quiet) toast.success(upsellEnabled ? "Upsell and adjusted price saved." : "Upsell removed.");
+      await Promise.all([refreshDetails(), onOrderSaved()]);
+    } catch (error: any) {
+      if (!quiet) toast.error(error?.message || "Could not save the upsell.");
+      throw error;
+    } finally {
+      setSavingUpsell(false);
+    }
+  };
+
   const saveStatus = async (andNext = false) => {
     if (savingStatus) return;
     setSavingStatus(true);
     try {
+      // A confirmation never drops a price edit. When the agent has checked
+      // upsell, save that price first and then record the confirmation.
+      if (status === "confirmed" && upsellDirty) await saveUpsell(true);
       await onSaveStatus(status);
       toast.success("Confirmation status saved.");
       await Promise.all([refreshDetails(), onOrderSaved()]);
@@ -470,6 +503,47 @@ export function ConfirmationOrderDrawer({
                       </label>
                     </>
                   )}
+                </div>
+              </section>
+
+              <section className={`rounded-2xl border p-4 ${upsellEnabled ? "border-violet-500/30 bg-violet-500/5" : "border-base-border bg-base-surface"}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2.5 text-[12.5px] font-semibold text-ink">
+                    <input
+                      type="checkbox"
+                      checked={upsellEnabled}
+                      onChange={(event) => setUpsellEnabled(event.target.checked)}
+                      disabled={savingUpsell}
+                      className="h-4 w-4 rounded border-base-border text-violet-600 focus:ring-violet-500"
+                    />
+                    <Zap size={15} className="text-violet-600" />
+                    Mark upsell
+                  </label>
+                  <span className="text-[11px] text-ink-muted">Check it, set the final price, then save before confirming.</span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                  <label className="min-w-[190px] flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+                    Adjusted order total (MAD)
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={upsellPrice}
+                      onChange={(event) => setUpsellPrice(event.target.value)}
+                      disabled={!upsellEnabled || savingUpsell}
+                      className="mt-1.5 w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[12px] font-semibold text-ink outline-none focus:border-violet-500/60 disabled:cursor-not-allowed disabled:opacity-45"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void saveUpsell()}
+                    disabled={savingUpsell || !upsellDirty || (upsellEnabled && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0))}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-[11.5px] font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {savingUpsell ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />}
+                    {savingUpsell ? "Saving" : "Save upsell & price"}
+                  </button>
                 </div>
               </section>
 

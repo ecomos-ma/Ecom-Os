@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { hashIp, isPublicIp, normalizeIpApiResponse } from "../supabase/functions/_shared/live-view-geo.ts";
+import { mergeAdjacentGeoPolygons } from "../src/lib/mergeAdjacentGeoPolygons.ts";
 
 const migration = readFileSync("supabase/migrations/20260908153104_live_view_realtime_projection.sql", "utf8");
 const service = readFileSync("src/services/liveViewService.ts", "utf8");
@@ -87,16 +88,31 @@ test("Realtime deduplicates updates, filters seller subscriptions, reconciles, a
   assert.match(globe, /arcDashAnimateTime=\{720\}/);
 });
 
-test("globe uses real country polygons, visible borders, graticules, and the full desktop height", () => {
+test("globe dissolves the southern boundary and keeps Morocco in focus", () => {
   assert.match(globe, /ne_110m_admin_0_countries\.geojson\?raw/);
-  assert.match(globe, /showGraticules/);
+  assert.match(globe, /mergeAdjacentGeoPolygons/);
+  assert.match(globe, /isMoroccoTerritory/);
+  assert.match(globe, /\.concat\(north && south \? \[north, south\] : \[\]\)/);
+  assert.match(globe, /pathsData=\{outlinePath/);
   assert.match(globe, /polygonStrokeColor/);
   assert.match(globe, /polygonLabel/);
   assert.match(globe, /isSeparateWesternSaharaFeature/);
-  assert.match(globe, /filter\(\(feature\) => !isSeparateWesternSaharaFeature\(feature\)\)/);
-  assert.match(globe, /altitude: 1\.55/);
+  assert.match(globe, /altitude: 0\.88/);
+  assert.match(globe, /visibilitychange/);
+  assert.match(globe, /areaBudgetRatio/);
   assert.match(liveCss, /height:100%;min-height:0/);
-  assert.match(liveCss, /height:calc\(100% - 62px\);min-height:0/);
+  assert.match(page, /Focus Morocco/);
+});
+
+test("Morocco geometry includes the southern polygon without its internal seam", () => {
+  const countries = JSON.parse(readFileSync("node_modules/three-globe/example/country-polygons/ne_110m_admin_0_countries.geojson", "utf8"));
+  const north = countries.features.find((feature: { properties: { NAME: string } }) => feature.properties.NAME === "Morocco").geometry.coordinates[0];
+  const south = countries.features.find((feature: { properties: { NAME: string } }) => feature.properties.NAME === "W. Sahara").geometry.coordinates[0];
+  const outline = mergeAdjacentGeoPolygons(north, south);
+  assert.ok(outline);
+  assert.deepEqual(outline[0], outline.at(-1));
+  assert.ok(Math.min(...outline.map((point) => point[1])) < 22);
+  assert.ok(Math.max(...outline.map((point) => point[1])) > 35);
 });
 
 test("fallback aliases are multilingual and the UI never invents a visitor metric", () => {

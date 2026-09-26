@@ -144,6 +144,30 @@ test("team mutations and live activity are tenant scoped", () => {
   assert.match(tracker, /MIN_HEARTBEAT_MS = 60_000/);
 });
 
+test("agent navigation is limited to the exact sections selected by the owner", () => {
+  const rbac = read("src/lib/rbac.ts");
+  const sidebar = read("src/components/Sidebar.tsx");
+  const mobile = read("src/components/MobileAppChrome.tsx");
+  const guard = read("src/components/PermissionGuard.tsx");
+
+  assert.match(rbac, /const AGENT_ROUTE_SECTIONS/);
+  assert.match(rbac, /"\/live-view": null/);
+  assert.match(rbac, /"\/whatsapp": null/);
+  assert.match(rbac, /"\/delivering": null/);
+  assert.match(rbac, /export function canAgentAccessRoute/);
+  assert.match(sidebar, /Team members see only the exact sections selected by their owner/);
+  assert.match(sidebar, /section: "Orders"/);
+  assert.match(sidebar, /section: "Confirmation"/);
+  assert.match(sidebar, /section: "Shipping"/);
+  assert.match(sidebar, /!link\.section \|\| !selectedSections\.has\(link\.section\)/);
+  assert.match(sidebar, /return !hasFullNavigationAccess \|\| workspace\?\.show_shipping_column === true/);
+  assert.match(mobile, /section: "Orders"/);
+  assert.match(mobile, /section: "Confirmation"/);
+  assert.match(mobile, /section: "Shipping"/);
+  assert.match(mobile, /return can\(p\.perm, p\.section\)/);
+  assert.match(guard, /canAgentAccessRoute\(profile\.allowed_sections, location\.pathname\)/);
+});
+
 test("microphone activity remains explicit and consented", () => {
   const recorder = read("src/pages/confirmation/CallRecorder.tsx");
   const team = read("src/pages/Team.tsx");
@@ -153,4 +177,43 @@ test("microphone activity remains explicit and consented", () => {
   assert.ok(permission >= 0 && announce > permission);
   assert.match(team, /Microphone audio is never opened silently/);
   assert.match(team, /Open consented call recordings/);
+});
+
+test("team metrics, assignment, upsells and audit events use persisted workflow data", () => {
+  const migration = read("supabase/migrations/20260922091324_team_real_agent_metrics.sql");
+  const confirmationUpdateMigration = read("supabase/migrations/20260922102000_confirmation_agent_order_updates.sql");
+  const hook = read("src/hooks/useTeamData.ts");
+  const team = read("src/pages/Team.tsx");
+  const crm = read("src/services/confirmationCrmService.ts");
+  const drawer = read("src/pages/confirmation/ConfirmationOrderDrawer.tsx");
+  const orders = read("src/pages/Orders.tsx");
+
+  assert.match(migration, /with latest_assignment as/);
+  assert.match(migration, /sync_order_assignment_for_team/);
+  assert.match(migration, /assign_team_orders_v1/);
+  assert.match(migration, /auto_assign_confirmation_orders_v1/);
+  assert.match(migration, /for update skip locked/);
+  assert.match(migration, /p_per_agent_limit integer default 20/);
+  assert.match(migration, /log_team_order_change/);
+  assert.match(migration, /upsell_by_user_id/);
+  assert.match(migration, /revoke all on function public\.assign_team_orders_v1/);
+  assert.match(hook, /confirmation_activities/);
+  assert.match(hook, /avg_response_seconds/);
+  assert.match(hook, /autoAssignConfirmationOrders/);
+  assert.match(hook, /assign_team_orders_v1/);
+  assert.match(team, /Assign up to 20 \/ agent/);
+  assert.match(team, /Avg\. first response/);
+  assert.match(team, /metricView === "confirmation"/);
+  assert.match(team, /visibleActivityLog/);
+  assert.match(team, /\["today", "yesterday"\]/);
+  assert.match(crm, /markConfirmationOrderUpsell/);
+  assert.match(crm, /save_confirmation_order_v1/);
+  assert.match(confirmationUpdateMigration, /ORDER_NOT_ASSIGNED_TO_AGENT/);
+  assert.match(confirmationUpdateMigration, /CONFIRMATION_PERMISSION_REQUIRED/);
+  assert.match(confirmationUpdateMigration, /UPSELL_TOTAL_REQUIRED/);
+  assert.match(drawer, /Mark upsell/);
+  assert.match(drawer, /type="checkbox"/);
+  assert.match(drawer, /Adjusted order total/);
+  assert.match(drawer, /Save upsell & price/);
+  assert.match(orders, /Mark this order as an upsell/);
 });

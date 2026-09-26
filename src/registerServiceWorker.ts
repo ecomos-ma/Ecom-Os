@@ -3,6 +3,10 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator && import.meta
     navigator.serviceWorker.register("/sw.js").then((registration) => {
       console.log("Service Worker registered:", registration.scope);
 
+      if (registration.waiting && navigator.serviceWorker.controller) {
+        window.dispatchEvent(new Event("swUpdated"));
+      }
+
       registration.addEventListener("updatefound", () => {
         const newWorker = registration.installing;
         if (!newWorker) return;

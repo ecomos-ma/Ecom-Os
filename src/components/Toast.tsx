@@ -14,7 +14,7 @@ import { CheckCircle2, XCircle, AlertCircle, Info, X } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ToastKind = "success" | "error" | "warning" | "info";
+type ToastKind = "success" | "error" | "warning" | "info" | "notification";
 
 interface ToastItem {
   id: string;
@@ -53,6 +53,7 @@ export const toast = {
   error:   (message: string, duration?: number) => push({ kind: "error",   message, duration }),
   warning: (message: string, duration?: number) => push({ kind: "warning", message, duration }),
   info:    (message: string, duration?: number) => push({ kind: "info",    message, duration }),
+  notification: (message: string, duration?: number) => push({ kind: "notification", message, duration }),
   dismiss,
 };
 
@@ -74,6 +75,10 @@ const KIND_STYLES: Record<ToastKind, { wrapper: string; icon: React.ReactNode }>
   info: {
     wrapper: "bg-white dark:bg-[#121214] border border-gray-200 dark:border-blue-500/30",
     icon:    <Info size={15} className="text-blue-600 dark:text-blue-400 shrink-0" />,
+  },
+  notification: {
+    wrapper: "bg-white dark:bg-[#121214] border border-gray-200 dark:border-brand/30",
+    icon:    <img src="/icon-96.png" alt="" aria-hidden="true" width="24" height="24" className="h-6 w-6 shrink-0 rounded-md object-cover" />,
   },
 };
 

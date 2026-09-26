@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync("supabase/migrations/20260830012934_full_workspace_reset_v2.sql", "utf8");
+const timeoutMigration = readFileSync("supabase/migrations/20260924130000_reset_workspace_timeout_and_fk_indexes.sql", "utf8");
 const deleteGuardMigration = readFileSync("supabase/migrations/20260830013932_fix_delete_guard_for_workspace_reset.sql", "utf8");
 const secureDeleteGuardMigration = readFileSync("supabase/migrations/20260830014216_secure_workspace_delete_guard.sql", "utf8");
 const auditIndexMigration = readFileSync("supabase/migrations/20260830014307_index_workspace_reset_audit_actor.sql", "utf8");
@@ -52,9 +53,18 @@ test("reset preserves identity and commercial access", () => {
 test("storage objects are removed through the Storage API, never SQL", () => {
   assert.match(edgeFunction, /client\.storage\.from\(bucket\)\.remove/);
   assert.doesNotMatch(migration, /delete\s+from\s+storage\.objects/i);
-  for (const bucket of ["product-images", "call-recordings", "whatsapp-audio", "profile-images"]) {
+  for (const bucket of ["product-images", "call-recordings", "whatsapp-audio", "whatsapp-media", "agent-payment-proofs", "profile-images"]) {
     assert.match(edgeFunction, new RegExp(bucket));
   }
+});
+
+test("reset has a scoped timeout and indexes the expensive foreign-key checks", () => {
+  assert.match(timeoutMigration, /whatsapp_events_order_id_reset_idx/);
+  assert.match(timeoutMigration, /on public\.whatsapp_events \(order_id\)/);
+  assert.match(timeoutMigration, /alter function public\.reset_workspace_data_v2\(uuid, uuid, text\)[\s\S]*statement_timeout = '90s'/);
+  assert.match(edgeFunction, /resetError\.code === "57014"/);
+  assert.ok(edgeFunction.indexOf("client.rpc(\"reset_workspace_data_v2\"") < edgeFunction.indexOf("disconnectWhatsAppSession(workspaceId)"));
+  assert.match(dangerZone, /error\.context\.clone\(\)\.json\(\)/);
 });
 
 test("browser preflight uses the canonical Supabase CORS headers", () => {

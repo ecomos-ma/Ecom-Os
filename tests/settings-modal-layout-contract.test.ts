@@ -41,9 +41,15 @@ test("native dialog controls follow light and dark color schemes", () => {
 
 test("settings integration dialogs use the centered dynamic-viewport shell", () => {
   for (const dialog of integrationDialogs) {
-    assert.match(dialog, /app-modal-backdrop fixed inset-0/);
-    assert.match(dialog, /max-h-\[calc\(100dvh-2rem\)\]/);
-    assert.match(dialog, /overflow-y-auto overscroll-contain/);
+    if (dialog.includes('<Modal ')) {
+      assert.match(sharedModal, /app-modal-backdrop fixed inset-0/);
+      assert.match(sharedModal, /max-h-\[calc\(100dvh-2rem\)\]/);
+      assert.match(sharedModal, /overflow-y-auto overscroll-contain/);
+    } else {
+      assert.match(dialog, /app-modal-backdrop fixed inset-0/);
+      assert.match(dialog, /max-h-\[calc\(100dvh-2rem\)\]/);
+      assert.match(dialog, /overflow-y-auto overscroll-contain/);
+    }
   }
 });
 

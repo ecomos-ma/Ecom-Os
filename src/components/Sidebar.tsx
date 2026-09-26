@@ -4,8 +4,8 @@ import { getPrefetchHandler } from "../hooks/usePrefetch";
 import { useAuth } from "../hooks/useAuth";
 import { getUserInitials } from "../services/avatarService";
 import { isShippingModuleEnabled } from "../lib/shippingModule";
-import { isOwnerLikeRole } from "../lib/rbac";
-import type { TeamPermissions } from "../lib/types";
+import { isOwnerLikeRole, normalizeAllowedSections } from "../lib/rbac";
+import type { AllowedSection, TeamPermissions } from "../lib/types";
 import {
   LayoutDashboard,
   Package,
@@ -52,6 +52,10 @@ type NavItem = {
   icon: LucideIcon;
   image?: string;
   permission?: keyof TeamPermissions;
+  /** Payroll statements are available to every authenticated team agent. */
+  alwaysVisible?: boolean;
+  /** Exact section selected by the workspace owner for non-owner members. */
+  section?: AllowedSection;
 };
 type NavGroup = { labelKey: TranslationKey; links: NavItem[] };
 
@@ -64,12 +68,14 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.dashboard",
         icon: LayoutDashboard,
         permission: "dashboard",
+        section: "Dashboard",
       },
       {
         to: "/orders",
         labelKey: "navigation.orders",
         icon: Package,
         permission: "orders",
+        section: "Orders",
       },
       {
         to: "/live-view",
@@ -82,6 +88,7 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.confirmation",
         icon: ClipboardCheck,
         permission: "confirmation",
+        section: "Confirmation",
       },
       {
         to: "/whatsapp",
@@ -101,6 +108,7 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.shipping",
         icon: Truck,
         permission: "shipping",
+        section: "Shipping",
       },
     ],
   },
@@ -112,6 +120,7 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.customers",
         icon: Users,
         permission: "customers",
+        section: "Customers",
       },
       {
         to: "/anti-fake-orders",
@@ -124,12 +133,14 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.productsInventory",
         icon: Box,
         permission: "products",
+        section: "Products",
       },
       {
         to: "/ads-manager",
         labelKey: "navigation.adsManager",
         icon: ChartBar,
         permission: "ads",
+        section: "Ads Manager",
       },
       {
         to: "/ads-manager-legacy",
@@ -142,30 +153,40 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.tiktokAds",
         icon: Music2,
         permission: "tiktok_ads",
+        section: "TikTok Ads",
       },
       {
         to: "/expenses",
         labelKey: "navigation.expenses",
         icon: Wallet,
         permission: "expenses",
+        section: "Expenses",
       },
       {
         to: "/finance",
         labelKey: "navigation.finance",
         icon: Wallet,
-        permission: "expenses",
+        permission: "dashboard",
+      },
+      {
+        to: "/agent-invoices",
+        labelKey: "navigation.agentInvoices",
+        icon: ScrollText,
+        alwaysVisible: true,
       },
       {
         to: "/scenario",
         labelKey: "navigation.codScenarios",
         icon: ClipboardCheck,
         permission: "codscenarios",
+        section: "COD Scenarios",
       },
       {
         to: "/team",
         labelKey: "navigation.team",
         icon: Users,
         permission: "team",
+        section: "Team",
       },
     ],
   },
@@ -177,6 +198,7 @@ const mainGroups: NavGroup[] = [
         labelKey: "navigation.settings",
         icon: SettingsIcon,
         permission: "settings",
+        section: "Settings",
       },
       {
         to: "/tools",
@@ -602,22 +624,31 @@ function SidebarContent({
     session?.user?.email?.trim().toLowerCase() ===
       "amineelaaouamecom@gmail.com";
   const ownerLike = isOwnerLikeRole(profile?.role);
+  const hasFullNavigationAccess = ownerLike || isAdmin;
+  const selectedSections = new Set(
+    normalizeAllowedSections(profile?.allowed_sections),
+  );
 
   // Filter mainGroups based on workspace settings and permissions
   const filteredMainGroups = mainGroups
     .map((group) => ({
       ...group,
       links: group.links.filter((link) => {
-        if (link.permission && !ownerLike && !teamPermissions[link.permission])
+        // Team members see only the exact sections selected by their owner.
+        // Feature-family shortcuts (Live View, WhatsApp, Delivering, legacy
+        // screens, etc.) do not inherit Orders/Confirmation permissions.
+        if (!link.alwaysVisible && !hasFullNavigationAccess && (!link.section || !selectedSections.has(link.section))) {
+          return false;
+        }
+        if (!link.alwaysVisible && link.permission && !hasFullNavigationAccess && !teamPermissions[link.permission])
           return false;
         if (link.to === "/shipping" && !isShippingModuleEnabled(workspace))
           return false;
-        // Hide "Shipping" link if shipping module is disabled OR show_shipping_column is false
+        // Owners can optionally hide Shipping with the workspace column
+        // preference. For a team member, an explicit Shipping selection is the
+        // source of truth (provided the shipping module itself is enabled).
         if (link.to === "/shipping") {
-          return (
-            isShippingModuleEnabled(workspace) &&
-            workspace?.show_shipping_column === true
-          );
+          return !hasFullNavigationAccess || workspace?.show_shipping_column === true;
         }
         // Delivering is always visible (not controlled by shipping module)
         if (link.to === "/tiktok-ads") {

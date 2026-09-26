@@ -37,6 +37,10 @@ const ORDER_COLUMNS = `
   created_at,
   confirmed_at,
   cancelled_at,
+  is_upsell,
+  upsell_value,
+  upsell_at,
+  assigned_to,
   confirmation_method,
   customers(id, name, phone, city, address)
 `;
@@ -49,6 +53,8 @@ const CRM_ACTIVITY_LABELS: Record<string, string> = {
   CALLBACK_SCHEDULED: "Scheduled a callback",
   CALLBACK_COMPLETED: "Completed a callback",
   RECORDING_SAVED: "Saved a microphone recording",
+  UPSELL_MARKED: "Marked this order as an upsell",
+  UPSELL_REMOVED: "Removed the upsell flag",
 };
 
 function orderIdOf(row: any): string | null {
@@ -88,6 +94,9 @@ function toOrder(row: any, assignedAgent: ConfirmationAgent | null, products: Co
     createdAt: row.created_at,
     confirmedAt: row.confirmed_at ?? null,
     cancelledAt: row.cancelled_at ?? null,
+    isUpsell: row.is_upsell === true,
+    upsellValue: row.upsell_value === null || row.upsell_value === undefined ? null : Number(row.upsell_value),
+    upsellAt: row.upsell_at ?? null,
     assignedAgent,
     products,
     lastActivity,
@@ -153,6 +162,35 @@ async function loadLatestAssignments(workspaceId: string, orderIds?: string[], o
     if (!latest.has(assignment.order_id)) latest.set(assignment.order_id, assignment.assigned_to);
   }
   return latest;
+}
+
+async function loadDirectAssignedOrderIds(workspaceId: string, agentId: string) {
+  const { data, error } = await supabase
+    .from("orders")
+    .select('"Order ID"')
+    .eq("workspace_id", workspaceId)
+    .eq("assigned_to", agentId)
+    .limit(2000);
+  if (error) throw error;
+  return uniqueStrings((data ?? []).map(orderIdOf));
+}
+
+/**
+ * During the rollout, assignments may be stored in either the assignment
+ * ledger or orders.assigned_to. Read both so an invited agent never loses
+ * their queue just because one write path was used earlier.
+ */
+async function loadEffectiveAssignedOrderIds(workspaceId: string, agentId: string) {
+  const [ledgerResult, directResult] = await Promise.all([
+    loadLatestAssignments(workspaceId, undefined, agentId).catch(() => new Map<string, string>()),
+    loadDirectAssignedOrderIds(workspaceId, agentId),
+  ]);
+  return uniqueStrings([
+    ...Array.from(ledgerResult.entries())
+      .filter(([, assignedTo]) => assignedTo === agentId)
+      .map(([orderId]) => orderId),
+    ...directResult,
+  ]);
 }
 
 async function loadProductsForOrders(workspaceId: string, rows: any[]): Promise<Map<string, ConfirmationProduct[]>> {
@@ -285,7 +323,12 @@ export async function getConfirmationSummary(workspaceId: string, agentId?: stri
     if (!rpcIsNotDeployed) throw error;
     return getConfirmationSummaryFallback(workspaceId, agentId);
   }
-  return toSummary(data);
+  const summary = toSummary(data);
+  // Older RPC versions only inspect the legacy ledger. Recalculate an empty
+  // agent response from the two durable assignment sources before showing an
+  // empty queue to an agent who has orders assigned on orders.assigned_to.
+  if (agentId && summary.totalOrders === 0) return getConfirmationSummaryFallback(workspaceId, agentId);
+  return summary;
 }
 
 /**
@@ -296,11 +339,7 @@ export async function getConfirmationSummary(workspaceId: string, agentId?: stri
 async function getConfirmationSummaryFallback(workspaceId: string, agentId?: string | null): Promise<ConfirmationSummary> {
   let scopedOrderIds: string[] | undefined;
   if (agentId) {
-    const assignments = await loadLatestAssignments(workspaceId);
-    scopedOrderIds = [...assignments.entries()]
-      .filter(([, assignedTo]) => assignedTo === agentId)
-      .map(([orderId]) => orderId)
-      .slice(0, 1000);
+    scopedOrderIds = (await loadEffectiveAssignedOrderIds(workspaceId, agentId)).slice(0, 1000);
     if (!scopedOrderIds.length) {
       return {
         totalOrders: 0, ordersCreatedToday: 0, confirmedToday: 0, remainingOrders: 0,
@@ -394,13 +433,8 @@ export async function getConfirmationAgents(workspaceId: string): Promise<Confir
 export async function getConfirmationOrders(workspaceId: string, filters: ConfirmationOrderFilters) {
   let scopedOrderIds: string[] | undefined;
   if (filters.myAgentId || filters.assignedAgentId || filters.queue === "unassigned" || filters.queue === "callback_due") {
-    const allAssignments = await loadLatestAssignments(workspaceId);
     const targetAgent = filters.assignedAgentId || filters.myAgentId || null;
-    const assignedIds = new Set(
-      [...allAssignments.entries()]
-        .filter(([, assignedTo]) => targetAgent ? assignedTo === targetAgent : false)
-        .map(([orderId]) => orderId)
-    );
+    const assignedIds = new Set(targetAgent ? await loadEffectiveAssignedOrderIds(workspaceId, targetAgent) : []);
     if (filters.queue === "unassigned") {
       // We filter after the paged request below to avoid treating old assignments as active.
       scopedOrderIds = [];
@@ -446,8 +480,12 @@ export async function getConfirmationOrders(workspaceId: string, filters: Confir
   let rows = (data ?? []) as any[];
 
   const orderIds = uniqueStrings(rows.map(orderIdOf));
-  const assignments = await loadLatestAssignments(workspaceId, orderIds);
-  if (filters.queue === "unassigned") rows = rows.filter((row) => !assignments.has(orderIdOf(row) || ""));
+  const assignments = await loadLatestAssignments(workspaceId, orderIds).catch(() => new Map<string, string>());
+  const directAssignments = new Map<string, string>((rows as any[])
+    .filter((row) => row.assigned_to)
+    .map((row) => [orderIdOf(row) || "", row.assigned_to]));
+  for (const [orderId, agentId] of directAssignments) assignments.set(orderId, agentId);
+  if (filters.queue === "unassigned") rows = rows.filter((row) => !assignments.has(orderIdOf(row) || "") && !row.assigned_to);
 
   const agentIds = uniqueStrings([...assignments.values()]);
   const [agents, products] = await Promise.all([
@@ -480,8 +518,8 @@ export async function getConfirmationOrderById(workspaceId: string, orderId: str
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  const assignment = await loadLatestAssignments(workspaceId, [orderId]);
-  const agentId = assignment.get(orderId);
+  const assignment = await loadLatestAssignments(workspaceId, [orderId]).catch(() => new Map<string, string>());
+  const agentId = assignment.get(orderId) ?? (data as any).assigned_to ?? null;
   const [agents, products] = await Promise.all([
     agentId ? loadAgents(workspaceId, [agentId]) : Promise.resolve(new Map<string, ConfirmationAgent>()),
     loadProductsForOrders(workspaceId, [data]),
@@ -579,26 +617,93 @@ export async function getConfirmationOrderDetails(workspaceId: string, order: Co
   return { order, notes, callbacks, history, timeline, recordings };
 }
 
-export async function updateConfirmationStatus(workspaceId: string, order: ConfirmationOrder, status: string, confirmedByUserId?: string | null) {
+type ConfirmationOrderChange = {
+  status?: string;
+  isUpsell?: boolean;
+  total?: number;
+};
+
+function confirmationChangeRpcUnavailable(error: any) {
+  const message = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
+  return error?.code === "PGRST202" || message.includes("could not find the function") || message.includes("schema cache");
+}
+
+/**
+ * The RPC is the permission boundary for confirmation agents. It validates
+ * their active workspace membership and assignment before making any change,
+ * instead of relying on a direct orders update that may be hidden by RLS.
+ */
+async function saveConfirmationOrderChange(
+  workspaceId: string,
+  order: ConfirmationOrder,
+  actorId: string | null | undefined,
+  change: ConfirmationOrderChange,
+) {
+  const { data, error } = await supabase.rpc("save_confirmation_order_v1", {
+    p_workspace_id: workspaceId,
+    p_order_id: order.id,
+    p_status: change.status ?? null,
+    p_is_upsell: change.isUpsell ?? null,
+    p_total: change.total ?? null,
+  });
+  if (!error) return data;
+  if (!confirmationChangeRpcUnavailable(error)) throw error;
+
+  // Compatibility for workspaces that have not yet applied the additive RPC
+  // migration. Owners retain the existing direct-update behavior; agents get
+  // a clear deployment error instead of the misleading "unavailable" state.
   const now = new Date().toISOString();
-  const payload: Record<string, string | null> = { status };
-  if (status === "confirmed") {
-    payload.confirmed_at = now;
-    payload.confirmation_method = 'call';
-    payload.confirmation_source = 'human';
-    payload.confirmed_by_user_id = confirmedByUserId ?? null;
+  const payload: Record<string, string | number | boolean | null> = {};
+  if (change.status) {
+    payload.status = change.status;
+    if (change.status === "confirmed") {
+      payload.confirmed_at = now;
+      payload.confirmation_method = "call";
+      payload.confirmation_source = "human";
+      payload.confirmed_by_user_id = actorId ?? null;
+    }
+    if (change.status === "cancelled") payload.cancelled_at = now;
   }
-  if (status === "cancelled") payload.cancelled_at = now;
-  const { data, error } = await supabase
+  if (change.isUpsell !== undefined) {
+    payload.is_upsell = change.isUpsell;
+    payload.upsell_at = change.isUpsell ? now : null;
+    payload.upsell_by_user_id = change.isUpsell ? actorId ?? null : null;
+    payload.upsell_value = change.isUpsell ? change.total ?? order.total : null;
+    if (change.total !== undefined) {
+      payload.total = change.total;
+      payload.variant_price = Number((change.total / Math.max(1, order.quantity || 1)).toFixed(2));
+    }
+  }
+  const fallback = await supabase
     .from("orders")
     .update(payload)
     .eq("workspace_id", workspaceId)
     .eq("Order ID", order.id)
-    .select('"Order ID", status, confirmed_at, cancelled_at, confirmation_method')
+    .select('"Order ID", status, total, variant_price, is_upsell, upsell_value, upsell_at')
     .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error("This order is no longer available in the current workspace.");
-  return data;
+  if (fallback.error) throw fallback.error;
+  if (!fallback.data) throw new Error("Confirmation updates need the latest workspace migration. Ask the workspace owner to deploy it, then retry.");
+  return fallback.data;
+}
+
+export async function updateConfirmationStatus(workspaceId: string, order: ConfirmationOrder, status: string, confirmedByUserId?: string | null) {
+  return saveConfirmationOrderChange(workspaceId, order, confirmedByUserId, { status });
+}
+
+export async function markConfirmationOrderUpsell(
+  workspaceId: string,
+  order: ConfirmationOrder,
+  agentId: string,
+  enabled: boolean,
+  adjustedTotal = order.total,
+) {
+  if (enabled && (!Number.isFinite(adjustedTotal) || adjustedTotal <= 0)) {
+    throw new Error("Enter a valid adjusted order total before saving the upsell.");
+  }
+  return saveConfirmationOrderChange(workspaceId, order, agentId, {
+    isUpsell: enabled,
+    total: enabled ? adjustedTotal : undefined,
+  });
 }
 
 export type ConfirmationCustomerUpdate = {

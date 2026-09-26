@@ -88,6 +88,15 @@ function campaignMetric(campaign: MetaLegacyCampaign, key: MetricKey): number {
   return Number(campaign[key as keyof MetaLegacyCampaign] ?? 0);
 }
 
+const LEGACY_CAMPAIGN_METRICS = new Set<MetricKey>([
+  "spend", "reach", "impressions", "clicks", "ctr", "cpc", "cpm", "frequency",
+]);
+
+function hasCampaignMetric(campaign: MetaLegacyCampaign, key: MetricKey): boolean {
+  return Number.isFinite(Number(campaign.meta_metrics?.[key])) && campaign.meta_metrics?.[key] != null
+    || LEGACY_CAMPAIGN_METRICS.has(key);
+}
+
 function metricIcon(key: MetricKey) {
   if (["spend", "cpc", "cpm", "cost_per_lead", "cost_per_purchase"].includes(key)) return <DollarSign size={17} />;
   if (["reach", "impressions", "frequency"].includes(key)) return <Eye size={17} />;
@@ -150,6 +159,10 @@ function cachedOverviewKey(
   range: { datePreset: string; since?: string; until?: string },
 ) {
   return `meta-legacy-overview:${workspaceId}:${range.datePreset}:${range.since ?? ""}:${range.until ?? ""}`;
+}
+
+function cachedCampaignsKey(workspaceId: string) {
+  return `meta-legacy-campaigns:${workspaceId}`;
 }
 
 function formatNumber(value: number, digits = 2) {
@@ -227,6 +240,8 @@ export default function LegacyAdsManager() {
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [savingMetrics, setSavingMetrics] = useState(false);
   const [updatingCampaignId, setUpdatingCampaignId] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [campaignLoadError, setCampaignLoadError] = useState<string | null>(null);
 
   const { workspaceId, createGuard } = useWorkspaceScope(
     useCallback(() => {
@@ -238,6 +253,8 @@ export default function LegacyAdsManager() {
       setCampaignDetail(null);
       setDetailError(null);
       setOverview(null);
+      setStatusError(null);
+      setCampaignLoadError(null);
       setPage(0);
       // Reinitialise date filters from localStorage.
       const range = dashboardDateRange();
@@ -267,15 +284,41 @@ export default function LegacyAdsManager() {
   }, [money]);
 
   const loadCampaigns = useCallback(async (forWorkspaceId: string) => {
-    const { data, error } = await supabase
-      .from("meta_legacy_campaigns")
-      .select(
-        "id,meta_campaign_id,campaign_name,status,budget,spend,reach,impressions,clicks,ctr,cpc,cpm,frequency,results,cost_per_result,meta_metrics,synced_at",
-      )
-      .eq("workspace_id", forWorkspaceId)
-      .order("spend", { ascending: false });
-    if (error) throw error;
-    return (data ?? []) as MetaLegacyCampaign[];
+    const rows: MetaLegacyCampaign[] = [];
+    for (let from = 0; ; from += 500) {
+      // The metrics JSON was added after the original campaign table. Select
+      // the available row shape so older environments still show saved data.
+      const response = await supabase
+        .from("meta_legacy_campaigns")
+        .select("*")
+        .eq("workspace_id", forWorkspaceId)
+        .order("spend", { ascending: false })
+        .range(from, from + 499);
+      if (response.error) throw response.error;
+      const pageRows = (response.data ?? []) as MetaLegacyCampaign[];
+      rows.push(...pageRows);
+      if (pageRows.length < 500) break;
+    }
+    return rows;
+  }, []);
+
+  const readCachedCampaigns = useCallback((forWorkspaceId: string) => {
+    try {
+      const raw = localStorage.getItem(cachedCampaignsKey(forWorkspaceId));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed as MetaLegacyCampaign[] : [];
+    } catch {
+      return [] as MetaLegacyCampaign[];
+    }
+  }, []);
+
+  const persistCampaigns = useCallback((forWorkspaceId: string, nextCampaigns: MetaLegacyCampaign[]) => {
+    try {
+      localStorage.setItem(cachedCampaignsKey(forWorkspaceId), JSON.stringify(nextCampaigns));
+    } catch {
+      // Browser storage is optional; the workspace-scoped database remains the
+      // durable source and a full cache must never turn a successful sync red.
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -292,61 +335,68 @@ export default function LegacyAdsManager() {
     }
 
     setLoading(true);
+    setStatusError(null);
+    setCampaignLoadError(null);
     const isStale = createGuard();
 
     try {
-      const nextStatus = await metaLegacyService.status();
-      // Stale-closure guard: if workspace changed mid-flight, discard results.
-      if (isStale()) return;
-      
-      setStatus(nextStatus);
-      if (nextStatus.connected) {
-        // Campaigns are the durable result of the last successful sync. Load
-        // them independently so an optional live overview failure never makes
-        // a previously synced account look empty after navigation.
+      // The campaign snapshots are the durable page data. Load them before
+      // asking the optional status endpoint so a transient Edge Function error
+      // can never erase a successful Meta sync after navigation.
+      const cachedCampaigns = readCachedCampaigns(workspaceId);
+      if (cachedCampaigns.length) setCampaigns(cachedCampaigns);
+      try {
         const fetched = await loadCampaigns(workspaceId);
         if (isStale()) return;
         setCampaigns(fetched);
+        persistCampaigns(workspaceId, fetched);
+      } catch (campaignError) {
+        if (isStale()) return;
+        console.warn("Could not load saved Meta campaigns", campaignError);
+        setCampaignLoadError(campaignError instanceof Error ? campaignError.message : "Saved campaigns could not be loaded.");
+      }
+
+      const nextStatus = await metaLegacyService.status();
+      if (isStale()) return;
+      setStatus(nextStatus);
+      if (!nextStatus.connected) {
+        setCampaigns([]);
+        localStorage.removeItem(cachedCampaignsKey(workspaceId));
+        setOverview(null);
+        return;
+      }
+
+      try {
+        const nextOverview = await metaLegacyService.overview(currentRange());
+        if (isStale()) return;
+        setOverview(nextOverview.metrics);
         try {
-          const nextOverview = await metaLegacyService.overview(currentRange());
-          if (isStale()) return;
-          setOverview(nextOverview.metrics);
           localStorage.setItem(
             cachedOverviewKey(workspaceId, currentRange()),
             JSON.stringify(nextOverview.metrics),
           );
-        } catch (overviewError) {
-          // Older deployed functions may not expose the optional overview
-          // action yet. Keep the last exact account snapshot for this range,
-          // then fall back to the native campaign snapshots already stored.
-          console.warn(
-            "Could not refresh Legacy Meta overview; using cached metrics.",
-            overviewError instanceof Error ? overviewError.message : overviewError,
-          );
-          let cached: MetaLegacyMetrics | null = null;
-          try {
-            const raw = localStorage.getItem(cachedOverviewKey(workspaceId, currentRange()));
-            if (raw) cached = JSON.parse(raw) as MetaLegacyMetrics;
-          } catch {
-            cached = null;
-          }
-          setOverview(cached ?? null);
+        } catch { /* Account insights are already available in memory. */ }
+      } catch (overviewError) {
+        console.warn(
+          "Could not refresh Legacy Meta overview; using cached metrics.",
+          overviewError instanceof Error ? overviewError.message : overviewError,
+        );
+        let cached: MetaLegacyMetrics | null = null;
+        try {
+          const raw = localStorage.getItem(cachedOverviewKey(workspaceId, currentRange()));
+          if (raw) cached = JSON.parse(raw) as MetaLegacyMetrics;
+        } catch {
+          cached = null;
         }
-      } else {
-        setCampaigns([]);
-        setOverview(null);
+        setOverview(cached ?? null);
       }
     } catch (error) {
       if (isStale()) return;
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Legacy Meta status could not be loaded.",
-      );
+      setStatusError(error instanceof Error ? error.message : "Meta connection status could not be loaded.");
     } finally {
       if (!isStale()) setLoading(false);
     }
-  }, [isDemoMode, workspaceId, loadCampaigns, createGuard, currentRange]);
+  }, [isDemoMode, workspaceId, loadCampaigns, readCachedCampaigns, persistCampaigns, createGuard, currentRange]);
 
   useEffect(() => {
     void refresh();
@@ -427,12 +477,15 @@ export default function LegacyAdsManager() {
           metaLegacyService.status(),
         ]);
         setCampaigns(syncedCampaigns);
+        persistCampaigns(workspaceId, syncedCampaigns);
         setStatus(nextStatus);
         setOverview(result.overview);
-        localStorage.setItem(
-          cachedOverviewKey(workspaceId, currentRange()),
-          JSON.stringify(result.overview),
-        );
+        try {
+          localStorage.setItem(
+            cachedOverviewKey(workspaceId, currentRange()),
+            JSON.stringify(result.overview),
+          );
+        } catch { /* Successful Meta sync is independent of browser storage. */ }
       toast.success(`Synced ${result.synced} Meta campaigns.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Meta sync failed.");
@@ -450,6 +503,7 @@ export default function LegacyAdsManager() {
       await metaLegacyService.disconnect();
       setStatus({ connected: false, state: "disconnected", connection: null });
       setCampaigns([]);
+      if (workspaceId) localStorage.removeItem(cachedCampaignsKey(workspaceId));
       toast.success("Legacy Meta connection disconnected.");
     } catch (error) {
       toast.error(
@@ -559,19 +613,17 @@ export default function LegacyAdsManager() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totals = useMemo(() => {
-    if (overview) return overview;
-    return campaigns.reduce<MetaLegacyMetrics>((sum, campaign) => {
-      METRICS.forEach(({ key }) => {
-        sum[key] = (sum[key] ?? 0) + campaignMetric(campaign, key);
-      });
-      return sum;
-    }, {});
-  }, [campaigns, overview]);
+  // Account metrics must come from Meta's account-level insight. Summing
+  // campaign reach, CTR, frequency, or cost metrics double-counts or changes
+  // their meaning, so show unavailable if neither live nor cached overview exists.
+  const totals = overview;
   const statuses = useMemo(
     () => ["ALL", ...new Set(campaigns.map((item) => item.status.toUpperCase()))],
     [campaigns],
   );
+  const activeCount = campaigns.filter((campaign) => campaign.status.toUpperCase() === "ACTIVE").length;
+  const latestSnapshot = campaigns.reduce<string | null>((latest, campaign) =>
+    !latest || campaign.synced_at > latest ? campaign.synced_at : latest, null);
   const activeCreative = campaignDetail?.creatives[creativeIndex] ?? null;
 
   if (isDemoMode) {
@@ -597,7 +649,7 @@ export default function LegacyAdsManager() {
     );
   }
 
-  if (!status?.connected) {
+  if (!status?.connected && campaigns.length === 0) {
     return (
       <div className="space-y-5">
         <PageHeader
@@ -686,8 +738,8 @@ export default function LegacyAdsManager() {
     <>
     <div className="space-y-5">
       <PageHeader
-        title="Legacy Ads Manager"
-        subtitle="Classic campaign reporting using a manual Ad Account ID and access token."
+        title="Meta Campaigns"
+        subtitle="Live account insights and saved campaign performance from your manual Meta connection."
         action={
           <div className="flex flex-wrap gap-2">
             <button
@@ -723,10 +775,10 @@ export default function LegacyAdsManager() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-sm font-bold text-ink">
               <CheckCircle2 size={15} className="text-emerald-500" />
-              {status.connection?.account_name || "Meta Ad Account"}
+              {status?.connection?.account_name || "Saved Meta campaigns"}
             </div>
             <p className="truncate font-mono text-xs text-ink-muted">
-              {status.connection?.ad_account_id} · Token encrypted
+              {status?.connection?.ad_account_id || "Connection check unavailable"} · Token encrypted
             </p>
           </div>
         </div>
@@ -773,14 +825,26 @@ export default function LegacyAdsManager() {
           </>
         ) : (
           <div className="lg:col-span-2 flex items-center justify-end text-xs text-ink-muted">
-            Last synced: {status.connection?.last_successful_sync_at
+            Last synced: {status?.connection?.last_successful_sync_at
               ? new Date(status.connection.last_successful_sync_at).toLocaleString()
               : "Not yet"}
           </div>
         )}
       </section>
 
-      {status.connection?.last_sync_error && (
+      {statusError && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <AlertCircle size={16} /> Connection check is unavailable. Showing the last saved campaign data.
+        </div>
+      )}
+
+      {campaignLoadError && (
+        <div className="flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger" role="alert">
+          <AlertCircle size={16} /> Could not load saved campaigns: {campaignLoadError}
+        </div>
+      )}
+
+      {status?.connection?.last_sync_error && (
         <div className="flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
           <AlertCircle size={16} /> {status.connection.last_sync_error}
         </div>
@@ -789,9 +853,16 @@ export default function LegacyAdsManager() {
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {metricPreferences.dashboard_metrics.map((key) => {
           const metric = METRICS.find((item) => item.key === key)!;
-          return <MetricCard key={key} label={metric.label} value={formatMetric(key, totals[key] ?? 0)} icon={metricIcon(key)} />;
+          return <MetricCard key={key} label={metric.label} value={totals ? formatMetric(key, totals[key] ?? 0) : "—"} icon={metricIcon(key)} />;
         })}
       </section>
+
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-base-border bg-base-surface px-4 py-3 text-xs text-ink-muted">
+        <span><strong className="text-ink">{formatNumber(campaigns.length, 0)}</strong> campaigns</span>
+        <span><strong className="text-ink">{formatNumber(activeCount, 0)}</strong> active</span>
+        <span>Campaign snapshot: {latestSnapshot ? new Date(latestSnapshot).toLocaleString() : "Not synced yet"}</span>
+        <span className="text-ink-faint">Account cards use the selected date range; campaign rows show the last saved sync.</span>
+      </div>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -836,24 +907,24 @@ export default function LegacyAdsManager() {
         {!campaigns.length ? (
           <div className="rounded-2xl border border-base-border bg-base-surface py-8">
             <EmptyState
-              title="No cached campaigns"
-              description="Sync Meta once to load campaigns. Your last successful sync stays available when you return."
+              title={campaignLoadError ? "Campaigns could not be loaded" : "No campaigns synced yet"}
+              description={campaignLoadError ? "Retry loading your saved Meta campaigns." : "Sync Meta to import your campaigns. Saved campaigns will appear automatically when you return."}
               primaryAction={
                 <button
                   type="button"
-                  onClick={() => void syncNow()}
+                  onClick={() => void (campaignLoadError ? refresh() : syncNow())}
                   className="rounded-xl bg-[#1877F2] px-5 py-2.5 text-sm font-semibold text-white"
                 >
-                  Sync now
+                  {campaignLoadError ? "Retry" : "Sync now"}
                 </button>
               }
             />
           </div>
         ) : (
           <>
-            <div className="hidden overflow-auto rounded-2xl border border-base-border bg-base-surface shadow-card md:block">
+            <div className="hidden max-h-[65vh] overflow-auto rounded-2xl border border-base-border bg-base-surface shadow-card md:block">
               <table className="w-full whitespace-nowrap text-sm">
-                <thead className="bg-base-raised text-left text-[11px] uppercase tracking-wide text-ink-faint">
+                <thead className="sticky top-0 z-10 bg-base-raised text-left text-[11px] uppercase tracking-wide text-ink-faint">
                   <tr>
                     {[
                       ["campaign_name", "Campaign"],
@@ -873,7 +944,8 @@ export default function LegacyAdsManager() {
                         {label}
                       </th>
                     ))}
-                    <th className="px-4 py-3 font-semibold">Status</th>
+                    <th className="px-4 py-3 font-semibold">Budget</th>
+                    <th className="px-4 py-3 font-semibold">Delivery</th>
                     <th className="px-4 py-3 font-semibold">Control</th>
                   </tr>
                 </thead>
@@ -892,8 +964,11 @@ export default function LegacyAdsManager() {
                         </button>
                       </td>
                       {metricPreferences.table_metrics.map((key) => (
-                        <td key={key} className="px-4 py-3 font-mono text-ink-muted">{formatMetric(key, campaignMetric(campaign, key))}</td>
+                        <td key={key} className="px-4 py-3 font-mono text-ink-muted" title={hasCampaignMetric(campaign, key) ? undefined : "Sync to load this Meta metric"}>
+                          {hasCampaignMetric(campaign, key) ? formatMetric(key, campaignMetric(campaign, key)) : "—"}
+                        </td>
                       ))}
+                      <td className="px-4 py-3 font-mono text-ink-muted">{campaign.budget == null ? "—" : money(campaign.budget)}</td>
                       <td className="px-4 py-3"><StatusBadge status={campaign.status} /></td>
                       <td className="px-4 py-3">
                         <button

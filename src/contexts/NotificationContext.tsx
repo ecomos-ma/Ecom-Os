@@ -187,7 +187,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               if (!row.is_read) setUnreadCount((current) => current + 1);
               if (document.visibilityState === "visible" && settings?.in_app_enabled !== false) {
                 const localized = localizeNotification(row as NotificationRecord, language);
-                toast.info(`${localized.title}: ${localized.message}`, 6000);
+                toast.notification(`${localized.title}: ${localized.message}`, 6000);
                 playSound(row as NotificationRecord);
               }
             }

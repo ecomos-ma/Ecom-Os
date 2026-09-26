@@ -15,7 +15,6 @@ import { supabase } from "../lib/supabase";
 import { RefreshCw } from "lucide-react";
 import { MobileAppChrome } from "./MobileAppChrome";
 import { OfflineBanner } from "./ErrorStates";
-import { isFounder } from "../lib/rbac";
 import { metaAdsService } from "../services/metaAdsService";
 
 const InventoryQRScanner = lazy(async () => {
@@ -23,54 +22,38 @@ const InventoryQRScanner = lazy(async () => {
   return { default: module.InventoryQRScanner };
 });
 
-function MobilePlanGate() {
-  const { workspace, profile, session, isDemoMode } = useAuth();
-  const [allowed, setAllowed] = useState<boolean | null>(null);
-  const founder = isFounder(profile?.role, session?.user.email);
+function PwaUpdateNotice() {
+  const [ready, setReady] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    if (isDemoMode || founder) {
-      setAllowed(true);
-      return;
-    }
-    if (!workspace?.id) {
-      setAllowed(false);
-      return;
-    }
+    const onUpdate = () => setReady(true);
+    window.addEventListener("swUpdated", onUpdate);
+    return () => window.removeEventListener("swUpdated", onUpdate);
+  }, []);
 
-    let active = true;
-    const check = async () => {
-      try {
-        const { data } = await supabase.rpc("has_workspace_entitlement_v1", {
-          p_workspace_id: workspace.id,
-          p_entitlement_key: "mobile_app",
-        });
-        if (active) setAllowed(data === true);
-      } catch {
-        if (active) setAllowed(false);
+  if (!ready) return null;
+  const applyUpdate = async () => {
+    setUpdating(true);
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.waiting) {
+      setUpdating(false);
+      setReady(false);
+      return;
+    }
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!reloaded) {
+        reloaded = true;
+        window.location.reload();
       }
-    };
-    void check();
-    const channel = supabase
-      .channel(`mobile-plan-entitlement:${workspace.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "subscription_plans" },
-        () => void check(),
-      )
-      .subscribe();
-    return () => {
-      active = false;
-      void supabase.removeChannel(channel);
-    };
-  }, [founder, isDemoMode, workspace?.id]);
-
-  return allowed === true ? null : (
-    <div
-      className="mobile-plan-gate fixed inset-0 z-[1000] bg-white md:hidden"
-      aria-hidden="true"
-    />
-  );
+    }, { once: true });
+    registration.waiting.postMessage({ type: "SKIP_WAITING" });
+  };
+  return <div role="status" className="fixed inset-x-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[80] flex items-center justify-between gap-3 rounded-xl border border-base-border bg-base-surface p-3 text-sm text-ink shadow-lg md:inset-x-auto md:bottom-4 md:right-4 md:w-80">
+    <span>New version ready. Save your work before updating.</span>
+    <button type="button" disabled={updating} onClick={() => void applyUpdate()} className="shrink-0 rounded-lg bg-brand px-3 py-2 font-semibold text-white disabled:opacity-60">{updating ? "Updating…" : "Update"}</button>
+  </div>;
 }
 
 function PullToRefresh({
@@ -448,7 +431,6 @@ export function Layout() {
 
   return (
     <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-base-surface text-text-main">
-      <MobilePlanGate />
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-surface">
         <DemoBanner />
@@ -477,6 +459,7 @@ export function Layout() {
       </div>
       {/* Global toast notifications — mounted once here, used from anywhere */}
       <SupportTicketLauncher />
+      <PwaUpdateNotice />
       <ToastContainer />
       {scannerOpen ? (
         <Suspense fallback={null}>

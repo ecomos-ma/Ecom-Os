@@ -44,7 +44,7 @@ export interface MetaLegacyCampaign {
   frequency: number;
   results: number;
   cost_per_result: number;
-  meta_metrics: Record<string, number>;
+  meta_metrics?: Record<string, number>;
   synced_at: string;
 }
 

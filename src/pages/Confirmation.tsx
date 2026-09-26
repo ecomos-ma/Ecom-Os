@@ -30,12 +30,18 @@ export default function Confirmation() {
   const [sendingWhatsAppOrderId, setSendingWhatsAppOrderId] = useState<string | null>(null);
   const [viewMode, setViewModeState] = useState<"focus" | "queue">(() => {
     try {
+      if (window.matchMedia("(max-width: 767px)").matches) return "queue";
       return window.localStorage.getItem("confirmation-view-mode") === "queue" ? "queue" : "focus";
     } catch {
       return "focus";
     }
   });
   const requestedOrderId = searchParams.get("order");
+  const requestedQueue = searchParams.get("queue");
+
+  useEffect(() => {
+    if (requestedQueue === "callback_due") crm.setQueue("callback_due");
+  }, [requestedQueue]);
 
   const setViewMode = (mode: "focus" | "queue") => {
     setViewModeState(mode);
@@ -120,7 +126,7 @@ export default function Confirmation() {
         subtitle={crm.canManage ? "Live workspace view for your Moroccan COD confirmation team." : "Your focused confirmation queue and callback workspace."}
         action={
           <div className="flex items-center gap-2">
-            <button onClick={() => setViewMode(viewMode === "focus" ? "queue" : "focus")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 text-[12px] font-semibold text-brand transition-colors hover:bg-brand/15">{viewMode === "focus" ? <List size={14} /> : <Maximize2 size={14} />} {viewMode === "focus" ? "Order list" : "Focus mode"}</button>
+            <button onClick={() => setViewMode(viewMode === "focus" ? "queue" : "focus")} className="hidden h-9 items-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 text-[12px] font-semibold text-brand transition-colors hover:bg-brand/15 md:inline-flex">{viewMode === "focus" ? <List size={14} /> : <Maximize2 size={14} />} {viewMode === "focus" ? "Order list" : "Focus mode"}</button>
             <button onClick={() => void crm.refresh()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-base-border bg-base-surface px-3 text-[12px] font-semibold text-ink-muted transition-colors hover:border-brand/30 hover:text-ink"><RefreshCw size={14} /> Refresh</button>
           </div>
         }

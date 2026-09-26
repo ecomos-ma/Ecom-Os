@@ -45,8 +45,8 @@ test("changing a status tab clears the stale focused order before loading the ma
 });
 
 test("confirmation status updates use the production audit fields without debug payload logging", () => {
-  assert.match(service, /payload\.confirmation_source = 'human'/);
-  assert.match(service, /payload\.confirmed_by_user_id = confirmedByUserId/);
+  assert.match(service, /payload\.confirmation_source = ["']human["']/);
+  assert.match(service, /payload\.confirmed_by_user_id = actorId \?\? null/);
   assert.doesNotMatch(service, /DEBUG Confirmation/);
 });
 

@@ -77,10 +77,28 @@ export interface MemberPerformance {
     total_call_seconds: number;
     session_seconds: number;
     recent_activity_count: number;
+    avg_response_seconds: number | null;
+    delivered: number;
+    in_delivery: number;
+    returned: number;
+    upsells: number;
+}
+
+function startOfLocalDay(daysAgo = 0) {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - daysAgo);
+    return date.toISOString();
+}
+
+function isOpenConfirmationStatus(status: string | null | undefined) {
+    return ["new", "pending", "scheduled", "busy", "no_answer", "unreachable", "wrong_number"].includes(
+        String(normalizeStatusOrNull(status ?? "") ?? "").toLowerCase(),
+    );
 }
 
 export function useTeamData() {
-    const { workspace } = useAuth();
+    const { workspace, session } = useAuth();
     const wid = workspace?.id ?? null;
 
     const [members, setMembers] = useState<TeamMember[]>([]);
@@ -112,7 +130,8 @@ export function useTeamData() {
                 .select("id, full_name, role, workspace_id, allowed_sections, created_at, email, is_active, last_login_at, avatar_url")
                 .order("created_at", { ascending: false });
 
-            const [profilesRes, extRes, presenceRes, invitesRes, assignmentsRes, logRes, ordersRes] = await Promise.all([
+            const yesterdayStart = startOfLocalDay(1);
+            const [profilesRes, extRes, presenceRes, invitesRes, assignmentsRes, logRes, ordersRes, activitiesRes, recordingsRes, callbacksRes] = await Promise.all([
                 memberProfileIds.length > 0 ? profilesQuery.in("id", memberProfileIds) : profilesQuery.eq("id", "00000000-0000-0000-0000-000000000000"),
                 supabase
                     .from("team_member_profiles")
@@ -132,18 +151,35 @@ export function useTeamData() {
                     .select("*")
                     .eq("workspace_id", wid)
                     .order("assigned_at", { ascending: false })
-                    .limit(500),
+                    .limit(5000),
                 supabase
                     .from("member_activity_log")
                     .select("*")
                     .eq("workspace_id", wid)
+                    .gte("created_at", yesterdayStart)
                     .order("created_at", { ascending: false })
-                    .limit(200),
+                    .limit(5000),
                 supabase
                     .from("orders")
-                    .select("id, status, delivery_status, shipping_status, total, assigned_to")
+                    .select('"Order ID", status, delivery_status, shipping_status, total, assigned_to, created_at, is_upsell')
                     .eq("workspace_id", wid)
                     .not("assigned_to", "is", null),
+                supabase
+                    .from("confirmation_activities")
+                    .select("order_id, agent_id, activity_type, created_at")
+                    .eq("workspace_id", wid)
+                    .order("created_at", { ascending: true })
+                    .limit(10000),
+                supabase
+                    .from("confirmation_call_recordings")
+                    .select("agent_id, duration_seconds")
+                    .eq("workspace_id", wid)
+                    .limit(10000),
+                supabase
+                    .from("confirmation_callbacks")
+                    .select("agent_id, status")
+                    .eq("workspace_id", wid)
+                    .limit(10000),
             ]);
 
             // A delete/revoke can trigger a reload while the initial load is
@@ -198,9 +234,24 @@ export function useTeamData() {
             setAssignments(assignmentsRes.data ?? []);
             setActivityLog(logRes.data ?? []);
 
-            // Compute performance from real order data
-            const orders = ordersRes.data ?? [];
+            // Compute each metric from persisted assignments, order outcomes and
+            // actual CRM actions. No card value is manufactured from UI state.
+            let orders: Array<Record<string, any>> = ordersRes.data ?? [];
+            // is_upsell is additive. Older databases should still show the
+            // real assignment metrics instead of turning every card into zero.
+            if (ordersRes.error) {
+                const { data: legacyOrders, error: legacyOrdersError } = await supabase
+                    .from("orders")
+                    .select('"Order ID", status, delivery_status, shipping_status, total, assigned_to, created_at')
+                    .eq("workspace_id", wid)
+                    .not("assigned_to", "is", null);
+                if (legacyOrdersError) throw legacyOrdersError;
+                orders = legacyOrders ?? [];
+            }
             const logs = logRes.data ?? [];
+            const activities = activitiesRes.data ?? [];
+            const recordings = recordingsRes.data ?? [];
+            const callbacksRows = callbacksRes.data ?? [];
             const perfMap: Record<string, MemberPerformance> = {};
 
             for (const m of merged) {
@@ -218,16 +269,39 @@ export function useTeamData() {
                 const revenue = myOrders
                     .filter((o: any) => normalizeShippingStatus(o.shipping_status || o.delivery_status || "") === "DELIVERED")
                     .reduce((s: number, o: any) => s + Number(o.total || 0), 0);
-                const active = myOrders.filter((o: any) => {
-                    const status = normalizeStatusOrNull(o.status);
-                    return status === "new" || status === "pending" || status === "confirmed" || status === "scheduled" || status === "busy";
-                }).length;
+                const active = myOrders.filter((o: any) => isOpenConfirmationStatus(o.status)).length;
                 const memberLogs = logs.filter((entry: any) => entry.profile_id === m.id);
-                const calls = memberLogs.filter((entry: any) => String(entry.action || "").toLowerCase().includes("call")).length;
+                const memberActivities = activities.filter((entry: any) => entry.agent_id === m.id);
+                const calls = memberActivities.filter((entry: any) => entry.activity_type === "CALL_STARTED").length;
+                const memberRecordings = recordings.filter((entry: any) => entry.agent_id === m.id);
+                const recordedCallSeconds = memberRecordings.reduce((sum: number, entry: any) => sum + Math.max(0, Number(entry.duration_seconds || 0)), 0);
+                const memberCallbacks = callbacksRows.filter((entry: any) => entry.agent_id === m.id && entry.status === "scheduled").length;
+                const firstCallByOrder = new Map<string, number>();
+                for (const entry of memberActivities) {
+                    if (entry.activity_type !== "CALL_STARTED") continue;
+                    const at = new Date(entry.created_at).getTime();
+                    if (!Number.isFinite(at)) continue;
+                    const previous = firstCallByOrder.get(entry.order_id);
+                    if (previous === undefined || at < previous) firstCallByOrder.set(entry.order_id, at);
+                }
+                const responseSeconds = myOrders
+                    .map((order: any) => {
+                        const orderId = order["Order ID"];
+                        const calledAt = firstCallByOrder.get(orderId);
+                        const createdAt = new Date(order.created_at).getTime();
+                        return calledAt !== undefined && Number.isFinite(createdAt) && calledAt >= createdAt ? Math.floor((calledAt - createdAt) / 1000) : null;
+                    })
+                    .filter((value: number | null): value is number => value !== null);
                 const deliveryPopulation = delivered + shippingStatuses.filter((status) => status === "COMING_BACK").length;
                 const currentCallSeconds = m.active_call && m.active_call_started_at
                     ? Math.max(0, Math.floor((Date.now() - new Date(m.active_call_started_at).getTime()) / 1000))
                     : 0;
+                const todayLogs = memberLogs.filter((entry: any) => entry.created_at >= startOfLocalDay());
+                const trackedSessionSeconds = todayLogs.length > 1
+                    ? Math.max(0, Math.floor((new Date(todayLogs[0].created_at).getTime() - new Date(todayLogs[todayLogs.length - 1].created_at).getTime()) / 1000))
+                    : 0;
+                const inDelivery = shippingStatuses.filter((status) => ["SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(status)).length;
+                const returned = shippingStatuses.filter((status) => status === "COMING_BACK").length;
 
                 perfMap[m.id] = {
                     member_id: m.id,
@@ -242,13 +316,18 @@ export function useTeamData() {
                     avg_daily_orders: 0,
                     active_count: active,
                     contacted,
-                    callbacks,
+                    callbacks: memberCallbacks || callbacks,
                     review,
                     delivery_rate: deliveryPopulation > 0 ? (delivered / deliveryPopulation) * 100 : 0,
                     calls,
-                    total_call_seconds: currentCallSeconds,
-                    session_seconds: 0,
+                    total_call_seconds: recordedCallSeconds + currentCallSeconds,
+                    session_seconds: trackedSessionSeconds,
                     recent_activity_count: memberLogs.length,
+                    avg_response_seconds: responseSeconds.length ? Math.round(responseSeconds.reduce((sum, value) => sum + value, 0) / responseSeconds.length) : null,
+                    delivered,
+                    in_delivery: inDelivery,
+                    returned,
+                    upsells: myOrders.filter((order: any) => order.is_upsell === true).length,
                 };
             }
 
@@ -276,6 +355,9 @@ export function useTeamData() {
             .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .on("postgres_changes", { event: "*", schema: "public", table: "profile_workspaces", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .on("postgres_changes", { event: "*", schema: "public", table: "order_assignments", filter: `workspace_id=eq.${wid}` }, () => load(wid))
+            .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `workspace_id=eq.${wid}` }, () => load(wid))
+            .on("postgres_changes", { event: "*", schema: "public", table: "confirmation_activities", filter: `workspace_id=eq.${wid}` }, () => load(wid))
+            .on("postgres_changes", { event: "*", schema: "public", table: "member_activity_log", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .on("postgres_changes", { event: "*", schema: "public", table: "agent_presence", filter: `workspace_id=eq.${wid}` }, () => load(wid))
             .subscribe();
 
@@ -328,15 +410,67 @@ export function useTeamData() {
         setMembers(prev => prev.filter(m => m.id !== profileId));
     }, [wid]);
 
-    const assignOrder = useCallback(async (orderId: string, assignedTo: string, assignedBy: string) => {
-        if (!wid) return;
-        await supabase.from("order_assignments").insert({
-            workspace_id: wid,
-            order_id: orderId,
-            assigned_to: assignedTo,
-            assigned_by: assignedBy,
-            result: "pending",
+    const isAssignmentRpcUnavailable = (error: any) => {
+        const message = `${error?.code ?? ""} ${error?.message ?? ""}`.toLowerCase();
+        return error?.code === "PGRST202" || error?.code === "42883" || message.includes("could not find the function") || message.includes("schema cache");
+    };
+
+    const assignOrder = useCallback(async (orderId: string, assignedTo: string) => {
+        if (!wid) throw new Error("Workspace is not available");
+        // The live orders schema uses the quoted "Order ID" key. Never query
+        // a synthetic orders.id column: imported YouCan orders do not have it.
+        const { data: order, error: lookupError } = await supabase
+            .from("orders")
+            .select('"Order ID"')
+            .eq("workspace_id", wid)
+            .eq("Order ID", orderId)
+            .maybeSingle();
+        if (lookupError) throw lookupError;
+        const canonicalOrderId = (order as any)?.["Order ID"];
+        if (!canonicalOrderId) throw new Error("The selected order is no longer available in this workspace.");
+        const { error } = await supabase.rpc("assign_team_orders_v1", {
+            p_workspace_id: wid,
+            p_order_ids: [canonicalOrderId],
+            p_assigned_to: assignedTo,
         });
+        if (!error) return;
+        if (!isAssignmentRpcUnavailable(error)) throw error;
+
+        // Compatibility for databases that have not received the new RPC yet.
+        // This writes both sources of truth so assigned agents can see orders
+        // immediately, while the migration keeps future assignments atomic.
+        const { data: updatedOrder, error: updateError } = await supabase
+            .from("orders")
+            .update({ assigned_to: assignedTo })
+            .eq("workspace_id", wid)
+            .eq("Order ID", canonicalOrderId)
+            .select('"Order ID"')
+            .maybeSingle();
+        if (updateError) throw updateError;
+        if (!updatedOrder) throw new Error("This order could not be assigned. Please refresh the workspace and try again.");
+        const { error: historyError } = await supabase
+            .from("order_assignments")
+            .insert({
+                workspace_id: wid,
+                order_id: canonicalOrderId,
+                assigned_to: assignedTo,
+                assigned_by: session?.user?.id ?? null,
+                result: "pending",
+            });
+        if (historyError) throw historyError;
+    }, [wid, session?.user?.id]);
+
+    const autoAssignConfirmationOrders = useCallback(async (perAgentLimit = 20) => {
+        if (!wid) throw new Error("Workspace is not available");
+        const { data, error } = await supabase.rpc("auto_assign_confirmation_orders_v1", {
+            p_workspace_id: wid,
+            p_per_agent_limit: perAgentLimit,
+        });
+        if (error) {
+            if (isAssignmentRpcUnavailable(error)) return null;
+            throw error;
+        }
+        return data as { assigned_count?: number } | null;
     }, [wid]);
 
     const updateAgentStatus = useCallback(async (profileId: string, status: string) => {
@@ -363,6 +497,7 @@ export function useTeamData() {
         updateMemberRole,
         removeMember,
         assignOrder,
+        autoAssignConfirmationOrders,
         updateAgentStatus,
         setInvitations,
     };

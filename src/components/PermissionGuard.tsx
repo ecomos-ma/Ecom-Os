@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { isOwnerLikeRole } from "../lib/rbac";
+import { canAgentAccessRoute, isFounder, isOwnerLikeRole } from "../lib/rbac";
 import { isShippingModuleEnabled, getShippingDisabledRedirect } from "../lib/shippingModule";
 import { ShippingModuleDisabled } from "./ShippingModuleDisabled";
 import type { TeamPermissions } from "../lib/types";
@@ -13,11 +13,14 @@ interface PermissionGuardProps {
 }
 
 export function PermissionGuard({ children, permission }: PermissionGuardProps) {
-  const { profile, teamPermissions: permissions, permissionsLoading: loading, defaultRoute, workspace } = useAuth();
+  const { profile, session, teamPermissions: permissions, permissionsLoading: loading, defaultRoute, workspace } = useAuth();
   const location = useLocation();
 
   // Owners and supervisors have access to everything
-  if (profile && isOwnerLikeRole(profile.role)) {
+  if (
+    profile &&
+    (isOwnerLikeRole(profile.role) || isFounder(profile.role, session?.user?.email))
+  ) {
     return <>{children}</>;
   }
 
@@ -32,6 +35,16 @@ export function PermissionGuard({ children, permission }: PermissionGuardProps) 
     if (location.pathname.startsWith("/shipping")) {
       return <ShippingModuleDisabled />;
     }
+  }
+
+  // Keep direct URLs as strict as the navigation. A permission such as
+  // "orders" is a data capability, while the owner-selected section is the
+  // exact screen an agent is allowed to open.
+  if (
+    profile &&
+    !canAgentAccessRoute(profile.allowed_sections, location.pathname)
+  ) {
+    return defaultRoute ? <Navigate to={defaultRoute} replace /> : null;
   }
 
   if (!permissions[permission]) {

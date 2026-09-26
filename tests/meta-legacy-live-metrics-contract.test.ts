@@ -62,8 +62,11 @@ test("connected users keep the configured legacy account fixed", () => {
 test("legacy page renders cached native Meta metrics and tolerates overview refresh errors", () => {
   const page = read("src/pages/LegacyAdsManager.tsx");
 
-  assert.match(page, /meta_metrics,synced_at/);
+  assert.match(page, /\.from\("meta_legacy_campaigns"\)\s*\.select\("\*"\)/);
+  assert.match(page, /\.range\(from, from \+ 499\)/);
   assert.match(page, /setCampaigns\(fetched\)/);
   assert.match(page, /cachedOverviewKey/);
   assert.match(page, /dashboard-date-changed/);
+  assert.match(page, /const totals = overview/);
+  assert.doesNotMatch(page, /campaigns\.reduce<MetaLegacyMetrics>/);
 });

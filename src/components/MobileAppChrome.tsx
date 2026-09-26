@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
+  Download,
   Home,
   Globe2,
   LayoutGrid,
@@ -17,6 +18,7 @@ import {
   Plus,
   ScanLine,
   Search,
+  Share,
   Settings,
   Shield,
   SlidersHorizontal,
@@ -30,9 +32,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
-import { isOwnerLikeRole } from "../lib/rbac";
+import { isFounder as hasFounderAccess, isOwnerLikeRole, normalizeAllowedSections } from "../lib/rbac";
 import { isShippingModuleEnabled } from "../lib/shippingModule";
-import type { TeamPermissions } from "../lib/types";
+import type { AllowedSection, TeamPermissions } from "../lib/types";
 import { useNotifications } from "../contexts/NotificationContext";
 import MobileBottomSheet from "./MobileBottomSheet";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
@@ -40,6 +42,7 @@ import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
 import { getPrefetchHandler } from "../hooks/usePrefetch";
 
 type Icon = LucideIcon;
+type DeferredInstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 /* ── "All Pages" data ──────────────────────────────────────────────── */
 
@@ -51,28 +54,33 @@ type PageEntry = {
   icon: Icon;
   image?: string;
   perm?: keyof TeamPermissions;
+  /** Exact section selected by the workspace owner for non-owner members. */
+  section?: AllowedSection;
   shipping?: boolean;
   founder?: boolean;
+  ownerOnly?: boolean;
+  alwaysVisible?: boolean;
 };
 
 const pages: PageEntry[] = [
-  { to: "/dashboard",          label: "Dashboard",          desc: "Revenue & daily metrics",          cat: "core",    icon: Home,            perm: "dashboard" },
-  { to: "/orders",             label: "Orders",             desc: "Manage COD orders",                cat: "core",    icon: Package,         perm: "orders" },
+  { to: "/dashboard",          label: "Dashboard",          desc: "Revenue & daily metrics",          cat: "core",    icon: Home,            perm: "dashboard", section: "Dashboard" },
+  { to: "/orders",             label: "Orders",             desc: "Manage COD orders",                cat: "core",    icon: Package,         perm: "orders", section: "Orders" },
   { to: "/live-view",          label: "Live View",          desc: "Realtime order activity",          cat: "core",    icon: Globe2,          perm: "orders" },
-  { to: "/confirmation",       label: "Confirmation Desk",   desc: "Verify & call desk",               cat: "core",    icon: ClipboardCheck,  perm: "confirmation" },
+  { to: "/confirmation",       label: "Confirmation Desk",   desc: "Verify & call desk",               cat: "core",    icon: ClipboardCheck,  perm: "confirmation", section: "Confirmation" },
   { to: "/whatsapp",           label: "WhatsApp Inbox",     desc: "Chat & support inbox",             cat: "core",    icon: MessageCircle,   image: whatsappLogo, perm: "confirmation" },
   { to: "/delivering",         label: "Delivering Parcels",  desc: "Track live parcels",               cat: "core",    icon: Truck,           perm: "orders" },
-  { to: "/shipping",           label: "Carrier Shipping",   desc: "Carrier dispatch & logs",          cat: "core",    icon: Truck,           perm: "shipping", shipping: true },
-  { to: "/customers",          label: "Customer Directory", desc: "Client directory & LTV",           cat: "ops",     icon: Users,           perm: "customers" },
-  { to: "/products-inventory", label: "Products & Stock",   desc: "Catalog, stock & variants",        cat: "ops",     icon: Boxes,           perm: "products" },
-  { to: "/team",               label: "Team Permissions",   desc: "Members & permissions",            cat: "ops",     icon: Users,           perm: "team" },
-  { to: "/ads-manager",        label: "Meta Ads Manager",   desc: "FB & IG campaigns",                cat: "finance", icon: Megaphone,       perm: "ads" },
+  { to: "/shipping",           label: "Carrier Shipping",   desc: "Carrier dispatch & logs",          cat: "core",    icon: Truck,           perm: "shipping", section: "Shipping", shipping: true },
+  { to: "/customers",          label: "Customer Directory", desc: "Client directory & LTV",           cat: "ops",     icon: Users,           perm: "customers", section: "Customers" },
+  { to: "/products-inventory", label: "Products & Stock",   desc: "Catalog, stock & variants",        cat: "ops",     icon: Boxes,           perm: "products", section: "Products" },
+  { to: "/team",               label: "Team Permissions",   desc: "Members & permissions",            cat: "ops",     icon: Users,           perm: "team", section: "Team" },
+  { to: "/ads-manager",        label: "Meta Ads Manager",   desc: "FB & IG campaigns",                cat: "finance", icon: Megaphone,       perm: "ads", section: "Ads Manager" },
   { to: "/ads-manager-legacy", label: "Legacy Ads Manager", desc: "Manual ID & token reporting",      cat: "finance", icon: BarChart3,       perm: "ads" },
-  { to: "/tiktok-ads",         label: "TikTok Ads ROI",     desc: "TikTok campaign ROI",              cat: "finance", icon: Megaphone,       perm: "tiktok_ads" },
-  { to: "/expenses",           label: "Operating Expenses", desc: "Operating costs",                  cat: "finance", icon: Wallet,          perm: "expenses" },
-  { to: "/finance",            label: "Revenue & Profit",   desc: "Revenue & profit breakdown",       cat: "finance", icon: CircleDollarSign, perm: "expenses" },
-  { to: "/scenario",           label: "COD Forecast",       desc: "Forecast delivery rates",          cat: "finance", icon: SlidersHorizontal, perm: "codscenarios" },
-  { to: "/settings",           label: "Workspace Settings", desc: "Workspace & integrations",         cat: "system",  icon: Settings,        perm: "settings" },
+  { to: "/tiktok-ads",         label: "TikTok Ads ROI",     desc: "TikTok campaign ROI",              cat: "finance", icon: Megaphone,       perm: "tiktok_ads", section: "TikTok Ads" },
+  { to: "/expenses",           label: "Operating Expenses", desc: "Operating costs",                  cat: "finance", icon: Wallet,          perm: "expenses", section: "Expenses" },
+  { to: "/finance",            label: "Agent Payments",     desc: "Founder payroll and transfer ledger", cat: "finance", icon: CircleDollarSign, ownerOnly: true, perm: "dashboard", section: "Dashboard" },
+  { to: "/agent-invoices",     label: "Agent Invoices",     desc: "Your earnings and payment statements", cat: "finance", icon: Wallet, alwaysVisible: true },
+  { to: "/scenario",           label: "COD Forecast",       desc: "Forecast delivery rates",          cat: "finance", icon: SlidersHorizontal, perm: "codscenarios", section: "COD Scenarios" },
+  { to: "/settings",           label: "Workspace Settings", desc: "Workspace & integrations",         cat: "system",  icon: Settings,        perm: "settings", section: "Settings" },
   { to: "/tools",              label: "Commerce Tools",     desc: "Commerce utilities",               cat: "system",  icon: WandSparkles,    perm: "settings" },
   { to: "/notifications",      label: "Notifications",      desc: "Alerts & activity logs",           cat: "system",  icon: Bell },
   { to: "/admin",              label: "Founder Console",    desc: "Platform administration",          cat: "system",  icon: Shield,          founder: true },
@@ -99,7 +107,8 @@ const routeTitles: Array<[string, string]> = [
   ["/ads-manager", "Meta Ads Manager"],
   ["/tiktok-ads", "TikTok Ads ROI"],
   ["/expenses", "Operating Expenses"],
-  ["/finance", "Revenue & Profit"],
+  ["/finance", "Agent Payments"],
+  ["/agent-invoices", "Agent Invoices"],
   ["/team", "Team Permissions"],
   ["/settings", "Workspace Settings"],
   ["/notifications", "Notifications"],
@@ -126,29 +135,53 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<string>("all");
+  const [installOpen, setInstallOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<DeferredInstallPrompt | null>(null);
 
   const ownerLike = isOwnerLikeRole(profile?.role);
-  const isFounder =
-    profile?.role === "founder" &&
-    session?.user?.email?.trim().toLowerCase() === "amineelaaouamecom@gmail.com";
+  const isFounder = hasFounderAccess(profile?.role, session?.user?.email);
   const shippingOn = isShippingModuleEnabled(workspace);
+  const selectedSections = useMemo(
+    () => new Set(normalizeAllowedSections(profile?.allowed_sections)),
+    [profile?.allowed_sections],
+  );
 
-  const can = (p?: keyof TeamPermissions) =>
-    !p || ownerLike || Boolean(teamPermissions[p]);
+  const can = (p?: keyof TeamPermissions, section?: AllowedSection) =>
+    ownerLike || isFounder
+      ? true
+      : Boolean(p && section && teamPermissions[p] && selectedSections.has(section));
 
   const haptic = () => {
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(8);
   };
+
+  const isStandalone = typeof window !== "undefined" && (
+    window.matchMedia("(display-mode: standalone)").matches
+    || (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+  const isIos = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const currentTitle = routeTitles.find(([route]) => isActive(location.pathname, route))?.[1] ?? "Ecom OS";
+
+  useEffect(() => {
+    const capture = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as DeferredInstallPrompt);
+    };
+    window.addEventListener("beforeinstallprompt", capture);
+    return () => window.removeEventListener("beforeinstallprompt", capture);
+  }, []);
 
   // All accessible pages
   const accessiblePages = useMemo(
     () =>
       pages.filter((p) => {
         if (p.founder && !isFounder) return false;
+        if (p.ownerOnly && !isFounder && profile?.role !== "owner") return false;
         if (p.shipping && !shippingOn) return false;
-        return can(p.perm);
+        if (p.alwaysVisible) return true;
+        return can(p.perm, p.section);
       }),
-    [isFounder, ownerLike, shippingOn, teamPermissions],
+    [isFounder, ownerLike, profile?.role, selectedSections, shippingOn, teamPermissions],
   );
 
   // Filtered for search + category
@@ -182,35 +215,31 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
     };
   }, [sidebarOpen]);
 
-  // Keep the phone tab bar compact.  These are the tasks people use most
-  // often; the drawer remains the single source of truth for every other page.
+  // Match the focused, role-aware mobile workflow. Secondary permitted pages
+  // remain in More, but the primary five slots stay predictable.
   const mobilePrimaryNav = useMemo(() => {
-    const preferredPaths = [
-      "/dashboard",
-      "/orders",
-      "/confirmation",
-      "/products-inventory",
-    ];
-    const preferred = preferredPaths
+    const preferredPaths = ownerLike || isFounder
+      ? ["/dashboard", "/orders", "/confirmation", "/finance"]
+      : ["/dashboard", "/orders", "/confirmation", "/agent-invoices"];
+    return preferredPaths
       .map((path) => accessiblePages.find((page) => page.to === path))
-      .filter((page): page is PageEntry => Boolean(page));
-    const selected = new Set(preferred.map((page) => page.to));
-    const fallback = accessiblePages.filter(
-      (page) => !selected.has(page.to) && page.to !== "/notifications",
-    );
-
-    return [...preferred, ...fallback].slice(0, 4).map((page) => ({
+      .filter((page): page is PageEntry => Boolean(page))
+      .map((page) => ({
       ...page,
       label:
         page.to === "/dashboard"
           ? "Home"
+          : page.to === "/orders" && !(ownerLike || isFounder)
+            ? "My Orders"
           : page.to === "/confirmation"
-            ? "Confirm"
-            : page.to === "/products-inventory"
-              ? "Products"
+            ? "Confirmation"
+            : page.to === "/finance"
+              ? "Finance"
+              : page.to === "/agent-invoices"
+                ? "Invoices"
               : page.label.replace(" Management", "").replace(" Directory", ""),
     }));
-  }, [accessiblePages]);
+  }, [accessiblePages, isFounder, ownerLike]);
 
   const moreTabActive =
     sidebarOpen ||
@@ -218,9 +247,9 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
   return (
     <>
-      {/* ── Mobile Topbar with Sidebar Icon & Horizontal Logo ─────────────── */}
+      {/* ── Compact mobile header ─────────────────────────────────────────── */}
       <header className="mobile-topbar md:hidden">
-        {/* Left Section: Sidebar Menu Button + Horizontal Logo */}
+        {/* Left Section: navigation plus the current context */}
         <div className="mobile-topbar__brand flex min-w-0 items-center gap-2.5">
           <button
             type="button"
@@ -234,10 +263,14 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
           <button
             type="button"
             onClick={() => { haptic(); setSidebarOpen(true); }}
-            className="flex items-center gap-2 min-w-0 active:opacity-80 transition-opacity"
+            className="flex min-w-0 items-center gap-2 active:opacity-80 transition-opacity"
             aria-label="Open sidebar menu"
           >
-            <img src={ecomosLogo} alt="Ecom OS" className="mobile-topbar__logo h-6 w-auto object-contain" />
+            <img src={ecomosLogo} alt="Ecom OS" className="h-5 w-auto shrink-0 object-contain" />
+            <span className="min-w-0 text-left leading-tight">
+              <span className="block truncate text-[13px] font-bold text-ink">{currentTitle}</span>
+              <span className="block truncate text-[10px] text-ink-muted">{workspace?.name || "Workspace"}</span>
+            </span>
           </button>
         </div>
 
@@ -475,45 +508,59 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
             {/* Sidebar Footer */}
             <div className="p-3 border-t border-base-border/50 bg-base-raised/40 space-y-2">
-              <div className="grid grid-cols-2 gap-1.5">
+              {!isStandalone && (installPrompt || isIos) && (
                 <button
                   type="button"
-                  onClick={() => {
-                    haptic();
-                    setSidebarOpen(false);
-                    navigate("/orders", { state: { createOrder: true } });
-                  }}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-brand text-white text-[11.5px] font-bold shadow-xs active:scale-95 transition-all"
+                  onClick={() => { haptic(); setInstallOpen(true); }}
+                  className="flex w-full items-center justify-between rounded-xl border border-brand/20 bg-brand/5 px-3 py-2 text-left text-[11.5px] font-bold text-brand"
                 >
-                  <Plus size={14} strokeWidth={2.5} />
-                  <span>New Order</span>
+                  <span className="inline-flex items-center gap-1.5"><Download size={14} /> Install Ecom OS</span>
+                  <ChevronRight size={14} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic();
-                    setSidebarOpen(false);
-                    onScan();
-                  }}
-                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-base-raised border border-base-border text-ink text-[11.5px] font-bold active:scale-95 transition-all"
-                >
-                  <ScanLine size={14} />
-                  <span>Scan QR</span>
-                </button>
-              </div>
+              )}
+              {can("orders", "Orders") && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic();
+                      setSidebarOpen(false);
+                      navigate("/orders", { state: { createOrder: true } });
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-brand text-white text-[11.5px] font-bold shadow-xs active:scale-95 transition-all"
+                  >
+                    <Plus size={14} strokeWidth={2.5} />
+                    <span>New Order</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic();
+                      setSidebarOpen(false);
+                      onScan();
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-base-raised border border-base-border text-ink text-[11.5px] font-bold active:scale-95 transition-all"
+                  >
+                    <ScanLine size={14} />
+                    <span>Scan QR</span>
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic();
-                    setSidebarOpen(false);
-                    navigate("/settings");
-                  }}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted hover:text-ink"
-                >
-                  <Settings size={14} /> Workspace Settings
-                </button>
+                {can("settings", "Settings") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic();
+                      setSidebarOpen(false);
+                      navigate("/settings");
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted hover:text-ink"
+                  >
+                    <Settings size={14} /> Workspace Settings
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -653,7 +700,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
         title="Quick Actions"
       >
         <div className="grid grid-cols-2 gap-2 pb-1">
-          {can("orders") && (
+          {can("orders", "Orders") && (
             <button
               type="button"
               onPointerDown={getPrefetchHandler("/orders")}
@@ -667,7 +714,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               </div>
             </button>
           )}
-          {can("confirmation") && (
+          {can("confirmation", "Confirmation") && (
             <button
               type="button"
               onPointerDown={getPrefetchHandler("/confirmation")}
@@ -681,21 +728,21 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               </div>
             </button>
           )}
-          {can("shipping") && shippingOn && (
+          {can("shipping", "Shipping") && shippingOn && (
             <button
               type="button"
-              onPointerDown={getPrefetchHandler("/delivering")}
-              onClick={() => { haptic(); setQuickOpen(false); navigate("/delivering"); }}
+              onPointerDown={getPrefetchHandler("/shipping")}
+              onClick={() => { haptic(); setQuickOpen(false); navigate("/shipping"); }}
               className="flex min-h-[100px] flex-col justify-between rounded-2xl border border-base-border bg-base-raised/50 p-3 text-left active:scale-[0.97]"
             >
               <span className="grid h-9 w-9 place-items-center rounded-xl bg-sky-500/12 text-sky-600"><Truck size={18} /></span>
               <div>
-                <span className="block text-[12.5px] font-bold text-ink">Delivering</span>
-                <span className="text-[10.5px] text-ink-muted">Track parcels</span>
+                <span className="block text-[12.5px] font-bold text-ink">Shipping</span>
+                <span className="text-[10.5px] text-ink-muted">Carrier dispatch & logs</span>
               </div>
             </button>
           )}
-          {(can("inventory") || can("products")) && (
+          {(can("inventory", "Inventory") || can("products", "Products")) && (
             <button
               type="button"
               onClick={() => { haptic(); setQuickOpen(false); onScan(); }}
@@ -708,6 +755,14 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
               </div>
             </button>
           )}
+        </div>
+      </MobileBottomSheet>
+
+      <MobileBottomSheet isOpen={installOpen} onClose={() => setInstallOpen(false)} title="Install Ecom OS">
+        <div className="space-y-4 text-sm text-ink-muted">
+          <p>Install Ecom OS for a full-screen, app-like workspace with faster launch from your home screen.</p>
+          {isIos ? <div className="rounded-xl border border-base-border bg-base-raised p-4"><p className="font-semibold text-ink">On iPhone or iPad</p><p className="mt-2 leading-6">Tap the <span className="inline-flex items-center gap-1 font-semibold text-ink"><Share size={14} /> Share</span> button in Safari, then choose <strong className="text-ink">Add to Home Screen</strong>.</p></div> : <button type="button" onClick={async () => { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); setInstallOpen(false); }} disabled={!installPrompt} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 font-semibold text-white disabled:opacity-50"><Download size={16} /> Install app</button>}
+          <p className="text-xs leading-5">Installation options depend on your browser. Ecom OS never asks for notification permission during installation.</p>
         </div>
       </MobileBottomSheet>
     </>

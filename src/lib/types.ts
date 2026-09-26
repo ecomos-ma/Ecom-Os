@@ -133,6 +133,7 @@ export interface Campaign {
 export interface Order {
   id: string;
   workspace_id: string;
+  assigned_to?: string | null;
   order_number: string;
   order_source?: "youcan" | "google_sheets" | "manual" | string | null;
   order_sequence_number?: number | null;
@@ -148,6 +149,9 @@ export interface Order {
   updated_at?: string;
   confirmed_at: string | null;
   delivered_at: string | null;
+  is_upsell?: boolean;
+  upsell_value?: number | null;
+  upsell_at?: string | null;
   cancelled_at: string | null;
   tracking_number?: string | null;
   coliaty_parcel_code?: string | null;

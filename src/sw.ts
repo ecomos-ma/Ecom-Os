@@ -1,38 +1,42 @@
 /// <reference lib="webworker" />
 import { clientsClaim } from "workbox-core";
 import { ExpirationPlugin } from "workbox-expiration";
-import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching";
+import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from "workbox-precaching";
 import { registerRoute, setCatchHandler } from "workbox-routing";
-import { CacheFirst, NetworkFirst, NetworkOnly, StaleWhileRevalidate } from "workbox-strategies";
+import { CacheFirst, NetworkOnly } from "workbox-strategies";
 
 declare let self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string | null }> };
 
-self.skipWaiting();
 clientsClaim();
 cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST);
 
-registerRoute(({ url }) => /\.supabase\.co$/i.test(url.hostname), new NetworkOnly());
+// Authenticated pages and user-uploaded images must never survive account changes.
+// Keep only versioned build assets and a generic offline page in the precache.
 registerRoute(
   ({ request }) => request.mode === "navigate",
-  new NetworkFirst({ cacheName: "ecomos-pages", networkTimeoutSeconds: 5 }),
+  new NetworkOnly(),
 );
+precacheAndRoute(self.__WB_MANIFEST);
+registerRoute(({ url }) => /\.supabase\.co$/i.test(url.hostname), new NetworkOnly());
 registerRoute(
   ({ url }) => /^fonts\.(?:googleapis|gstatic)\.com$/i.test(url.hostname),
   new CacheFirst({ cacheName: "google-fonts-cache", plugins: [new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 31_536_000 })] }),
 );
-registerRoute(
-  ({ request }) => request.destination === "image",
-  new CacheFirst({ cacheName: "image-cache", plugins: [new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 2_592_000 })] }),
-);
-registerRoute(
-  ({ request }) => request.destination === "script" || request.destination === "style",
-  new StaleWhileRevalidate({ cacheName: "static-resources", plugins: [new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 2_592_000 })] }),
-);
+// Remove private runtime caches left behind by older service-worker versions.
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    const names = await caches.keys();
+    await Promise.all(names.filter((name) => ["ecomos-pages", "image-cache", "static-resources"].includes(name)).map((name) => caches.delete(name)));
+  })());
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") void self.skipWaiting();
+});
 
 setCatchHandler(async ({ event }) => {
   if (event instanceof FetchEvent && event.request.mode === "navigate") {
-    return (await caches.match("/offline.html")) ?? Response.error();
+    return (await matchPrecache("/offline.html")) ?? Response.error();
   }
   return Response.error();
 });
@@ -59,8 +63,9 @@ function safeInternalUrl(value: unknown): string {
 self.addEventListener("push", (event: PushEvent) => {
   let payload: PushPayload = {};
   try { payload = event.data?.json() as PushPayload ?? {}; } catch { payload = { body: event.data?.text() }; }
-  const title = String(payload.title ?? "Ecom OS").replace(/<[^>]*>/g, "").slice(0, 180);
-  const body = String(payload.body ?? "You have a new notification.").replace(/<[^>]*>/g, "").slice(0, 600);
+  // OS notifications can appear on a lock screen; details stay inside the app.
+  const title = "Ecom OS";
+  const body = "You have a new notification.";
   const actionUrl = safeInternalUrl(payload.action_url);
   const critical = payload.priority === "critical";
   event.waitUntil(self.registration.showNotification(title, {

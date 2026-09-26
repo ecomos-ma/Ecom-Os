@@ -5,6 +5,9 @@ import { EmptyState } from "../components/EmptyState";
 import { FinanceProvider, useFinance } from "../contexts/FinanceContext";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
+import AgentInvoices from "./AgentInvoices";
+import { Navigate } from "react-router-dom";
+import { isFounder } from "../lib/rbac";
 
 const money = (value: number) => `${Math.round(value || 0).toLocaleString("fr-MA")} DH`;
 const pct = (value: number) => `${Number(value || 0).toFixed(0)}%`;
@@ -69,5 +72,11 @@ function FinanceDashboard() {
 }
 
 export default function Finance() {
-  return <FinanceProvider><FinanceDashboard /></FinanceProvider>;
+  const { profile, session } = useAuth();
+  if (profile?.role !== "owner" && !isFounder(profile?.role, session?.user?.email)) {
+    return <Navigate to="/agent-invoices" replace />;
+  }
+  // The legacy operational-ledger components above are deliberately retained
+  // only as source compatibility. Finance now exposes the agent-payroll view.
+  return <AgentInvoices financeView />;
 }

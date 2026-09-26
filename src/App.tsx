@@ -44,7 +44,7 @@ import { OrdersProvider } from "./contexts/OrdersContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 const EcomOSLanding = lazy(() => import("./pages/LandingV3"));
 
-const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Dashboard = lazy(() => import("./pages/ResponsiveDashboard"));
 const Orders = lazy(() => import("./pages/Orders"));
 const WhatsApp = lazy(() => import("./pages/WhatsApp"));
 const LiveView = lazy(() => import("./pages/LiveView"));
@@ -60,6 +60,7 @@ const LegacyAdsManager = lazy(() => import("./pages/LegacyAdsManager"));
 const TikTokAds = lazy(() => import("./pages/TikTokAds"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const Finance = lazy(() => import("./pages/Finance"));
+const AgentInvoices = lazy(() => import("./pages/AgentInvoices"));
 const CodScenarios = lazy(() => import("./pages/CodScenarios"));
 const Team = lazy(() => import("./pages/Team"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -70,6 +71,7 @@ const Invite = lazy(() => import("./pages/Invite"));
 
 const AdminPro = lazy(() => import("./pages/admin/AdminPro"));
 const PublicLandingPage = lazy(() => import("./pages/public/LandingPage"));
+const ThemeDomainLicensing = lazy(() => import("./pages/admin/ThemeDomainLicensing"));
 
 function LoadablePage({ children }: { children: ReactNode }) {
   return (
@@ -552,11 +554,15 @@ export default function App() {
                     path="/finance"
                     element={
                       <LoadablePage>
-                        <PermissionGuard permission="expenses">
+                        <PermissionGuard permission="dashboard">
                           <Finance />
                         </PermissionGuard>
                       </LoadablePage>
                     }
+                  />
+                  <Route
+                    path="/agent-invoices"
+                    element={<LoadablePage><AgentInvoices /></LoadablePage>}
                   />
                   <Route
                     path="/scenario"
@@ -594,33 +600,53 @@ export default function App() {
                   />
                   <Route
                     path="/settings/integrations/*"
-                    element={<LegacySettingsTabRedirect tab="integrations" />}
+                    element={
+                      <PermissionGuard permission="settings">
+                        <LegacySettingsTabRedirect tab="integrations" />
+                      </PermissionGuard>
+                    }
                   />
                   <Route
                     path="/settings/integration/*"
-                    element={<LegacySettingsTabRedirect tab="integrations" />}
+                    element={
+                      <PermissionGuard permission="settings">
+                        <LegacySettingsTabRedirect tab="integrations" />
+                      </PermissionGuard>
+                    }
                   />
                   <Route
                     path="/settings/billing"
-                    element={<LegacySettingsTabRedirect tab="billing" />}
+                    element={
+                      <PermissionGuard permission="settings">
+                        <LegacySettingsTabRedirect tab="billing" />
+                      </PermissionGuard>
+                    }
                   />
                   <Route
                     path="/notifications"
                     element={
                       <LoadablePage>
-                        <Notifications />
+                        <PermissionGuard permission="settings">
+                          <Notifications />
+                        </PermissionGuard>
                       </LoadablePage>
                     }
                   />
                   <Route
                     path="/settings/notifications"
-                    element={<LegacySettingsTabRedirect tab="notifications" />}
+                    element={
+                      <PermissionGuard permission="settings">
+                        <LegacySettingsTabRedirect tab="notifications" />
+                      </PermissionGuard>
+                    }
                   />
                   <Route
                     path="/tools"
                     element={
                       <LoadablePage>
-                        <Amine />
+                        <PermissionGuard permission="settings">
+                          <Amine />
+                        </PermissionGuard>
                       </LoadablePage>
                     }
                   />
@@ -628,7 +654,9 @@ export default function App() {
                     path="/amine"
                     element={
                       <LoadablePage>
-                        <Amine />
+                        <PermissionGuard permission="settings">
+                          <Amine />
+                        </PermissionGuard>
                       </LoadablePage>
                     }
                   />

@@ -20,7 +20,7 @@ export default defineConfig(({ mode, command }) => {
       strategies: "injectManifest",
       srcDir: "src",
       filename: "sw.ts",
-      registerType: "autoUpdate",
+      registerType: "prompt",
       injectRegister: null,
       devOptions: {
         enabled: false, // Disabled in development to prevent API caching issues
@@ -40,8 +40,8 @@ export default defineConfig(({ mode, command }) => {
         orientation: "any",
         start_url: "/",
         scope: "/",
-        theme_color: "#0f172a",
-        background_color: "#0f172a",
+        theme_color: "#e60064",
+        background_color: "#ffffff",
         icons: [
           { src: "/icon-72.png", sizes: "72x72", type: "image/png" },
           { src: "/icon-96.png", sizes: "96x96", type: "image/png" },

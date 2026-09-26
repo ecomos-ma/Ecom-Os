@@ -16,10 +16,10 @@ function toISO(ts: Date | string) {
   return new Date(String(ts)).toISOString();
 }
 
-export async function getOrdersByHour(startDate: Date | string, endDate: Date | string): Promise<HourBucket[]> {
+export async function getOrdersByHour(workspaceId: string, startDate: Date | string, endDate: Date | string): Promise<HourBucket[]> {
   const start_ts = toISO(startDate);
   const end_ts = toISO(endDate);
-  const { data, error } = await supabase.rpc("get_orders_by_hour", { start_ts, end_ts });
+  const { data, error } = await supabase.rpc("get_orders_by_hour_v2", { p_workspace_id: workspaceId, start_ts, end_ts });
   if (error) {
     console.error("getOrdersByHour RPC error:", error, { start_ts, end_ts });
     throw error;

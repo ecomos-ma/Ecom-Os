@@ -2,6 +2,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
+import { parseSheetOrderTime } from "../_shared/sheet-order-time.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,6 +96,7 @@ function mapSheetRow(row: any, workspaceId: string, sheetId: string): Record<str
   const orderNumber = rowKeys['order_number'] || rowKeys['ref'] || rowKeys['reference'] || null;
   const status = rowKeys['status'] || 'pending';
   const customerIp = rowKeys['customer_ip'] || rowKeys['customer ip'] || rowKeys['ip address'] || rowKeys['ip'] || null;
+  const orderTime = parseSheetOrderTime(rowKeys['order date'] ?? rowKeys['order_date'] ?? rowKeys['date']);
 
   return {
     workspace_id: workspaceId,
@@ -111,7 +113,7 @@ function mapSheetRow(row: any, workspaceId: string, sheetId: string): Record<str
     status: String(status).toLowerCase(),
     customer_ip: customerIp ? String(customerIp).trim() : null,
     source: "sheets",
-    created_at: new Date().toISOString(),
+    ...(orderTime ? { order_date: orderTime, order_received_at: orderTime, created_at: orderTime } : {}),
     source_platform: rowKeys['source_platform'] || null,
     utm_source: rowKeys['utm_source'] || null,
     utm_medium: rowKeys['utm_medium'] || null,
@@ -165,7 +167,7 @@ serve(async (req) => {
     // Look up workspace by webhook_token
     const { data: credentials, error: credError } = await supabase
       .from("google_sheets_credentials")
-      .select("workspace_id, sheet_id")
+      .select("workspace_id, sheet_id, mapping_saved_at, sync_enabled, field_mappings")
       .eq("webhook_token", webhook_token)
       .single();
 
@@ -173,6 +175,14 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Invalid webhook_token" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!credentials.mapping_saved_at || !credentials.sync_enabled ||
+        !Array.isArray(credentials.field_mappings) ||
+        !credentials.field_mappings.some((mapping: any) => mapping.destinationField && mapping.destinationField !== "do_not_import")) {
+      return new Response(JSON.stringify({ error: "Save the column mapping and click Sync now before importing orders" }), {
+        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -273,7 +283,12 @@ serve(async (req) => {
       total: mapped.total,
       status: mapped.status,
       source: "sheets",
-      created_at: mapped.created_at,
+      ...(mapped.order_date ? {
+        order_date: mapped.order_date,
+        order_received_at: mapped.order_received_at,
+        created_at: mapped.created_at,
+      } : {}),
+      synced_at: new Date().toISOString(),
       sku: mapped.sku || null,
       product_variant: null,
       customer_name: mapped.customer_name || null,

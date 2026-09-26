@@ -1,4 +1,5 @@
 import { resolveOrderCityFuzzy } from "../_shared/city-matcher.ts";
+import { legacySheetSyncTime, parseSheetOrderTime } from "../_shared/sheet-order-time.ts";
 // deno-lint-ignore-file no-explicit-any
 /**
  * sync-google-sheets-fast — Fast delta sync for Google Sheets
@@ -56,9 +57,9 @@ function createTiming(workspaceId: string): SyncTiming {
 function logTiming(timing: SyncTiming) {
   timing.totalSyncMs = Date.now() - timing.checkStartedAt;
   console.log(`[GS FAST SYNC] Timing for workspace ${timing.workspace_id}:`, {
-    metaFetch: timing.metaFetchCompletedAt - timing.checkStartedAt,
-    deltaFetch: timing.deltaFetchCompletedAt - timing.metaFetchCompletedAt,
-    dbUpsert: timing.dbUpsertCompletedAt - timing.deltaFetchCompletedAt,
+    metaFetch: timing.metaFetchCompletedAt ? timing.metaFetchCompletedAt - timing.checkStartedAt : null,
+    deltaFetch: timing.deltaFetchCompletedAt && timing.metaFetchCompletedAt ? timing.deltaFetchCompletedAt - timing.metaFetchCompletedAt : null,
+    dbUpsert: timing.dbUpsertCompletedAt && timing.deltaFetchCompletedAt ? timing.dbUpsertCompletedAt - timing.deltaFetchCompletedAt : null,
     total: timing.totalSyncMs,
     rowsFetched: timing.rowsFetched,
     rowsImported: timing.rowsImported,
@@ -156,6 +157,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     workspace_id: workspaceId,
     source: "sheets",
   };
+  let rawOrderDate: unknown = null;
   
   if (fieldMappings && Array.isArray(fieldMappings) && fieldMappings.length > 0) {
     fieldMappings.forEach((mapping: any) => {
@@ -182,14 +184,8 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
           result.total = isNaN(parsed) ? null : parsed;
         }
       } else if (destinationField === "order_date") {
-        if (value) {
-          try {
-            const parsed = new Date(value);
-            if (!isNaN(parsed.getTime())) {
-              result.order_date = parsed.toISOString();
-            }
-          } catch {}
-        }
+        rawOrderDate = value;
+        result.order_date = parseSheetOrderTime(value);
       } else {
         result[destinationField] = value || null;
       }
@@ -200,7 +196,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     }
     
     const phone = result.phone || "";
-    const orderDate = result.order_date || "no-date";
+    const orderDate = legacySheetSyncTime(rawOrderDate, result.order_date) || "no-date";
     result.sync_key = `${phone}_${orderDate}`;
     
   } else {
@@ -234,15 +230,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     }
 
     const orderDateStr = row["Order date"] || "";
-    let orderDate: string | null = null;
-    if (orderDateStr) {
-      try {
-        const parsed = new Date(orderDateStr);
-        if (!isNaN(parsed.getTime())) {
-          orderDate = parsed.toISOString();
-        }
-      } catch {}
-    }
+    const orderDate = parseSheetOrderTime(orderDateStr);
 
     const variantPriceStr = row["Variant price"] || "";
     let total: number | null = null;
@@ -254,7 +242,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     }
 
     const phone = row["Phone"] || "";
-    const syncKey = `${phone}_${orderDate || "no-date"}`;
+    const syncKey = `${phone}_${legacySheetSyncTime(orderDateStr, orderDate) || "no-date"}`;
 
     result.phone = phone || null;
     result.first_name = row["First name"] || null;
@@ -284,19 +272,24 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     result.sync_key = syncKey;
   }
   
+  if (result.order_date) {
+    result.created_at = result.order_date;
+    result.order_received_at = result.order_date;
+  }
+  result.synced_at = new Date().toISOString();
   return result;
 }
 
 // ---------------------------------------------------------------------------
 // Fast sync for a single workspace
 // ---------------------------------------------------------------------------
-async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: SyncTiming): Promise<{ created: number; updated: number; errors: number; errorDetails: string[] }> {
+async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: SyncTiming, allowInitialSync = false): Promise<{ created: number; updated: number; errors: number; errorDetails: string[] }> {
   console.log(`[GS FAST SYNC] Starting fast sync for workspace ${workspaceId}`);
   
   // Get credentials and current checkpoint
   const { data: credentials, error: credError } = await supabase
     .from("google_sheets_credentials")
-    .select("web_app_url, field_mappings, custom_status_mappings, last_processed_row, last_seen_sheet_row")
+    .select("web_app_url, field_mappings, custom_status_mappings, last_processed_row, last_seen_sheet_row, mapping_saved_at, sync_enabled")
     .eq("workspace_id", workspaceId)
     .single();
 
@@ -311,6 +304,18 @@ async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: Syn
   const customStatusMappings = credentials.custom_status_mappings;
   const lastProcessedRow = credentials.last_processed_row || 0;
 
+  const hasSavedMapping = Boolean(credentials.mapping_saved_at)
+    && Array.isArray(fieldMappings)
+    && fieldMappings.some((mapping: any) => mapping.destinationField && mapping.destinationField !== "do_not_import");
+  if (!hasSavedMapping || !validateFieldMappings(fieldMappings)) {
+    timing.error = "Save a valid column mapping before syncing";
+    return { created: 0, updated: 0, errors: 1, errorDetails: [timing.error] };
+  }
+  if (!credentials.sync_enabled && !allowInitialSync) {
+    timing.error = "Click Sync now to start importing orders";
+    return { created: 0, updated: 0, errors: 1, errorDetails: [timing.error] };
+  }
+
   // ── Verify Google Sheets integration is still active for this workspace ─────
   const { data: isActive, error: activeError } = await supabase
     .rpc("is_google_sheets_integration_active", { p_workspace_id: workspaceId });
@@ -321,29 +326,27 @@ async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: Syn
     return { created: 0, updated: 0, errors: 1, errorDetails: ["Integration not active"] };
   }
   
-  if (!validateFieldMappings(fieldMappings)) {
-    timing.error = "Invalid field mappings";
-    return { created: 0, updated: 0, errors: 1, errorDetails: ["Invalid field mappings"] };
-  }
-
   // Step 1: Check sheet metadata (cheap operation)
   let metaResponse: any;
   try {
     const metaUrl = `${webAppUrl}${webAppUrl.includes('?') ? '&' : '?'}mode=meta`;
     console.log(`[GS FAST SYNC] Fetching metadata from: ${metaUrl}`);
-    const response = await fetch(metaUrl, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(metaUrl, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(attempt === 0 ? 15000 : 20000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        metaResponse = JSON.parse(await response.text());
+        break;
+      } catch (error) {
+        if (attempt === 1) throw error;
+        console.warn("[GS FAST SYNC] Metadata request failed, retrying once:", error);
+      }
     }
-
-    const text = await response.text();
-    metaResponse = JSON.parse(text);
     timing.metaFetchCompletedAt = Date.now();
     console.log(`[GS FAST SYNC] Metadata:`, metaResponse);
   } catch (error: any) {
@@ -379,7 +382,7 @@ async function fastSyncWorkspace(supabase: any, workspaceId: string, timing: Syn
       method: "GET",
       headers: { "Accept": "application/json" },
       redirect: "follow",
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(45000),
     });
 
     if (!response.ok) {
@@ -551,7 +554,21 @@ serve(async (req) => {
         });
       }
       const timing = createTiming(body.workspace_id);
-      const result = await fastSyncWorkspace(supabase, body.workspace_id, timing);
+      const result = await fastSyncWorkspace(supabase, body.workspace_id, timing, body.start_sync === true);
+      if (body.start_sync === true && result.errors === 0) {
+        const { data: activated, error: activationError } = await supabase
+          .from("google_sheets_credentials")
+          .update({ sync_enabled: true, last_successful_sync_at: new Date().toISOString() })
+          .eq("workspace_id", body.workspace_id)
+          .not("mapping_saved_at", "is", null)
+          .select("workspace_id")
+          .maybeSingle();
+        if (activationError || !activated) {
+          return new Response(JSON.stringify({ error: "Orders synced, but automatic sync could not be enabled. Please retry Sync now." }), {
+            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
       logTiming(timing);
       
       return new Response(JSON.stringify({

@@ -1,4 +1,5 @@
 import { resolveOrderCityFuzzy } from "../_shared/city-matcher.ts";
+import { legacySheetSyncTime, parseSheetOrderTime } from "../_shared/sheet-order-time.ts";
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -107,6 +108,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     workspace_id: workspaceId,
     source: "sheets",
   };
+  let rawOrderDate: unknown = null;
   
   console.log("[GS SYNC] Mapping row with fieldMappings:", fieldMappings ? "YES" : "NO (using fallback)");
   
@@ -146,16 +148,8 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
           console.log(`[GS SYNC] Total parsed:`, result.total, "from:", value);
         }
       } else if (destinationField === "order_date") {
-        if (value) {
-          try {
-            const parsed = new Date(value);
-            if (!isNaN(parsed.getTime())) {
-              result.order_date = parsed.toISOString();
-            }
-          } catch {
-            // Invalid date, skip
-          }
-        }
+        rawOrderDate = value;
+        result.order_date = parseSheetOrderTime(value);
       } else {
         // Direct mapping for other fields
         result[destinationField] = value || null;
@@ -169,7 +163,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
     
     // Generate sync key for deduplication (phone + order_date)
     const phone = result.phone || "";
-    const orderDate = result.order_date || "no-date";
+    const orderDate = legacySheetSyncTime(rawOrderDate, result.order_date) || "no-date";
     result.sync_key = `${phone}_${orderDate}`;
     
   } else {
@@ -216,17 +210,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
 
     // Parse order date
     const orderDateStr = row["Order date"] || "";
-    let orderDate: string | null = null;
-    if (orderDateStr) {
-      try {
-        const parsed = new Date(orderDateStr);
-        if (!isNaN(parsed.getTime())) {
-          orderDate = parsed.toISOString();
-        }
-      } catch {
-        // Invalid date, keep null
-      }
-    }
+    const orderDate = parseSheetOrderTime(orderDateStr);
 
     // Parse total amount (strip currency symbols)
     const variantPriceStr = row["Variant price"] || "";
@@ -241,7 +225,7 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
 
     // Generate sync key for deduplication (phone + order_date)
     const phone = row["Phone"] || "";
-    const syncKey = `${phone}_${orderDate || "no-date"}`;
+    const syncKey = `${phone}_${legacySheetSyncTime(orderDateStr, orderDate) || "no-date"}`;
 
     result.phone = phone || null;
     result.first_name = row["First name"] || null;
@@ -273,8 +257,12 @@ function mapWebAppRow(row: any, workspaceId: string, fieldMappings: any[] | null
   
   console.log("[GS SYNC] Final result - city:", result.city, ", total:", result.total, ", shipping_status:", result.shipping_status);
   
-  // Do NOT set created_at — let the DB default (now()) handle it on insert
-  // order_number will be set separately based on whether this is a new or existing order
+  if (result.order_date) {
+    result.created_at = result.order_date;
+    result.order_received_at = result.order_date;
+  }
+  result.synced_at = new Date().toISOString();
+  // The database still owns the seller-facing order_number.
   
   return result;
 }
@@ -344,7 +332,7 @@ serve(async (req) => {
     // Get web_app_url and mappings from credentials
     const { data: credentials, error: credError } = await supabase
       .from("google_sheets_credentials")
-      .select("web_app_url, field_mappings, custom_status_mappings")
+      .select("web_app_url, field_mappings, custom_status_mappings, mapping_saved_at, sync_enabled")
       .eq("workspace_id", workspace_id)
       .single();
 
@@ -352,6 +340,14 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Web App URL not configured for this workspace" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!credentials.mapping_saved_at || !credentials.sync_enabled ||
+        !Array.isArray(credentials.field_mappings) ||
+        !credentials.field_mappings.some((mapping: any) => mapping.destinationField && mapping.destinationField !== "do_not_import")) {
+      return new Response(JSON.stringify({ error: "Save the column mapping and click Sync now before importing orders" }), {
+        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 

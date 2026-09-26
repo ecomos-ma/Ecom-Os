@@ -14,6 +14,7 @@ import { PaymentMethodsPage } from "./admin-pro/BankTransferSettings";
 import ErrorCenter from "./ErrorCenter";
 import AdminDataDeletionRequests from "./AdminDataDeletionRequests";
 import AdminLegalSettings from "./AdminLegalSettings";
+import ThemeDomainLicensing from "./ThemeDomainLicensing";
 
 export default function AdminPro() {
   const { pathname } = useLocation();
@@ -36,5 +37,6 @@ export default function AdminPro() {
   if (pathname.startsWith("/admin/errors")) return <ErrorCenter />;
   if (pathname.startsWith("/admin/deletion-requests")) return <AdminDataDeletionRequests />;
   if (pathname.startsWith("/admin/legal-settings")) return <AdminLegalSettings />;
+  if (pathname.startsWith("/admin/theme-domains")) return <ThemeDomainLicensing />;
   return <CommandCenter />;
 }

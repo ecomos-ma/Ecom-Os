@@ -233,3 +233,50 @@ export function isOwnerLikeRole(role: string | null | undefined): boolean {
 export function isAgentRole(role: string | null | undefined): boolean {
   return role === "agent";
 }
+
+/**
+ * Agent access is intentionally section-based, not feature-family based.
+ * For example, granting Orders must not also expose Live View or Delivering,
+ * and granting Confirmation must not expose the WhatsApp inbox. Those are
+ * separate operational surfaces and need their own explicit permission before
+ * they can be added to the team editor.
+ */
+const AGENT_ROUTE_SECTIONS: Record<string, AllowedSection | null> = {
+  "/dashboard": "Dashboard",
+  "/orders": "Orders",
+  "/live-view": null,
+  "/confirmation": "Confirmation",
+  "/whatsapp": null,
+  "/delivering": null,
+  "/shipping": "Shipping",
+  "/customers": "Customers",
+  "/anti-fake-orders": null,
+  "/products-inventory": "Products",
+  "/ads-manager": "Ads Manager",
+  "/ads-manager-legacy": null,
+  "/tiktok-ads": "TikTok Ads",
+  "/expenses": "Expenses",
+  "/finance": null,
+  "/agent-invoices": "Dashboard",
+  "/scenario": "COD Scenarios",
+  "/team": "Team",
+  "/settings": "Settings",
+  "/tools": null,
+  "/amine": null,
+  "/notifications": null,
+};
+
+/** Returns whether a non-owner team member may open a protected route. */
+export function canAgentAccessRoute(
+  sections: string[] | null | undefined,
+  pathname: string,
+): boolean {
+  const allowed = normalizeAllowedSections(sections);
+  const route = Object.keys(AGENT_ROUTE_SECTIONS)
+    .sort((left, right) => right.length - left.length)
+    .find((candidate) => pathname === candidate || pathname.startsWith(`${candidate}/`));
+
+  if (!route) return false;
+  const requiredSection = AGENT_ROUTE_SECTIONS[route];
+  return requiredSection !== null && allowed.includes(requiredSection);
+}

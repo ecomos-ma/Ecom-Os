@@ -36,6 +36,9 @@ export type ConfirmationOrder = {
   createdAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;
+  isUpsell: boolean;
+  upsellValue: number | null;
+  upsellAt: string | null;
   assignedAgent: ConfirmationAgent | null;
   products: ConfirmationProduct[];
   lastActivity: ConfirmationTimelineEntry | null;

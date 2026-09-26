@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from "react";
-import { Plus, Search, RefreshCw, MessageCircle, Phone, SlidersHorizontal } from "lucide-react";
+import { Plus, Search, RefreshCw, MessageCircle, Phone, SlidersHorizontal, Zap } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { StatusBadge } from "../components/StatusBadge";
@@ -211,12 +211,21 @@ function isCityUnresolved(o: any): boolean {
 export default function Orders() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { workspace, refreshProfile } = useAuth();
+  const { workspace, profile, session, refreshProfile } = useAuth();
   const { globalOrders: allOrders, loading, reloadGlobalOrders: reload } = useGlobalOrders();
+  // An import can finish while this page is closed; realtime delivery is not
+  // guaranteed across tabs or sleeping PWAs. Refresh on entry to show it.
+  useEffect(() => {
+    if (workspace?.id) void reload(true);
+  }, [workspace?.id, reload]);
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "youcan" | "sheets" | "manual">("all");
   const [cityFilter, setCityFilter] = useState<"all" | "unresolved" | "resolved">("all");
+  const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "week">("all");
+  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "mine" | "unassigned">("all");
+  const [confirmationFilter, setConfirmationFilter] = useState<"all" | "call" | "whatsapp">("all");
+  const [deliveryFilter, setDeliveryFilter] = useState<"all" | "delivered" | "other">("all");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
@@ -235,10 +244,10 @@ export default function Orders() {
   useEffect(() => {
     const requestedOrderId = (location.state as { viewOrderId?: string } | null)?.viewOrderId;
     if (!requestedOrderId || !allOrders.length) return;
-    const requestedOrder = allOrders.find((order) => order.id === requestedOrderId);
+    const requestedOrder = allOrders.find((order) => order.id === requestedOrderId && (profile?.role !== "agent" || order.assigned_to === session?.user?.id));
     if (requestedOrder) setEditingOrder(requestedOrder);
     navigate(location.pathname, { replace: true, state: null });
-  }, [allOrders, location.pathname, location.state, navigate]);
+  }, [allOrders, location.pathname, location.state, navigate, profile?.role, session?.user?.id]);
 
     // Infinite Scroll state
   const [visibleCount, setVisibleCount] = useState(50);
@@ -254,7 +263,11 @@ export default function Orders() {
 
   // Filter orders locally from the master dataset
   const orders = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const day = 24 * 60 * 60 * 1000;
     return allOrders.filter((o) => {
+      if (profile?.role === "agent" && o.assigned_to !== session?.user?.id) return false;
       // Status filter
       if (status !== "all" && normalizeStatus(o.status) !== normalizeStatus(status)) {
         return false;
@@ -264,6 +277,17 @@ export default function Orders() {
       if (sourceFilter !== "all" && o.source !== sourceFilter) {
         return false;
       }
+      if (cityFilter !== "all" && isCityUnresolved(o) !== (cityFilter === "unresolved")) return false;
+      if (assignmentFilter === "mine" && o.assigned_to !== session?.user?.id) return false;
+      if (assignmentFilter === "unassigned" && o.assigned_to) return false;
+      if (confirmationFilter !== "all" && (o as Order & { confirmation_method?: string | null }).confirmation_method !== confirmationFilter) return false;
+      const delivered = ["delivered", "livré", "livre"].includes((o.shipping_status || o.delivery_status || "").toLowerCase());
+      if (deliveryFilter === "delivered" && !delivered) return false;
+      if (deliveryFilter === "other" && delivered) return false;
+      const created = new Date(o.created_at).getTime();
+      if (dateFilter === "today" && created < todayStart) return false;
+      if (dateFilter === "yesterday" && (created < todayStart - day || created >= todayStart)) return false;
+      if (dateFilter === "week" && created < todayStart - 6 * day) return false;
 
       // Search filter
       if (search) {
@@ -274,9 +298,10 @@ export default function Orders() {
 
       return true;
     });
-  }, [allOrders, status, sourceFilter, cityFilter, search]);
+  }, [allOrders, status, sourceFilter, cityFilter, dateFilter, assignmentFilter, confirmationFilter, deliveryFilter, search, profile?.role, session?.user?.id]);
 
   const displayOrders = useMemo(() => orders.slice(0, visibleCount), [orders, visibleCount]);
+  useEffect(() => { setVisibleCount(50); }, [status, sourceFilter, cityFilter, dateFilter, assignmentFilter, confirmationFilter, deliveryFilter, search]);
 
   const showShippingColumn = workspace?.show_shipping_column ?? false;
   // Listen for global auto-sync reloads
@@ -335,7 +360,7 @@ export default function Orders() {
           aria-label="Open order filters"
         >
           <SlidersHorizontal size={18} />
-          {(status !== "all" || sourceFilter !== "all") && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-brand" />}
+          {(status !== "all" || sourceFilter !== "all" || cityFilter !== "all" || dateFilter !== "all" || assignmentFilter !== "all" || confirmationFilter !== "all" || deliveryFilter !== "all") && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-brand" />}
         </button>
         <div className="hidden text-[12.5px] text-ink-muted sm:block">{orders.length} orders</div>
       </div>
@@ -365,8 +390,15 @@ export default function Orders() {
               <option value="manual">Manual</option>
             </select>
           </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs font-semibold text-ink-muted">Date<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as typeof dateFilter)} className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-surface px-3 text-base text-ink"><option value="all">Any date</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">Last 7 days</option></select></label>
+            <label className="block text-xs font-semibold text-ink-muted">Assignment<select value={assignmentFilter} onChange={(event) => setAssignmentFilter(event.target.value as typeof assignmentFilter)} className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-surface px-3 text-base text-ink"><option value="all">All visible</option><option value="mine">Assigned to me</option><option value="unassigned">Unassigned</option></select></label>
+            <label className="block text-xs font-semibold text-ink-muted">City<select value={cityFilter} onChange={(event) => setCityFilter(event.target.value as typeof cityFilter)} className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-surface px-3 text-base text-ink"><option value="all">All cities</option><option value="unresolved">Needs review</option><option value="resolved">Resolved</option></select></label>
+            <label className="block text-xs font-semibold text-ink-muted">Confirmation<select value={confirmationFilter} onChange={(event) => setConfirmationFilter(event.target.value as typeof confirmationFilter)} className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-surface px-3 text-base text-ink"><option value="all">Any method</option><option value="call">Phone call</option><option value="whatsapp">WhatsApp</option></select></label>
+            <label className="col-span-2 block text-xs font-semibold text-ink-muted">Delivery<select value={deliveryFilter} onChange={(event) => setDeliveryFilter(event.target.value as typeof deliveryFilter)} className="mt-2 min-h-12 w-full rounded-xl border border-base-border bg-base-surface px-3 text-base text-ink"><option value="all">Any status</option><option value="delivered">Delivered</option><option value="other">Not delivered</option></select></label>
+          </div>
           <div className="grid grid-cols-2 gap-2 pt-2">
-            <button type="button" onClick={() => { setStatus("all"); setSourceFilter("all"); setCityFilter("all"); }} className="min-h-12 rounded-xl border border-base-border font-bold text-ink-muted">Reset</button>
+            <button type="button" onClick={() => { setStatus("all"); setSourceFilter("all"); setCityFilter("all"); setDateFilter("all"); setAssignmentFilter("all"); setConfirmationFilter("all"); setDeliveryFilter("all"); }} className="min-h-12 rounded-xl border border-base-border font-bold text-ink-muted">Reset</button>
             <button type="button" onClick={() => setMobileFiltersOpen(false)} className="min-h-12 rounded-xl bg-brand font-bold text-white">Show {orders.length} orders</button>
           </div>
         </div>
@@ -471,7 +503,7 @@ export default function Orders() {
       <div className="md:hidden flex flex-col gap-3 pb-8">
         {loading && orders.length === 0 ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="rounded-2xl border-none bg-base-surface/60 p-4 shadow-xl backdrop-blur-xl animate-pulse">
+            <div key={i} className="animate-pulse rounded-xl border border-base-border bg-base-surface p-4">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="h-4 w-32 bg-base-raised rounded mb-2" />
@@ -495,16 +527,16 @@ export default function Orders() {
             primaryAction={
               allOrders.length === 0
                 ? <button onClick={() => navigate("/settings")} className="rounded-lg bg-brand px-4 py-2 text-[13px] font-medium text-white hover:bg-brand/90">Connect Store</button>
-                : <button onClick={() => { setStatus("all"); setSearch(""); setSourceFilter("all"); }} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>
+                : <button onClick={() => { setStatus("all"); setSearch(""); setSourceFilter("all"); setCityFilter("all"); setDateFilter("all"); setAssignmentFilter("all"); setConfirmationFilter("all"); setDeliveryFilter("all"); }} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Clear Filters</button>
             }
             secondaryAction={allOrders.length === 0 ? <button onClick={() => setShowNew(true)} className="rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[13px] font-medium text-ink hover:bg-base-border">Add Order</button> : undefined}
           />
         ) : (
           displayOrders.map((o: Order & { delivery_status?: string | null }) => (
             <div
-              key={o.order_number}
+              key={o.id}
               onClick={() => setEditingOrder(o)}
-              className="rounded-2xl border-none bg-base-surface/60 p-4 shadow-xl backdrop-blur-xl relative overflow-hidden active:scale-[0.98] transition-transform"
+              className="relative overflow-hidden rounded-xl border border-base-border bg-base-surface p-4 shadow-card"
             >
               <div className="flex justify-between items-start mb-4">
                 <div>
@@ -540,7 +572,7 @@ export default function Orders() {
 
               {/* Product details preview */}
               {(o.product_variant || o.sku) && (
-                <div className="bg-base-raised/30 rounded-lg p-2.5 mb-4 text-[13px] text-ink">
+                <div className="mb-4 rounded-lg bg-base-raised p-2.5 text-[13px] text-ink">
                   <span className="text-ink font-medium">{o.product_variant || "Product"}</span>
                   {o.sku && <span className="text-ink-muted font-mono ml-2 text-[11.5px] px-1.5 py-0.5 bg-base-raised rounded">{o.sku}</span>}
                 </div>
@@ -559,9 +591,15 @@ export default function Orders() {
                   {new Date(o.created_at).toLocaleDateString("en-GB", { month: 'short', day: '2-digit' })}
                 </div>
               </div>
+              <div className="mt-3 flex items-center gap-2 border-t border-base-border pt-3">
+                <button type="button" onClick={(event) => { event.stopPropagation(); setEditingOrder(o); }} className="min-h-11 flex-1 rounded-lg border border-base-border px-3 text-xs font-semibold text-ink">Open details</button>
+                {(o.phone ?? o.customer?.phone) && <a href={`tel:${(o.phone ?? o.customer?.phone ?? "").replace(/[^+\d]/g, "")}`} onClick={(event) => event.stopPropagation()} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-base-border px-3 text-xs font-semibold text-ink"><Phone size={14} />Call</a>}
+                {(profile?.role === "owner" || profile?.role === "supervisor" || profile?.allowed_sections?.includes("Confirmation")) && (profile?.role === "owner" || profile?.role === "supervisor" || o.assigned_to === session?.user?.id) && <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`/confirmation?order=${encodeURIComponent(o.id)}`); }} className="min-h-11 rounded-lg bg-brand px-3 text-xs font-semibold text-white">Confirm</button>}
+              </div>
             </div>
           ))
         )}
+        {visibleCount < orders.length && <button type="button" onClick={() => setVisibleCount((count) => count + 50)} className="min-h-12 rounded-xl border border-base-border bg-base-surface px-4 text-sm font-semibold text-ink">Load more orders</button>}
       </div>
 
       {showNew && (
@@ -597,6 +635,7 @@ function NewOrderModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [address, setAddress] = useState("");
   const [total, setTotal] = useState("");
   const [busy, setBusy] = useState(false);
+  const [upsellBusy, setUpsellBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onSubmit = async (e: FormEvent) => {
@@ -757,6 +796,7 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
     normalizeStatus(order.delivery_status ?? (isConfirmedOrderStatus(order.status) ? "pending" : ""))
   );
   const [busy, setBusy] = useState(false);
+  const [upsellBusy, setUpsellBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [whatsappLogs, setWhatsappLogs] = useState<any[]>([]);
   const [youcanStore, setYoucanStore] = useState<{ name: string | null; domain: string | null } | null>(null);
@@ -1039,6 +1079,29 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
     }
   };
 
+  const toggleUpsell = async () => {
+    const orderId = (order as any)["Order ID"] || order.id;
+    if (!workspace?.id || !orderId) return;
+    setUpsellBusy(true);
+    try {
+      const nextValue = !(order as any).is_upsell;
+      const { error } = await supabase
+        .from("orders")
+        .update(nextValue
+          ? { is_upsell: true, upsell_at: new Date().toISOString() }
+          : { is_upsell: false, upsell_at: null, upsell_by_user_id: null })
+        .eq("workspace_id", workspace.id)
+        .eq("Order ID", orderId);
+      if (error) throw error;
+      toast.success(nextValue ? "Order marked as an upsell." : "Upsell flag removed.");
+      onUpdated();
+    } catch (err: any) {
+      toast.error(err?.message || "Could not update the upsell flag.");
+    } finally {
+      setUpsellBusy(false);
+    }
+  };
+
   const canCreateShipment = isConfirmedOrderStatus(order.status) && !order.tracking_number;
   const truncateIdentifier = (value: unknown) => {
     const text = String(value ?? "");
@@ -1103,6 +1166,11 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
           />
         </div>
         <Field label="Total (MAD)" value={total} onChange={setTotal} type="number" required />
+
+        <button type="button" onClick={() => void toggleUpsell()} disabled={upsellBusy} className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[12px] font-semibold transition-colors disabled:opacity-50 ${(order as any).is_upsell ? "border-violet-500/30 bg-violet-500/10 text-violet-600" : "border-base-border bg-base-raised text-ink hover:border-violet-500/30 hover:text-violet-600"}`}>
+          <span className="inline-flex items-center gap-2"><Zap size={14} /> {(order as any).is_upsell ? "This order is marked as an upsell" : "Mark this order as an upsell"}</span>
+          <span className="text-[10px]">{upsellBusy ? "Saving…" : (order as any).is_upsell ? "Remove" : "Add"}</span>
+        </button>
 
         <div>
           <label className="mb-1 block text-[12px] text-ink-muted">Shipping Status</label>

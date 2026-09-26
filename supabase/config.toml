@@ -10,6 +10,10 @@ entrypoint = "./functions/founder-internal-access/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/founder-internal-access/*.html" ]
 
+[functions.theme-domain-licensing]
+enabled = true
+verify_jwt = false
+
 [functions.tiktok-auth-start]
 enabled = true
 verify_jwt = false

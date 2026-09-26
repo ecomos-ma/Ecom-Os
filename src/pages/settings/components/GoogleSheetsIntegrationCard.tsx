@@ -66,6 +66,7 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
           sheet_id: extractSheetId(webAppUrl) || "manual",
           webhook_token: crypto.randomUUID(),
           web_app_url: webAppUrl.trim(),
+          sync_enabled: false,
         }, {
           onConflict: "workspace_id",
         })
@@ -120,13 +121,20 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
       toast.error("Workspace not found");
       return;
     }
+    if (!credentials?.mapping_saved_at || !Array.isArray(credentials.field_mappings) || !credentials.field_mappings.some((m: any) => m.destinationField && m.destinationField !== 'do_not_import')) {
+      toast.error("Save the column mapping before syncing orders");
+      setMappingOpen(true);
+      return;
+    }
 
     setSyncing(true);
     setSyncResult(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('sync-google-sheets-orders', {
-        body: { workspace_id: workspace.id }
+      // The full importer rechecks every row (including old rows) and can time
+      // out on a large sheet. The delta importer is also used by scheduled sync.
+      const { data, error } = await supabase.functions.invoke('sync-google-sheets-fast', {
+        body: { workspace_id: workspace.id, start_sync: true }
       });
 
       if (error) {
@@ -145,17 +153,24 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
       setSyncResult({
         created: data?.stats?.created || 0,
         updated: data?.stats?.updated || 0,
-        processed: data?.stats?.processed || 0,
+        processed: (data?.stats?.created || 0) + (data?.stats?.updated || 0),
         errors: data?.stats?.errors || 0,
       });
 
-      if (data?.stats?.created > 0) {
+      if (data?.success === false || (data?.stats?.errors || 0) > 0) {
+        const firstError = data?.errorDetails?.[0] || data?.error || "Some rows could not be imported";
+        toast.error(`Sync failed: ${firstError}`);
+      } else if (data?.stats?.created > 0) {
         toast.success(`${data.stats.created} new orders imported`);
       } else if (data?.stats?.updated > 0) {
         toast.success(`${data.stats.updated} orders updated`);
       } else {
         toast.success("Everything is up to date");
       }
+      if ((data?.stats?.created || 0) + (data?.stats?.updated || 0) > 0) {
+        window.dispatchEvent(new Event("trigger-order-reload"));
+      }
+      await loadCredentials();
     } catch (error: any) {
       toast.error(`Sync error: ${error?.message || "Unknown error"}`);
     } finally {
@@ -419,7 +434,9 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
                         )}
                       </div>
                       <p className="text-[12px] text-ink-muted">
-                        {mappingStatus.needsReview > 0 
+                        {!credentials?.mapping_saved_at
+                          ? "Save the mapping first. No orders will import until you click Sync now."
+                          : mappingStatus.needsReview > 0
                           ? "Some columns need review before import." 
                           : "All required fields are ready."}
                       </p>
@@ -445,22 +462,32 @@ function GoogleSheetsIntegrationCard({ onConnectionChange }: { onConnectionChang
                           {syncResult.updated > 0 && syncResult.created === 0 && (
                             <span className="text-blue-600 font-medium">{syncResult.updated} orders updated</span>
                           )}
-                          {syncResult.created === 0 && syncResult.updated === 0 && (
+                          {syncResult.errors > 0 && (
+                            <span className="text-red-600 font-medium">{syncResult.errors} rows failed to import</span>
+                          )}
+                          {syncResult.created === 0 && syncResult.updated === 0 && syncResult.errors === 0 && (
                             <span className="text-ink-muted">Everything is up to date</span>
                           )}
                         </div>
                       ) : (
                         <div className="text-[12px] text-ink-muted mb-2">
-                          Last sync: Just now
+                          {credentials?.mapping_saved_at && !credentials?.sync_enabled
+                            ? "Mapping saved. Click Sync now to start importing orders."
+                            : `Last successful sync: ${credentials?.last_successful_sync_at
+                              ? new Date(credentials.last_successful_sync_at).toLocaleString()
+                              : "Never"}`}
                         </div>
                       )}
                       <button
                         onClick={handleSync}
-                        disabled={syncing || !webAppUrl}
+                        disabled={syncing || !webAppUrl || !credentials?.mapping_saved_at || mappingStatus.mapped === 0}
                         className="w-full h-[34px] flex items-center justify-center gap-2 rounded-lg bg-brand px-3 text-[13px] font-semibold text-white shadow-sm hover:bg-brand/90 transition-colors disabled:opacity-60"
                       >
-                        Sync now
+                        {syncing ? <><Loader2 size={14} className="animate-spin" /> Syncing orders...</> : "Sync now"}
                       </button>
+                      {!credentials?.mapping_saved_at && (
+                        <p className="mt-2 text-[12px] text-ink-muted">Save your column mapping to enable Sync now.</p>
+                      )}
                     </div>
                   </div>
 

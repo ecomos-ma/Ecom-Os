@@ -43,9 +43,19 @@ const CONFETTI = [
   { left: "89%", color: "#f59e0b", delay: 0.2, drift: 14 },
 ];
 
-function errorMessage(error: unknown) {
+async function errorMessage(error: unknown) {
+  if (error && typeof error === "object" && "context" in error && error.context instanceof Response) {
+    try {
+      const body: unknown = await error.context.clone().json();
+      if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
+        return body.error;
+      }
+    } catch {
+      // Fall back to the transport error when no JSON response is available.
+    }
+  }
   if (error instanceof Error && error.message) return error.message;
-  return "Workspace reset failed. No database changes were kept if the database step failed.";
+  return "Workspace reset failed. Check the workspace state before retrying.";
 }
 
 function SuccessCelebration({ deletedTotal }: { deletedTotal: number }) {
@@ -162,7 +172,7 @@ export default function WorkspaceDangerZone() {
       await refreshProfile();
     } catch (resetError) {
       console.error("[WorkspaceReset] reset failed", resetError);
-      setError(errorMessage(resetError));
+      setError(await errorMessage(resetError));
     } finally {
       setIsResetting(false);
     }

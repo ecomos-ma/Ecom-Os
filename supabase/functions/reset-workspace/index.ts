@@ -10,7 +10,10 @@ import {
   serviceClient,
 } from "../_shared/security.ts";
 
-const WORKSPACE_BUCKETS = ["product-images", "call-recordings", "whatsapp-audio", "profile-images"] as const;
+const WORKSPACE_BUCKETS = [
+  "product-images", "call-recordings", "whatsapp-audio", "whatsapp-media",
+  "agent-payment-proofs", "profile-images",
+] as const;
 const STORAGE_PAGE_SIZE = 1000;
 
 type ResetResult = {
@@ -115,18 +118,17 @@ Deno.serve(async (req) => {
     if (workspaceError || !workspace) throw new HttpError("Workspace not found", 404);
     if (confirmation !== `RESET ${workspace.name}`) throw new HttpError("Confirmation text does not match", 400);
 
-    const warnings: string[] = [];
-    const whatsAppWarning = await disconnectWhatsAppSession(workspaceId);
-    if (whatsAppWarning) warnings.push(whatsAppWarning);
-
     const { data: resetData, error: resetError } = await client.rpc("reset_workspace_data_v2", {
       p_workspace_id: workspaceId,
       p_actor_id: user.id,
       p_confirmation: confirmation,
     });
     if (resetError) {
-      console.error("[reset-workspace] database_reset_failed", resetError.code);
-      throw new HttpError("Workspace data could not be reset", 500);
+      console.error("[reset-workspace] database_reset_failed", resetError.code, resetError.message);
+      if (resetError.code === "57014") {
+        throw new HttpError("The database reset timed out. No database changes were kept. Please retry or contact support.", 504);
+      }
+      throw new HttpError("Workspace data could not be reset. No database changes were kept.", 500);
     }
 
     let storageDeleted: Record<string, number> = {};
@@ -136,6 +138,10 @@ Deno.serve(async (req) => {
       console.error("[reset-workspace] storage_cleanup_failed", storageError);
       throw new HttpError("Workspace data was reset, but file cleanup is pending. Run reset again to finish.", 503);
     }
+
+    const warnings: string[] = [];
+    const whatsAppWarning = await disconnectWhatsAppSession(workspaceId);
+    if (whatsAppWarning) warnings.push(whatsAppWarning);
 
     return json(req, {
       ...(resetData as ResetResult),

@@ -21,6 +21,7 @@ interface DashboardAnalyticsProps {
     metrics?: any;
     startDate?: Date;
     endDate?: Date;
+    workspaceId?: string;
 }
 
 const COLORS = ["#10B981", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899", "#14B8A6"];
@@ -55,7 +56,7 @@ function EmptyState({ msg = "No data available in this date range" }: { msg?: st
     );
 }
 
-export function DashboardAnalytics({ data, metrics, startDate, endDate }: DashboardAnalyticsProps) {
+export function DashboardAnalytics({ data, metrics, startDate, endDate, workspaceId }: DashboardAnalyticsProps) {
     const { mode } = useTheme();
     const themeColors = THEME_COLORS[mode];
     const { config: businessConfig } = useBusinessConfig();
@@ -81,7 +82,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate }: Dashbo
         return d;
     })();
 
-    const { data: hourlyData, peak, loading: hourlyLoading } = useOrderTimeAnalytics(analyticsStartDate, analyticsEndDate);
+    const { data: hourlyData, peak, loading: hourlyLoading } = useOrderTimeAnalytics(analyticsStartDate, analyticsEndDate, workspaceId);
 
     const daysCount: Record<string, number> = {};
     orders.forEach(o => {
@@ -628,7 +629,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate }: Dashbo
 
             {/* 10. Time Analytics */}
             <SectionContainer>
-                <SectionHeader title="Chronology & Peak Discovery" icon={<Clock size={16} />} desc="When orders hit the system." />
+                <SectionHeader title="Chronology & Peak Discovery" icon={<Clock size={16} />} desc="Original order time · Morocco (Casablanca)" />
                 <div className="h-48 w-full mt-6">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={analytics.hourlyData}>
