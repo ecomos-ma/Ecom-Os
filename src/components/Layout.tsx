@@ -431,7 +431,7 @@ export function Layout() {
   }, [isDemoMode, workspace?.id]);
 
   return (
-    <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-base-surface text-text-main">
+    <div className="app-shell flex h-dvh min-h-0 w-full overflow-hidden bg-base-surface text-text-main">
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-surface">
         <DemoBanner />

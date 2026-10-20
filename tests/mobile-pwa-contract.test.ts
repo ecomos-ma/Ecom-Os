@@ -7,13 +7,23 @@ const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.ur
 test("mobile dock uses floating glass, safe-area spacing and accessible fallbacks", () => {
   const css = read("src/index.css");
   const dock = css.match(/\.mobile-bottom-nav \{([^}]+)\}/)?.[1] ?? "";
-  assert.match(dock, /bottom: max\(\.75rem, var\(--safe-bottom\)\)/);
+  assert.match(dock, /bottom: var\(--mobile-nav-offset\)/);
+  assert.match(css, /--mobile-nav-offset: max\(\.25rem, var\(--safe-bottom\)\)/);
   assert.match(dock, /height: var\(--mobile-nav-height\)/);
   assert.match(css, /-webkit-backdrop-filter: blur\(28px\) saturate\(1\.8\)/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /@supports not \(\(backdrop-filter: blur\(1px\)\)/);
   assert.match(css, /\.dark \.mobile-nav-item\.is-active/);
   assert.match(read("src/components/MobileAppChrome.tsx"), /layoutId="mobile-nav-active-glass"/);
+});
+
+test("compact navigation anchors to the phone shell without document overflow", () => {
+  const css = read("src/index.css");
+  assert.match(css, /--mobile-nav-height: clamp\(3\.5rem, 15vw, 4rem\)/);
+  assert.match(css, /\.app-shell \{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?height: 100dvh/);
+  assert.match(css, /#root:has\(\.app-shell\) \{[\s\S]*?min-height: 0;[\s\S]*?overflow: hidden/);
+  assert.match(css, /width: clamp\(1\.25rem, 5\.5vw, 1\.5rem\)/);
+  assert.match(read("src/components/Layout.tsx"), /className="app-shell flex/);
 });
 
 test("the floating dock does not reserve an opaque footer outside the page scroller", () => {
