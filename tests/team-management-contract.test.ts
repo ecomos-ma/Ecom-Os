@@ -189,7 +189,10 @@ test("confirmation offers record-and-call and saves audio to Team call review", 
   assert.match(drawer, /recorderRef\.current\?\.start\(\)/);
   assert.match(drawer, /recorderRef\.current\?\.hasUnfinished\(\)/);
   assert.match(drawer, /<CallRecorder ref=\{recorderRef\}/);
-  assert.match(recorder, /consentConfirmed/);
+  assert.doesNotMatch(recorder, /consentConfirmed|type="checkbox"|customer_informed:\s*true/);
+  assert.match(recorder, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(recorder, /initiated_by: "agent_click"/);
+  assert.match(recorder, /onClick=\{\(\) => void start\(\)\}/);
   assert.match(recorder, /void uploadRecording\(ready\)/);
   assert.match(recorder, /beforeunload/);
   assert.match(service, /storage\.from\("call-recordings"\)\.upload/);

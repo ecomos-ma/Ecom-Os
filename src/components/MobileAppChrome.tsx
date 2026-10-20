@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import {
@@ -20,6 +20,7 @@ import {
   Search,
   Share,
   Settings,
+  Star,
   Shield,
   SlidersHorizontal,
   Truck,
@@ -41,6 +42,8 @@ import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
 import { getPrefetchHandler } from "../hooks/usePrefetch";
 import { clearPendingInstallPrompt, getPendingInstallPrompt, type DeferredInstallPrompt } from "../lib/pwaInstallPrompt";
+import { useMobileShortcuts } from "../hooks/useMobileShortcuts";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 
 type Icon = LucideIcon;
 
@@ -133,6 +136,8 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
   const { notifications, unreadCount, markAllAsRead, openNotification } = useNotifications();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  useDialogFocus(sidebarOpen, drawerRef);
   const [quickOpen, setQuickOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -140,6 +145,7 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
   const [installOpen, setInstallOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<DeferredInstallPrompt | null>(getPendingInstallPrompt);
   const reduceMotion = useReducedMotion();
+  const { pinnedPaths, togglePinned } = useMobileShortcuts(session?.user.id, workspace?.id);
 
   const ownerLike = isOwnerLikeRole(profile?.role);
   const isFounder = hasFounderAccess(profile?.role, session?.user?.email);
@@ -207,6 +213,11 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
         (!q || p.label.toLowerCase().includes(q) || p.desc.toLowerCase().includes(q)),
     );
   }, [accessiblePages, search, catFilter]);
+  const shortcutPages = useMemo(() => {
+    const preferred = [...pinnedPaths, "/confirmation", "/orders", "/shipping", "/agent-invoices", "/team", "/settings"];
+    return [...new Set(preferred)].map((path) => accessiblePages.find((page) => page.to === path))
+      .filter((page): page is PageEntry => Boolean(page)).slice(0, 4);
+  }, [accessiblePages, pinnedPaths]);
 
   // Close overlays on navigation
   useEffect(() => {
@@ -244,12 +255,13 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
       }));
   }, [accessiblePages]);
   const canScanReturns = can("inventory", "Inventory") || can("products", "Products");
-  const mobileNavCount = mobilePrimaryNav.length + Number(canScanReturns);
-  const activeMobileAction = scannerOpen
+  const mobileNavCount = mobilePrimaryNav.length + Number(canScanReturns) + 1;
+  const activeMobileAction = sidebarOpen ? "menu" : scannerOpen
     ? "scan"
     : mobilePrimaryNav.find((page) => isActive(location.pathname, page.to))?.to;
   const activeGlass = <motion.span
     layoutId="mobile-nav-active-glass"
+    initial={false}
     className="mobile-nav-glass"
     transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
     aria-hidden="true"
@@ -276,7 +288,7 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
             className="flex min-w-0 items-center gap-2 active:opacity-80 transition-opacity"
             aria-label="Open sidebar menu"
           >
-            <img src={ecomosLogo} alt="Ecom OS" className="h-5 w-auto shrink-0 object-contain" />
+            <img src={ecomosLogo} alt="Ecom OS" className="hidden h-5 w-auto shrink-0 object-contain min-[420px]:block" />
             <span className="min-w-0 text-left leading-tight">
               <span className="block truncate text-[13px] font-bold text-ink">{currentTitle}</span>
               <span className="block truncate text-[10px] text-ink-muted">{workspace?.name || "Workspace"}</span>
@@ -336,8 +348,12 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
 
           {/* Left Sidebar Drawer */}
           <aside
+            ref={drawerRef}
+            tabIndex={-1}
             className="mobile-navigation-drawer relative z-10 flex h-dvh w-[min(88vw,340px)] max-w-full flex-col border-r border-base-border bg-base-surface shadow-2xl animate-sidebar-in outline-none"
             aria-label="Sidebar navigation menu"
+            role="dialog"
+            aria-modal="true"
           >
             {/* Drawer Header with Full Brand Logo */}
             <div className="flex items-center justify-between p-4 border-b border-base-border/50 bg-base-raised/40">
@@ -367,10 +383,10 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
                 </div>
                 <div className="min-w-0">
                   <p className="text-[13px] font-extrabold text-ink truncate leading-tight">
-                    {workspace?.name || "NURA Store"}
+                    {workspace?.name || "Workspace"}
                   </p>
                   <p className="text-[10.5px] font-semibold text-ink-faint truncate">
-                    {profile?.full_name || "Store Owner"} • {profile?.role || "Admin"}
+                    {profile?.full_name || "Your account"} • {profile?.role || "Member"}
                   </p>
                 </div>
               </div>
@@ -393,11 +409,13 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search all pages…"
-                  className="w-full h-9.5 pl-9 pr-8 rounded-xl border border-base-border/70 bg-base-raised/60 text-[12.5px] text-ink placeholder:text-ink-faint/70 focus:border-brand focus:ring-2 focus:ring-brand/15 focus:outline-none transition-all"
+                  aria-label="Search all pages"
+                  className="w-full min-h-11 pl-9 pr-11 rounded-xl border border-base-border/70 bg-base-raised/60 text-base text-ink placeholder:text-ink-faint/70 focus:border-brand focus:ring-2 focus:ring-brand/15 focus:outline-none transition-all"
                 />
                 {search && (
                   <button
                     type="button"
+                    aria-label="Clear page search"
                     onClick={() => setSearch("")}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink"
                   >
@@ -432,6 +450,11 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
 
             {/* Nav Pages List */}
             <div className="flex-1 overflow-y-auto px-3 py-1 space-y-4 overscroll-contain">
+              {!search && catFilter === "all" && shortcutPages.length > 0 && <section className="pb-2">
+                <h2 className="px-2 py-2 text-xs font-semibold text-ink-muted">Quick access</h2>
+                <div className="grid grid-cols-2 gap-2">{shortcutPages.map(({ to, label, icon: I }) => <button key={to} type="button" onClick={() => { setSidebarOpen(false); navigate(to); }} onPointerDown={getPrefetchHandler(to)} className="flex min-h-20 flex-col items-start justify-center gap-2 rounded-2xl border border-brand/15 bg-brand/5 p-3 text-left text-brand"><I size={20} /><span className="text-xs font-semibold">{label}</span></button>)}</div>
+                <p className="px-2 pt-2 text-[11px] text-ink-muted">Star up to 4 pages. Shortcuts are saved for this workspace on this device.</p>
+              </section>}
               {Object.entries(catLabel).map(([catKey, catName]) => {
                 const catPages = filtered.filter((p) => p.cat === catKey);
                 if (catPages.length === 0) return null;
@@ -447,8 +470,8 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
                       {catPages.map(({ to, label, desc, icon: I, image }) => {
                         const act = isActive(location.pathname, to);
                         return (
+                          <div key={to} className="flex items-center gap-1">
                           <button
-                            key={to}
                             type="button"
                             onPointerDown={getPrefetchHandler(to)}
                             onClick={() => {
@@ -456,7 +479,7 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
                               setSidebarOpen(false);
                               navigate(to);
                             }}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left active:scale-[0.98] ${
+                            className={`min-w-0 flex-1 flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left active:scale-[0.98] ${
                               act
                                 ? "border-brand/40 bg-brand/10 text-brand shadow-xs font-bold"
                                 : "border-transparent text-ink hover:bg-base-raised/60 hover:border-base-border/40"
@@ -495,6 +518,8 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
                               className={`shrink-0 transition-transform ${act ? "text-brand translate-x-0.5" : "text-ink-faint/40"}`}
                             />
                           </button>
+                          <button type="button" onClick={() => togglePinned(to)} aria-label={`${pinnedPaths.includes(to) ? "Unpin" : "Pin"} ${label}`} aria-pressed={pinnedPaths.includes(to)} className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${pinnedPaths.includes(to) ? "bg-brand/10 text-brand" : "text-ink-faint hover:bg-base-raised"}`}><Star size={17} fill={pinnedPaths.includes(to) ? "currentColor" : "none"} /></button>
+                          </div>
                         );
                       })}
                     </div>
@@ -521,7 +546,7 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
               {!isStandalone && (
                 <button
                   type="button"
-                  onClick={() => { haptic(); setInstallOpen(true); }}
+                  onClick={() => { haptic(); setSidebarOpen(false); setInstallOpen(true); }}
                   className="flex w-full items-center justify-between rounded-xl border border-brand/20 bg-brand/5 px-3 py-2 text-left text-[11.5px] font-bold text-brand"
                 >
                   <span className="inline-flex items-center gap-1.5"><Download size={14} /> Install Ecom OS</span>
@@ -680,21 +705,24 @@ export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () =>
           <NavLink key={to} to={to} onPointerDown={getPrefetchHandler(to)} onMouseEnter={getPrefetchHandler(to)} onClick={haptic}
             className={`mobile-nav-item ${activeMobileAction === to ? "is-active" : ""}`}>
             {activeMobileAction === to && activeGlass}
-            <Icon size={21} strokeWidth={1.9} aria-hidden="true" /><span>{label}</span>
+            <Icon size={28} strokeWidth={activeMobileAction === to ? 2.5 : 2} aria-hidden="true" /><span>{label}</span>
           </NavLink>
         ))}
         {canScanReturns && <button type="button" onClick={() => { haptic(); onScan(); }}
           className={`mobile-nav-item ${activeMobileAction === "scan" ? "is-active" : ""}`} aria-label="Scan returns" aria-pressed={scannerOpen}>
           {activeMobileAction === "scan" && activeGlass}
-          <ScanLine size={21} strokeWidth={1.9} aria-hidden="true" /><span>Scan Returns</span>
+          <ScanLine size={28} strokeWidth={scannerOpen ? 2.5 : 2} aria-hidden="true" /><span>Scan</span>
         </button>}
         {mobilePrimaryNav.slice(2).map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} onPointerDown={getPrefetchHandler(to)} onMouseEnter={getPrefetchHandler(to)} onClick={haptic}
             className={`mobile-nav-item ${activeMobileAction === to ? "is-active" : ""}`}>
             {activeMobileAction === to && activeGlass}
-            <Icon size={21} strokeWidth={1.9} aria-hidden="true" /><span>{label}</span>
+            <Icon size={28} strokeWidth={activeMobileAction === to ? 2.5 : 2} aria-hidden="true" /><span>{label}</span>
           </NavLink>
         ))}
+        <button type="button" onClick={() => { haptic(); setSidebarOpen(true); }} className={`mobile-nav-item ${sidebarOpen ? "is-active" : ""}`} aria-label="All pages" aria-expanded={sidebarOpen}>
+          {sidebarOpen && activeGlass}<Menu size={28} strokeWidth={sidebarOpen ? 2.5 : 2} aria-hidden="true" /><span>Menu</span>
+        </button>
       </nav>
 
       {/* ── Quick Actions Sheet ─────────────────────────────────────────── */}

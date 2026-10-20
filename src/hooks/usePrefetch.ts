@@ -6,7 +6,7 @@
 const prefetchedRoutes = new Set<string>();
 
 const routeImportMap: Record<string, () => Promise<unknown>> = {
-    '/dashboard': () => import('../pages/Dashboard'),
+    '/dashboard': () => import('../pages/ResponsiveDashboard'),
     '/orders': () => import('../pages/Orders'),
     '/confirmation': () => import('../pages/Confirmation'),
     '/delivering': () => import('../pages/Delivering'),
@@ -19,6 +19,9 @@ const routeImportMap: Record<string, () => Promise<unknown>> = {
     '/expenses': () => import('../pages/Expenses'),
     '/finance': () => import('../pages/Finance'),
     '/cod-scenarios': () => import('../pages/CodScenarios'),
+    '/scenario': () => import('../pages/CodScenarios'),
+    '/agent-invoices': () => import('../pages/AgentInvoices'),
+    '/notifications': () => import('../pages/Notifications'),
     '/team': () => import('../pages/Team'),
     '/settings': () => import('../pages/Settings'),
     '/tools': () => import('../pages/AmineTools'),

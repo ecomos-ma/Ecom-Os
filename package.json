@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "icons:generate": "node scripts/generate-pwa-icons.mjs",
     "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "npm run test:run",

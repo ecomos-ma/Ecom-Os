@@ -50,7 +50,6 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
   const [pending, setPending] = useState<PendingRecording | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const pendingRef = useRef<PendingRecording | null>(null);
   const uploadingRef = useRef(false);
   const startingRef = useRef(false);
@@ -69,7 +68,10 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
     disposedRef.current = false;
     return () => {
       disposedRef.current = true;
-      if (recorderRef.current && recorderRef.current.state !== "inactive") announceCallStatus(false);
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+        announceCallStatus(false);
+      }
       clearResources();
     };
   }, []);
@@ -94,7 +96,6 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
       pendingRef.current = null;
       setPending(null);
       setDuration(0);
-      setConsentConfirmed(false);
     } catch (uploadError: any) {
       setError(uploadError?.message || "Upload failed. The recording is still available to retry in this tab.");
     } finally {
@@ -106,10 +107,6 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
   const start = async () => {
     if (disabled || recording || recorderRef.current || startingRef.current || uploadingRef.current || pendingRef.current) return false;
     setError(null);
-    if (!consentConfirmed) {
-      setError("Confirm that recording is permitted and the customer has been informed first.");
-      return false;
-    }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setError("This browser cannot make a microphone recording. Use a supported secure browser.");
       return false;
@@ -169,7 +166,7 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
       setRecording(true);
       announceCallStatus(true);
       intervalRef.current = window.setInterval(() => setDuration((current) => current + 1), 1000);
-      void onActivity("CALL_STARTED", { source: "browser_microphone_recording", customer_informed: true }).catch(() => undefined);
+      void onActivity("CALL_STARTED", { source: "browser_microphone_recording", initiated_by: "agent_click" }).catch(() => undefined);
       return true;
     } catch (startError: any) {
       clearResources();
@@ -204,7 +201,7 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
     <div className="rounded-xl border border-base-border bg-base-raised/50 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="text-[12px] font-semibold text-ink">Permitted microphone recording</div>
+          <div className="text-[12px] font-semibold text-ink">Microphone recording</div>
           <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-muted">Records this device’s microphone only. A separate phone dialer may pause the browser; customer phone audio is not captured automatically.</p>
         </div>
         {recording ? (
@@ -217,7 +214,7 @@ export const CallRecorder = forwardRef<CallRecorderHandle, {
           </button>
         )}
       </div>
-      {!recording && !pending && <label className="mt-3 flex items-start gap-2 text-[11px] leading-4 text-ink-muted"><input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} className="mt-0.5 accent-brand" />I have informed the customer and recording is permitted for this call.</label>}
+      <p className="mt-2 text-[10.5px] text-ink-muted">Inform the customer and record only when permitted.</p>
       {pending && (
         <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5">
           <div className="text-[11px] text-ink"><span className="font-semibold">Recording ready</span> · {durationLabel(Math.max(0, Math.round((pending.endedAt.getTime() - pending.startedAt.getTime()) / 1000)))} · {(pending.blob.size / 1024 / 1024).toFixed(1)} MB</div>

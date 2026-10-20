@@ -326,7 +326,7 @@ export default function Confirmation() {
         subtitle={crm.canManage ? "Live workspace view for your Moroccan COD confirmation team." : "Your focused confirmation queue and callback workspace."}
         action={
           <div className="flex items-center gap-2">
-            <button onClick={() => setViewMode(viewMode === "focus" ? "queue" : "focus")} className="hidden h-9 items-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 text-[12px] font-semibold text-brand transition-colors hover:bg-brand/15 md:inline-flex">{viewMode === "focus" ? <List size={14} /> : <Maximize2 size={14} />} {viewMode === "focus" ? "Order list" : "Focus mode"}</button>
+            <button onClick={() => setViewMode(viewMode === "focus" ? "queue" : "focus")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 text-[12px] font-semibold text-brand transition-colors hover:bg-brand/15">{viewMode === "focus" ? <List size={14} /> : <Maximize2 size={14} />} {viewMode === "focus" ? "Order list" : "Focus mode"}</button>
             <button onClick={() => void crm.refresh()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-base-border bg-base-surface px-3 text-[12px] font-semibold text-ink-muted transition-colors hover:border-brand/30 hover:text-ink"><RefreshCw size={14} /> Refresh</button>
           </div>
         }
@@ -347,7 +347,7 @@ export default function Confirmation() {
       )}
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:[&>button]:shrink-0">
           {crm.visibleStatusFilters.filter(({ id }) => id === "pending").map(({ id, count }) => <button key={id} onClick={() => changeStatusTab(id)} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === id ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>{getStatusLabel(id, language)} <span className="ml-1 opacity-75">{count}</span></button>)}
           <button onClick={() => changeStatusTab("all")} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === "all" ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>All <span className="ml-1 opacity-75">{crm.summary?.totalOrders ?? 0}</span></button>
           {crm.visibleStatusFilters.filter(({ id }) => id !== "pending").map(({ id, count }) => <button key={id} onClick={() => changeStatusTab(id)} className={`rounded-full px-3 py-1.5 text-[11.5px] font-semibold transition-colors ${crm.status === id ? "bg-brand text-white shadow-sm" : "bg-base-raised text-ink-muted hover:text-ink"}`}>{getStatusLabel(id, language)} <span className="ml-1 opacity-75">{count}</span></button>)}

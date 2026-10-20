@@ -12,17 +12,15 @@ export function PageHeader({
   badge?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between max-md:flex-col max-md:gap-3">
-      <div className="max-md:hidden">
+    <div className="app-page-header flex items-start justify-between gap-3 max-md:flex-col">
+      <div className="min-w-0">
         <div className="flex items-center gap-2.5">
-          <h1 className="text-[22px] font-semibold tracking-tight text-ink">{title}</h1>
+          <h1 className="text-[22px] max-md:text-xl font-semibold tracking-tight text-ink">{title}</h1>
           {badge}
         </div>
         {subtitle && <p className="mt-1 text-[13px] text-ink-muted">{subtitle}</p>}
       </div>
-      <div className="max-md:w-full overflow-x-auto [&::-webkit-scrollbar]:hidden">
-        {action}
-      </div>
+      {action && <div className="app-page-actions max-md:w-full min-w-0">{action}</div>}
     </div>
   );
 }

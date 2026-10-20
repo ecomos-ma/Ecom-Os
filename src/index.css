@@ -57,8 +57,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --mobile-topbar-height: clamp(3.5rem, 8dvh, 3.875rem);
-  --mobile-nav-height: clamp(4.25rem, 10dvh, 4.75rem);
-  --mobile-nav-total: calc(var(--mobile-nav-height) + max(.25rem, var(--safe-bottom)));
+  --mobile-nav-height: 4.75rem;
+  --mobile-nav-total: calc(var(--mobile-nav-height) + max(.75rem, var(--safe-bottom)) + 1rem);
   --z-app-header: 30;
   --z-mobile-nav: 40;
   --z-popover: 50;
@@ -310,8 +310,8 @@ body {
 
 .mobile-icon-button {
   display: grid;
-  width: clamp(2.25rem, 10.5vw, 2.5rem);
-  height: clamp(2.25rem, 10.5vw, 2.5rem);
+  width: 44px;
+  height: 44px;
   flex: none;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
@@ -333,13 +333,14 @@ body {
   display: grid;
   position: fixed;
   z-index: var(--z-mobile-nav);
-  bottom: 0;
+  bottom: max(.75rem, var(--safe-bottom));
   left: 50%;
-  width: min(32rem, calc(100% - 1rem - var(--safe-left) - var(--safe-right)));
+  width: min(27rem, calc(100% - 2rem - var(--safe-left) - var(--safe-right)));
   max-width: 100%;
-  height: var(--mobile-nav-total);
+  height: var(--mobile-nav-height);
   align-items: stretch;
-  padding: .3rem .35rem max(.35rem, var(--safe-bottom));
+  padding: .375rem;
+  border-radius: 999px;
   transform: translateX(-50%);
   isolation: isolate;
 }
@@ -348,17 +349,24 @@ body {
   content: "";
   position: absolute;
   z-index: -1;
-  inset: .15rem 0 max(.25rem, var(--safe-bottom));
-  border: 1px solid rgba(196, 249, 255, .24);
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, .85);
   border-radius: 999px;
-  background: linear-gradient(138deg, rgba(20, 67, 77, .96), rgba(6, 38, 48, .94) 58%, rgba(13, 82, 95, .91));
-  box-shadow: 0 16px 34px rgba(4, 34, 43, .3), inset 0 1px 0 rgba(255, 255, 255, .18);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  background: linear-gradient(150deg,
+    color-mix(in srgb, var(--bg-panel) 52%, transparent),
+    color-mix(in srgb, var(--bg-raised) 28%, transparent));
+  box-shadow: 0 8px 32px rgba(24, 30, 45, .13), 0 2px 6px rgba(24, 30, 45, .06),
+    inset 0 1px 1px #fff, inset 0 -1px 1px rgba(255, 255, 255, .6);
+  backdrop-filter: blur(28px) saturate(1.8);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
 }
 
 .dark .mobile-bottom-nav::before {
-  box-shadow: 0 16px 36px rgba(0, 0, 0, .58), inset 0 1px 0 rgba(255, 255, 255, .13);
+  border-color: rgba(255, 255, 255, .2);
+  background: linear-gradient(150deg,
+    color-mix(in srgb, var(--bg-raised) 76%, transparent),
+    color-mix(in srgb, var(--bg-panel) 62%, transparent));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .3), inset 0 1px 1px rgba(255, 255, 255, .2);
 }
 
 /* ── Nav item (icon + label) ──────────────────────────────────────────── */
@@ -372,17 +380,17 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 3.25rem;
-  margin: .2rem .08rem .12rem;
-  gap: .22rem;
+  margin: 0;
+  gap: .25rem;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: rgba(230, 250, 250, .75);
-  font-size: .625rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  color: var(--text-main);
+  font-size: .6875rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
   line-height: 1;
   -webkit-tap-highlight-color: transparent;
-  transition: color .2s ease, background .28s cubic-bezier(.2, .8, .2, 1), box-shadow .28s ease, transform .22s ease;
+  transition: color .18s ease, transform .18s ease;
   touch-action: manipulation;
   user-select: none;
 }
@@ -398,10 +406,10 @@ body {
   z-index: 0;
   inset: 0;
   pointer-events: none;
-  border: 1px solid rgba(255, 255, 255, .17);
+  border: 1px solid rgba(255, 255, 255, .8);
   border-radius: inherit;
-  background: linear-gradient(145deg, rgba(255, 255, 255, .22), rgba(197, 247, 255, .08));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .23), 0 6px 18px rgba(0, 24, 31, .2);
+  background: linear-gradient(145deg, rgb(var(--color-accent) / .2), rgb(var(--color-accent) / .09));
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .9), 0 1px 4px rgba(22, 25, 40, .06);
 }
 
 .mobile-nav-item > span:last-child {
@@ -414,12 +422,20 @@ body {
 }
 
 .mobile-nav-item.is-active {
-  color: #fff;
+  color: rgb(var(--color-accent));
   font-weight: 750;
 }
 
+.dark .mobile-nav-item { color: var(--text-muted); }
+.dark .mobile-nav-item.is-active { color: rgb(var(--color-accent)); }
+.dark .mobile-nav-glass {
+  border-color: rgba(255, 255, 255, .22);
+  background: linear-gradient(145deg, rgb(var(--color-accent) / .3), rgb(var(--color-accent) / .14));
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .2);
+}
+
 .mobile-nav-item:focus-visible {
-  outline: 2px solid #b7f8ff;
+  outline: 2px solid rgb(var(--color-accent));
   outline-offset: -3px;
 }
 
@@ -429,6 +445,11 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .mobile-nav-item { transition: none; }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mobile-bottom-nav::before { background: var(--bg-panel); }
+  .dark .mobile-bottom-nav::before { background: var(--bg-panel); }
 }
 
 .mobile-sheet-backdrop { z-index: var(--z-sheet-backdrop); }
@@ -518,9 +539,15 @@ body {
     overscroll-behavior-y: none;
   }
 
-  .app-main {
+  /* Scroll the page behind the capsule, not above a solid reserved footer.
+     Clearance belongs INSIDE the scroller so the last row is still reachable. */
+  .app-main { padding-bottom: 0; }
+  .app-main > .overflow-y-auto { scroll-padding-bottom: var(--mobile-nav-total); }
+  .app-main > .overflow-y-auto > .min-h-full {
     padding-bottom: var(--mobile-nav-total);
   }
+  /* Full-height maps/chat retain room for their own bottom controls. */
+  .app-main > .overflow-hidden { padding-bottom: var(--mobile-nav-total); }
 
   .mobile-page-content {
     width: 100%;
@@ -536,6 +563,64 @@ body {
   .mobile-page-content :where(.flex, .grid) {
     min-width: 0;
   }
+
+  .app-page-actions > .flex {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .mobile-page-content :where(button, a[role="button"], a[href^="tel:"], a[href*="wa.me/"]),
+  .mobile-sheet :where(button, a[role="button"]),
+  .mobile-navigation-drawer :where(button),
+  .app-modal-backdrop :where(button, a[role="button"]),
+  .confirmation-workspace :where(button) {
+    min-height: 44px;
+  }
+
+  .mobile-page-content :where(button[aria-label]),
+  .mobile-sheet :where(button[aria-label]),
+  .mobile-navigation-drawer :where(button[aria-label]) {
+    min-width: 44px;
+  }
+
+  .mobile-page-content :where(.overflow-x-auto) {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+  }
+
+  .mobile-page-content :where(div:has(> table)) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .mobile-navigation-drawer {
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+  }
+
+  .mobile-sheet :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+  .app-modal-backdrop :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+  .confirmation-workspace :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 44px;
+    max-width: 100%;
+    font-size: 16px;
+  }
+
+  .confirmation-workspace--focus {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .confirmation-workspace--focus > aside { height: auto; }
+  .confirmation-workspace > aside { overflow-y: auto; overscroll-behavior: contain; }
+  .confirmation-workspace .confirmation-body { overflow: visible; flex: none; }
+  .confirmation-contact-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .confirmation-contact-actions > span { grid-column: 1 / -1; }
+  .confirmation-contact-actions > button { font-size: 12px; padding-inline: .5rem; }
+  .shipping-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .shipping-card-actions > :where(a, button) { justify-content: center; min-height: 44px; }
+  .shipping-card-actions > div { min-width: 0; }
+  .shipping-card-actions > div > button { width: 100%; }
 
   .mobile-page-content input:not([type="checkbox"]):not([type="radio"]),
   .mobile-page-content select,
@@ -604,7 +689,7 @@ body {
   .mobile-topbar { padding-right: max(.375rem, var(--safe-right)); padding-left: max(.375rem, var(--safe-left)); }
   .mobile-topbar__brand { gap: .375rem; }
   .mobile-topbar__actions { gap: .25rem; }
-  .mobile-nav-item { font-size: .55rem; }
+  .mobile-nav-item { font-size: .625rem; }
 }
 
 @media (min-width: 768px) {
@@ -638,7 +723,10 @@ body {
   }
   .support-ticket-launcher > span { display: none !important; }
   .support-ticket-launcher--whatsapp { bottom: calc(var(--mobile-nav-total) + 4.5rem) !important; }
-  .app-main { padding-bottom: var(--mobile-nav-total); }
+  .app-main { padding-bottom: 0; }
+  .app-main > .overflow-y-auto { scroll-padding-bottom: var(--mobile-nav-total); }
+  .app-main > .overflow-y-auto > .min-h-full { padding-bottom: var(--mobile-nav-total); }
+  .app-main > .overflow-hidden { padding-bottom: var(--mobile-nav-total); }
   .mobile-page-content {
     width: 100%;
     max-width: 100%;

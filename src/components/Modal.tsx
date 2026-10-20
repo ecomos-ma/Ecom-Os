@@ -1,6 +1,7 @@
-import { ReactNode, useEffect, memo, useId } from "react";
+import { ReactNode, useEffect, memo, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 
 export const Modal = memo(function Modal({
   title,
@@ -12,6 +13,8 @@ export const Modal = memo(function Modal({
   children: ReactNode;
 }) {
   const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, panelRef);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -38,6 +41,8 @@ export const Modal = memo(function Modal({
       aria-labelledby={titleId}
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className="flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-[900px] flex-col overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-[0_24px_80px_-24px_rgba(2,6,23,0.55)] animate-in fade-in zoom-in-95 dark:shadow-[0_28px_90px_-24px_rgba(0,0,0,0.85)] max-md:mt-auto max-md:max-h-[calc(100dvh-env(safe-area-inset-top)-2.5rem)] max-md:rounded-b-none max-md:rounded-t-[28px] max-md:border-b-0 max-md:pb-[calc(1rem+env(safe-area-inset-bottom))] max-md:shadow-[0_-12px_40px_rgba(0,0,0,0.25)]"
         onClick={(event) => event.stopPropagation()}
         style={{ animationDuration: '150ms', animationTimingFunction: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }}
@@ -49,7 +54,7 @@ export const Modal = memo(function Modal({
             <X size={18} />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 max-md:px-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
       </div>
     </div>,
     document.body,

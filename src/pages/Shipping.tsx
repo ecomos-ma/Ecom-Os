@@ -374,7 +374,7 @@ export default function Shipping() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="shipping-card-actions flex flex-wrap items-center gap-2 shrink-0">
 
                     {/* ── Bouton Appeler ── */}
                     <a

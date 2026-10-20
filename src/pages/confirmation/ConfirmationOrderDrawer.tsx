@@ -272,7 +272,7 @@ export function ConfirmationOrderDrawer({
   }, []);
 
   const closeDrawer = () => {
-    if (recorderRef.current?.hasUnfinished() && !window.confirm("A recording is still active or has not been saved. Leave and discard it?")) return;
+    if (recorderRef.current?.hasUnfinished() && !window.confirm("A recording is still active or saving. Leaving will stop it and attempt to save; an upload failure may lose the audio. Continue?")) return;
     onClose();
   };
 
@@ -550,7 +550,7 @@ export function ConfirmationOrderDrawer({
   };
 
   return (
-    <div className={focusMode ? "relative flex h-[calc(100dvh-250px)] min-h-[620px] overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-sm" : "fixed inset-0 z-[70] flex justify-end bg-ink/25 backdrop-blur-[1px] max-md:items-end"} role="dialog" aria-modal={!focusMode} aria-label={`Confirmation CRM for ${order.orderNumber}`}>
+    <div className={`confirmation-workspace ${focusMode ? "confirmation-workspace--focus relative flex h-[calc(100dvh-250px)] min-h-[620px] overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-sm" : "fixed inset-0 z-[70] flex justify-end bg-ink/25 backdrop-blur-[1px] max-md:items-end"}`} role="dialog" aria-modal={!focusMode} aria-label={`Confirmation CRM for ${order.orderNumber}`}>
       {!focusMode && <button onClick={closeDrawer} aria-label="Close order drawer" className="absolute inset-0 cursor-default" />}
       <aside key={order.id} className={`${focusMode ? "relative flex h-full w-full flex-col bg-base-surface" : "relative flex h-full w-full max-w-[850px] flex-col border-l border-base-border bg-base-surface shadow-2xl max-md:mt-[calc(env(safe-area-inset-top)+.75rem)] max-md:h-[calc(100dvh-env(safe-area-inset-top)-.75rem)] max-md:max-w-none max-md:rounded-t-[28px] max-md:border-l-0 max-md:border-t max-md:pb-[env(safe-area-inset-bottom)]"} ${isNextOrder ? "confirmation-next-enter" : ""}`}>
         {isNextOrder && <div aria-hidden="true" className="confirmation-next-accent pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px] bg-brand" />}
@@ -572,7 +572,7 @@ export function ConfirmationOrderDrawer({
             </div>
             <button onClick={closeDrawer} aria-label={focusMode ? "Return to order list" : "Close order drawer"} title={focusMode ? "Return to order list" : "Close"} className="inline-flex items-center gap-1.5 rounded-xl p-2 text-ink-muted transition-colors hover:bg-base-raised hover:text-ink">{focusMode ? <><List size={17} /><span className="hidden text-[11px] font-semibold sm:inline">Order list</span></> : <X size={18} />}</button>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="confirmation-contact-actions mt-3 flex flex-wrap items-center gap-2">
             <button onClick={() => void startPhoneCall()} disabled={!order.phone} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-[11.5px] font-semibold text-white shadow-sm hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Phone size={13} /> Call customer</button>
             <button type="button" onClick={() => void recordAndCall()} disabled={!order.phone || workAccess === "acquiring" || workAccess === "blocked"} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-[11.5px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Mic size={13} /> Record & call</button>
             <button type="button" onClick={() => void onSendStatusMessage(order)} disabled={!order.phone || sendingStatusMessage} title="Send the WhatsApp Automation message configured for this order status" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#25D366]/30 bg-[#25D366]/10 px-3 py-2 text-[11.5px] font-semibold text-[#159447] hover:bg-[#25D366]/15 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center">{sendingStatusMessage ? <LoaderCircle size={13} className="animate-spin" /> : <img src={whatsappLogo} alt="" className="h-[15px] w-[15px] object-contain" />} {sendingStatusMessage ? "Sending…" : "Send live message"}</button>
@@ -594,7 +594,7 @@ export function ConfirmationOrderDrawer({
           ))}
         </nav>
 
-        <div className={`min-h-0 flex-1 overflow-y-auto px-5 py-5 max-md:px-4 max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))] ${focusMode ? "mx-auto w-full max-w-[1500px]" : ""}`}>
+        <div className={`confirmation-body min-h-0 flex-1 overflow-y-auto px-5 py-5 max-md:px-4 max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))] ${focusMode ? "mx-auto w-full max-w-[1500px]" : ""}`}>
           {tab === "overview" && (
             <div className="space-y-5">
               <section className="grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
