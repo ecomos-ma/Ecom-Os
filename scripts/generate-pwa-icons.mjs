@@ -5,8 +5,9 @@ import sharp from "sharp";
 import pngToIco from "png-to-ico";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const source = await readFile(path.join(root, "src/assets/logo.png"));
-const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
+// The approved 512px icon is the source of truth. Never overwrite it.
+const source = await readFile(path.join(root, "public/icon-512.png"));
+const sizes = [72, 96, 128, 144, 152, 192, 384];
 const background = "#da6387";
 const icon = (size) => sharp(source).resize(size, size, { fit: "contain", background });
 
@@ -24,4 +25,4 @@ await Promise.all([
 ]);
 const faviconSizes = await Promise.all([16, 32, 48].map((size) => icon(size).png().toBuffer()));
 await writeFile(path.join(root, "public/favicon.ico"), await pngToIco(faviconSizes));
-console.log("Generated PWA, Apple, and favicon icons from src/assets/logo.png.");
+console.log("Generated PWA, Apple, and favicon sizes from public/icon-512.png (original preserved).");

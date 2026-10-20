@@ -98,11 +98,25 @@ test("PWA manifest and worker preserve safe standalone behavior", () => {
   assert.match(manifest, /"display": "standalone"/);
   assert.match(manifest, /"start_url": "\/dashboard"/);
   assert.match(manifest, /"purpose": "any maskable"/);
-  assert.match(read("vite.config.ts"), /start_url: "\/dashboard"/);
+  assert.match(read("vite.config.ts"), /manifest: appManifest/);
+  assert.match(read("vite.config.ts"), /readFileSync\(new URL\("\.\/public\/manifest.webmanifest"/);
   assert.match(worker, /Do not route Supabase through the service worker/);
   assert.doesNotMatch(worker, /registerRoute\(\(\{ url \}\) => \/\\\.supabase/);
   assert.match(worker, /new NetworkOnly\(\)/);
   assert.match(worker, /safeInternalUrl/);
+});
+
+test("install icons use the approved original with cache-versioned URLs", () => {
+  const manifest = JSON.parse(read("public/manifest.webmanifest"));
+  const primary = manifest.icons.find((icon: { sizes: string }) => icon.sizes === "512x512");
+  assert.equal(primary.src, "/icon-512.png?v=6511e4d1");
+  assert.equal(primary.purpose, "any maskable");
+  assert.ok(manifest.icons.every((icon: { src: string }) => !icon.src.includes("maskable-icon")));
+  assert.match(read("index.html"), /apple-touch-icon\.png\?v=6511e4d1/);
+  const generator = read("scripts/generate-pwa-icons.mjs");
+  assert.match(generator, /readFile\(path\.join\(root, "public\/icon-512\.png"\)\)/);
+  assert.doesNotMatch(generator, /src\/assets\/logo\.png/);
+  assert.doesNotMatch(generator, /const sizes = \[[^\]]*512/);
 });
 
 test("apex serves the worker needed to recover old service-worker clients", () => {
