@@ -25,6 +25,7 @@ type LegacyAction =
   | "report"
   | "campaign_detail"
   | "update_campaign_status"
+  | "launch_assets"
   | "disconnect";
 
 type LegacyConnection = {
@@ -300,6 +301,7 @@ Deno.serve(async (req) => {
         "report",
         "campaign_detail",
         "update_campaign_status",
+        "launch_assets",
         "disconnect",
       ].includes(action)
     ) {
@@ -435,6 +437,136 @@ Deno.serve(async (req) => {
     }
 
     const token = await decryptSecret(connection.access_token_encrypted);
+
+    if (action === "launch_assets") {
+      if (!["connected", "syncing", "sync_failed"].includes(connection.status))
+        throw new MetaError("Reconnect the manual Meta account before launching ads", 409, "configuration");
+      // Manual system-user tokens can access an ad account's promotable Pages
+      // while /me/accounts is empty. Use both account and user discovery, but
+      // return only public asset identifiers and names (never Page tokens).
+      const [promotableResult, userPagesResult, pixelsResult, connectedInstagramResult, accountInstagramResult, businessesResult] = await Promise.allSettled([
+        metaRequest<JsonObject>(connection.ad_account_id, {
+          token, appSecretProof: false, query: { fields: "promote_pages,business{id}" },
+        }).catch(() => metaRequest<JsonObject>(connection.ad_account_id, {
+          token, appSecretProof: false, query: { fields: "promote_pages" },
+        })),
+        fetchAllPages<JsonObject>("me/accounts", {
+          token, appSecretProof: false,
+          query: { fields: "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}", limit: 200 },
+        }).catch(() => fetchAllPages<JsonObject>("me/accounts", {
+          token, appSecretProof: false, query: { fields: "id,name", limit: 200 },
+        })),
+        fetchAllPages<JsonObject>(`${connection.ad_account_id}/adspixels`, {
+          token, appSecretProof: false,
+          query: { fields: "id,name,is_unavailable", limit: 200 },
+        }),
+        fetchAllPages<JsonObject>(`${connection.ad_account_id}/connected_instagram_accounts`, {
+          token, appSecretProof: false, query: { fields: "id,username,name", limit: 200 },
+        }).catch(() => fetchAllPages<JsonObject>(`${connection.ad_account_id}/connected_instagram_accounts`, {
+          token, appSecretProof: false, query: { fields: "id", limit: 200 },
+        })),
+        fetchAllPages<JsonObject>(`${connection.ad_account_id}/instagram_accounts`, {
+          token, appSecretProof: false, query: { fields: "id,username,name", limit: 200 },
+        }).catch(() => fetchAllPages<JsonObject>(`${connection.ad_account_id}/instagram_accounts`, {
+          token, appSecretProof: false, query: { fields: "id", limit: 200 },
+        })),
+        fetchAllPages<JsonObject>("me/businesses", {
+          token, appSecretProof: false, query: { fields: "id", limit: 200 },
+        }),
+      ]);
+      const embedded = promotableResult.status === "fulfilled"
+        ? promotableResult.value.promote_pages as { data?: JsonObject[]; paging?: { next?: string } } | JsonObject[] | undefined
+        : undefined;
+      const accountPages = Array.isArray(embedded) ? embedded : Array.isArray(embedded?.data) ? embedded.data : [];
+      let pagePaginationFailed = false;
+      if (!Array.isArray(embedded) && embedded?.paging?.next) {
+        try {
+          accountPages.push(...await fetchAllPages<JsonObject>(embedded.paging.next, {
+            token, appSecretProof: false,
+          }));
+        } catch {
+          pagePaginationFailed = true;
+        }
+      }
+      const userPages = userPagesResult.status === "fulfilled" ? userPagesResult.value : [];
+      const businessIds = new Set<string>();
+      if (businessesResult.status === "fulfilled") {
+        for (const business of businessesResult.value) {
+          if (/^\d{5,40}$/.test(String(business.id ?? ""))) businessIds.add(String(business.id));
+        }
+      }
+      const accountBusinessId = String(objectValue(promotableResult.status === "fulfilled" ? promotableResult.value.business : null).id ?? "");
+      if (/^\d{5,40}$/.test(accountBusinessId)) businessIds.add(accountBusinessId);
+      const businessPageResults = await Promise.allSettled([...businessIds].flatMap((id) => ["owned_pages", "client_pages"].map((edge) =>
+        fetchAllPages<JsonObject>(`${id}/${edge}`, {
+          token, appSecretProof: false, query: { fields: "id,name", limit: 200 },
+        })
+      )));
+      const businessPages = businessPageResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      const pageMap = new Map<string, { id: string; name: string }>();
+      for (const page of [...accountPages, ...userPages, ...businessPages]) {
+        const id = String(page.id ?? "");
+        if (/^\d{5,40}$/.test(id)) pageMap.set(id, { id, name: String(page.name ?? pageMap.get(id)?.name ?? id) });
+      }
+      const pixels = pixelsResult.status === "fulfilled" ? pixelsResult.value : [];
+      const instagramMap = new Map<string, { id: string; name: string; page_id: string }>();
+      const addInstagram = (value: unknown, pageId = "") => {
+        const item = objectValue(value);
+        const id = String(item.id ?? "");
+        if (!/^\d{5,40}$/.test(id)) return;
+        const previous = instagramMap.get(id);
+        instagramMap.set(id, { id, name: String(item.username ?? item.name ?? previous?.name ?? id), page_id: pageId || previous?.page_id || "" });
+      };
+      for (const result of [connectedInstagramResult, accountInstagramResult]) {
+        if (result.status === "fulfilled") for (const item of result.value) addInstagram(item);
+      }
+      const linkedPages = new Set<string>();
+      const addPageInstagram = (page: JsonObject) => {
+        const id = String(page.id ?? "");
+        if (!pageMap.has(id)) return;
+        linkedPages.add(id);
+        addInstagram(page.instagram_business_account, id);
+        addInstagram(page.connected_instagram_account, id);
+      };
+      userPages.forEach(addPageInstagram);
+      const pagesToCheck = [...pageMap.keys()].filter((id) => !linkedPages.has(id));
+      let pageInstagramFailed = false;
+      let nextPage = 0;
+      await Promise.all(Array.from({ length: Math.min(5, pagesToCheck.length) }, async () => {
+        while (nextPage < pagesToCheck.length) {
+          const id = pagesToCheck[nextPage++];
+          try {
+            addPageInstagram(await metaRequest<JsonObject>(id, {
+              token, appSecretProof: false, retries: 0,
+              query: { fields: "id,name,instagram_business_account{id,username},connected_instagram_account{id,username}" },
+            }).catch(() => metaRequest<JsonObject>(id, {
+              token, appSecretProof: false, retries: 0,
+              query: { fields: "id,instagram_business_account{id},connected_instagram_account{id}" },
+            })));
+          } catch {
+            pageInstagramFailed = true;
+          }
+        }
+      }));
+      const issues: { pages?: string; pixels?: string; instagram?: string } = {};
+      if (promotableResult.status === "rejected" || userPagesResult.status === "rejected" || businessesResult.status === "rejected" || businessPageResults.some((result) => result.status === "rejected") || pagePaginationFailed)
+        issues.pages = "Some Facebook Pages may be missing because Meta denied a Page source or returned a partial list. Check this token's Page and business asset access, then refresh.";
+      if (pixelsResult.status === "rejected")
+        issues.pixels = "Meta denied Pixel discovery for this token. Grant access to this ad account's Pixel or dataset.";
+      if (instagramMap.size === 0 && (connectedInstagramResult.status === "rejected" || accountInstagramResult.status === "rejected" || pageInstagramFailed))
+        issues.instagram = "Meta could not list Instagram accounts for this token. Check its Instagram and Page asset access, then refresh.";
+      return jsonResponse(req, {
+        connected: true,
+        connection: publicConnection(connection),
+        ad_accounts: [{ id: connection.ad_account_id, name: connection.account_name ?? connection.ad_account_id,
+          currency: connection.currency, timezone: connection.timezone_name }],
+        pages: [...pageMap.values()],
+        instagram_accounts: [...instagramMap.values()],
+        pixels: pixels.map((pixel) => ({ id: String(pixel.id), name: String(pixel.name ?? pixel.id),
+          ad_account_id: connection.ad_account_id, is_unavailable: pixel.is_unavailable === true })),
+        issues,
+      });
+    }
 
     if (action === "list_ad_accounts") {
       const accounts = await availableAdAccounts(token);

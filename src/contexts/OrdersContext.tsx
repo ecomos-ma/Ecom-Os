@@ -273,7 +273,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
 
                     let shippingCost = o.shipping_cost ?? null;
                     if (shippingCost === null && o.ozon_city) {
-                        const status = (o.delivery_status || o.status || "").toLowerCase();
+                        const status = (o.shipping_status || o.delivery_status || "").toLowerCase();
                         if (status.includes('delivered') || status.includes('livre') || status.includes('livré')) {
                             shippingCost = o.ozon_city.delivered_price;
                         } else if (status.includes('returned') || status.includes('retour') || status.includes('retours')) {

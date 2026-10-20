@@ -18,8 +18,10 @@ export function normalizeThemeDomain(input: unknown): string {
 }
 
 export function generateThemeLicenseCode(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return `ecomos_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const characters = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]);
+  return `ECO-LIC-${characters.slice(0, 4).join("")}-${characters.slice(4, 8).join("")}-${characters.slice(8, 12).join("")}`;
 }
 
 export async function hashThemeLicenseCode(code: string): Promise<string> {
@@ -28,5 +30,14 @@ export async function hashThemeLicenseCode(code: string): Promise<string> {
 }
 
 export function validThemeLicenseCode(code: unknown): code is string {
-  return typeof code === "string" && /^ecomos_[a-f0-9]{64}$/.test(code);
+  return typeof code === "string" && (
+    /^ECO-LIC-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(code.trim().toUpperCase()) ||
+    /^ecomos_[a-f0-9]{64}$/.test(code.trim())
+  );
+}
+
+export function normalizeThemeLicenseCode(code: unknown): string {
+  if (!validThemeLicenseCode(code)) throw new Error("Invalid license key");
+  const value = (code as string).trim();
+  return value.toLowerCase().startsWith("ecomos_") ? value.toLowerCase() : value.toUpperCase();
 }

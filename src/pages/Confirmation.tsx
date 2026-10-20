@@ -1,5 +1,5 @@
 import { Filter, List, Maximize2, RefreshCw, Search, SlidersHorizontal, UsersRound } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
 import { toast } from "../components/Toast";
@@ -7,11 +7,17 @@ import { useConfirmationCRM, type ConfirmationQueue } from "../hooks/useConfirma
 import { getStatusLabel, type CanonicalStatus } from "../lib/statusEngine";
 import { useI18n } from "../i18n";
 import { ConfirmationMetrics } from "./confirmation/ConfirmationMetrics";
-import { ConfirmationOrderDrawer } from "./confirmation/ConfirmationOrderDrawer";
+import { ConfirmationOrderDrawer, type ConfirmationOrderSwitch } from "./confirmation/ConfirmationOrderDrawer";
 import { ConfirmationOrdersTable } from "./confirmation/ConfirmationOrdersTable";
 import type { ConfirmationOrder } from "./confirmation/types";
 import MobileBottomSheet from "../components/MobileBottomSheet";
 import { sendOrderStatusWhatsAppMessage } from "../services/whatsappWorkerService";
+import {
+  acquireConfirmationWork,
+  releaseConfirmationWork,
+  renewConfirmationWork,
+} from "../services/confirmationCrmService";
+import type { ConfirmationWorkLease } from "./confirmation/types";
 
 const queueOptions: Array<{ id: ConfirmationQueue; label: string }> = [
   { id: "all", label: "All orders" },
@@ -26,8 +32,15 @@ export default function Confirmation() {
   const { language } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedOrder, setSelectedOrder] = useState<ConfirmationOrder | null>(null);
+  const [orderSwitch, setOrderSwitch] = useState<ConfirmationOrderSwitch | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sendingWhatsAppOrderId, setSendingWhatsAppOrderId] = useState<string | null>(null);
+  const [activeLease, setActiveLease] = useState<ConfirmationWorkLease | null>(null);
+  const [workAccess, setWorkAccess] = useState<"acquiring" | "ready" | "legacy" | "blocked">("acquiring");
+  const [workAccessError, setWorkAccessError] = useState<string | null>(null);
+  const orderSwitchTimerRef = useRef<number | null>(null);
+  const leaseRef = useRef<ConfirmationWorkLease | null>(null);
+  const openRequestRef = useRef(0);
   const [viewMode, setViewModeState] = useState<"focus" | "queue">(() => {
     try {
       if (window.matchMedia("(max-width: 767px)").matches) return "queue";
@@ -39,21 +52,120 @@ export default function Confirmation() {
   const requestedOrderId = searchParams.get("order");
   const requestedQueue = searchParams.get("queue");
 
+  useEffect(() => () => {
+    if (orderSwitchTimerRef.current !== null) window.clearTimeout(orderSwitchTimerRef.current);
+    const lease = leaseRef.current;
+    if (lease && crm.workspaceId) void releaseConfirmationWork(crm.workspaceId, lease, "page_closed");
+  }, [crm.workspaceId]);
+
   useEffect(() => {
     if (requestedQueue === "callback_due") crm.setQueue("callback_due");
   }, [requestedQueue]);
 
+  const cancelOrderSwitch = () => {
+    if (orderSwitchTimerRef.current !== null) {
+      window.clearTimeout(orderSwitchTimerRef.current);
+      orderSwitchTimerRef.current = null;
+    }
+    setOrderSwitch(null);
+  };
+
+  const releaseActiveLease = (reason: string) => {
+    const lease = leaseRef.current;
+    leaseRef.current = null;
+    setActiveLease(null);
+    if (lease && crm.workspaceId) void releaseConfirmationWork(crm.workspaceId, lease, reason).catch(() => undefined);
+  };
+
   const setViewMode = (mode: "focus" | "queue") => {
+    cancelOrderSwitch();
+    if (mode === "queue") {
+      openRequestRef.current += 1;
+      releaseActiveLease("returned_to_queue");
+      setSelectedOrder(null);
+    }
     setViewModeState(mode);
     try { window.localStorage.setItem("confirmation-view-mode", mode); } catch { /* optional preference */ }
   };
 
   const openOrder = (order: ConfirmationOrder) => {
+    cancelOrderSwitch();
+    const requestId = ++openRequestRef.current;
+    const previousLease = leaseRef.current;
+    if (previousLease?.orderId !== order.id) releaseActiveLease("order_changed");
     setSelectedOrder(order);
-    void crm.openOrder(order);
+    setWorkAccess("acquiring");
+    setWorkAccessError(null);
+    if (!crm.workspaceId) return;
+    void acquireConfirmationWork(crm.workspaceId, order.id).then((lease) => {
+      if (requestId !== openRequestRef.current) {
+        if (lease.mode === "server") void releaseConfirmationWork(crm.workspaceId!, lease, "stale_open_request");
+        return;
+      }
+      leaseRef.current = lease;
+      setActiveLease(lease);
+      setWorkAccess(lease.mode === "server" ? "ready" : "legacy");
+      void crm.openOrder(order);
+    }).catch((error: any) => {
+      if (requestId !== openRequestRef.current) return;
+      leaseRef.current = null;
+      setActiveLease(null);
+      setWorkAccess("blocked");
+      setWorkAccessError(error?.message === "ORDER_LOCKED_BY_ANOTHER_AGENT"
+        ? "Another authorized agent is actively working on this order. It is read-only until their lease is released or expires."
+        : error?.message || "This order could not be locked for editing.");
+    });
   };
 
+  const takeOverSelectedOrder = async () => {
+    if (!crm.canManage || !crm.workspaceId || !selectedOrder) return;
+    const reason = window.prompt("Why are you taking over this active order? This reason is saved in the audit log.")?.trim() || "";
+    if (reason.length < 4) {
+      toast.error("Enter a clear takeover reason of at least 4 characters.");
+      return;
+    }
+    setWorkAccess("acquiring");
+    setWorkAccessError(null);
+    try {
+      const lease = await acquireConfirmationWork(crm.workspaceId, selectedOrder.id, reason);
+      leaseRef.current = lease;
+      setActiveLease(lease);
+      setWorkAccess(lease.mode === "server" ? "ready" : "legacy");
+      toast.success("Supervisor takeover recorded. You can now edit this order.");
+    } catch (error: any) {
+      setWorkAccess("blocked");
+      setWorkAccessError(error?.message || "The order could not be taken over.");
+    }
+  };
+
+  useEffect(() => {
+    if (!crm.workspaceId || activeLease?.mode !== "server") return;
+    const renew = () => {
+      const lease = leaseRef.current;
+      if (!lease || lease.mode !== "server") return;
+      void renewConfirmationWork(crm.workspaceId!, lease).then((renewed) => {
+        leaseRef.current = renewed;
+        setActiveLease(renewed);
+      }).catch((error: any) => {
+        leaseRef.current = null;
+        setActiveLease(null);
+        setWorkAccess("blocked");
+        setWorkAccessError(error?.message || "Your editing lease expired. Reopen the order before saving.");
+      });
+    };
+    const timer = window.setInterval(renew, 45_000);
+    const onVisibility = () => { if (document.visibilityState === "visible") renew(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [crm.workspaceId, activeLease?.leaseToken]);
+
   const changeStatusTab = (nextStatus: "all" | CanonicalStatus) => {
+    cancelOrderSwitch();
+    openRequestRef.current += 1;
+    releaseActiveLease("queue_changed");
     setSelectedOrder(null);
     crm.setStatus(nextStatus);
   };
@@ -72,10 +184,101 @@ export default function Confirmation() {
     openOrder(crm.orders[0]);
   }, [viewMode, selectedOrder?.id, crm.loading, crm.orders]);
 
-  const saveStatus = async (status: string) => {
+  // A fast first paint may use the order-row snapshot. Replace it with the
+  // enriched queue record when products and assignment finish loading, while
+  // never overwriting a newer local save with an older refresh.
+  useEffect(() => {
     if (!selectedOrder) return;
-    await crm.updateStatus(selectedOrder, status);
-    setSelectedOrder((current) => current ? { ...current, status } : current);
+    const enriched = crm.orders.find((candidate) => candidate.id === selectedOrder.id);
+    if (!enriched) return;
+    setSelectedOrder((current) => {
+      if (!current || current.id !== enriched.id) return current;
+      if (new Date(current.updatedAt).getTime() > new Date(enriched.updatedAt).getTime()) return current;
+      return enriched;
+    });
+  }, [crm.orders]);
+
+  const updateActiveLeaseVersion = (updatedAt: string) => {
+    const lease = leaseRef.current;
+    if (!lease) return;
+    const updated = { ...lease, orderUpdatedAt: updatedAt };
+    leaseRef.current = updated;
+    setActiveLease(updated);
+  };
+
+  const saveStatus = async (status: string, claimNext = false, change?: { isUpsell?: boolean; total?: number; items?: import("../services/confirmationCrmService").ConfirmationUpsellItemChange[] }) => {
+    if (!selectedOrder) return;
+    if (workAccess === "acquiring") throw new Error("The order is still being secured. Please wait a moment.");
+    if (workAccess === "blocked") throw new Error(workAccessError || "This order is read-only because another active session holds it.");
+    const anticipatedNext = claimNext ? nextOrder : null;
+
+    let result;
+    try {
+      result = await crm.updateStatus(selectedOrder, status, { lease: leaseRef.current ?? activeLease, claimNext, ...change });
+    } catch (error) {
+      if (claimNext) cancelOrderSwitch();
+      throw error;
+    }
+    setSelectedOrder((current) => current ? { ...current, status: result.status, total: result.total, updatedAt: result.updatedAt } : current);
+
+    if (result.reconciled) {
+      // The order is saved, but the response containing the next lease was lost.
+      // Never guess or reuse a stale lease; return to the queue to claim afresh.
+      cancelOrderSwitch();
+      leaseRef.current = null;
+      setActiveLease(null);
+      setSelectedOrder(null);
+      setViewModeState("queue");
+      void crm.refresh();
+      toast.success("Order saved. Reopen an order from your refreshed queue.");
+      return;
+    }
+
+    if (!claimNext) {
+      if (activeLease?.mode === "server") {
+        if (["confirmed", "cancelled", "refused", "out_of_stock", "blacklisted", "duplicate"].includes(result.status)) {
+          // The server releases terminal outcomes. Do not leave the UI with a
+          // lease that can no longer authorize another edit.
+          leaseRef.current = null;
+          setActiveLease(null);
+          setWorkAccess("blocked");
+          setWorkAccessError("Outcome saved. This order is closed; return to the queue to continue.");
+        } else updateActiveLeaseVersion(result.updatedAt);
+      }
+      return;
+    }
+
+    // The server already authorized the next lease. Reuse its matching queue
+    // record immediately instead of waiting for another round trip to fetch it.
+    const serverNext = result.nextOrderId
+      ? anticipatedNext?.id === result.nextOrderId
+        ? anticipatedNext
+        : await crm.findOrder(result.nextOrderId)
+      : null;
+    const fallbackNext = activeLease?.mode === "legacy" ? nextOrder : null;
+    const target = serverNext ?? fallbackNext;
+    if (!target) {
+      leaseRef.current = null;
+      setActiveLease(null);
+      setSelectedOrder(null);
+      if (viewMode === "focus") setViewMode("queue");
+      toast.success("Saved. Your current queue is complete.");
+      return;
+    }
+
+    const nextLease = result.nextLease ?? (activeLease?.mode === "legacy" ? activeLease : null);
+    leaseRef.current = nextLease;
+    setActiveLease(nextLease);
+    setWorkAccess(nextLease?.mode === "server" ? "ready" : "legacy");
+    // Reveal the already-authorized order immediately. The transition is
+    // visual only; it never delays the next order's controls or lease.
+    if (orderSwitchTimerRef.current !== null) window.clearTimeout(orderSwitchTimerRef.current);
+    setSelectedOrder(target);
+    setOrderSwitch({ phase: "entering", orderNumber: target.orderNumber, customerName: target.customerName });
+    orderSwitchTimerRef.current = window.setTimeout(() => {
+      setOrderSwitch(null);
+      orderSwitchTimerRef.current = null;
+    }, 1800);
   };
 
   const openRelatedOrder = (orderId: string) => {
@@ -85,15 +288,12 @@ export default function Confirmation() {
     }).catch((error: any) => toast.error(error?.message || "Could not open the historic order."));
   };
 
-  const saveAndNext = () => {
-    if (!selectedOrder) return;
+  const nextOrder = selectedOrder ? (() => {
     const currentIndex = crm.orders.findIndex((order) => order.id === selectedOrder.id);
-    const next = currentIndex >= 0
-      ? crm.orders[currentIndex + 1] || crm.orders[currentIndex - 1] || null
-      : crm.orders[0] || null;
-    if (next) openOrder(next);
-    else setSelectedOrder(null);
-  };
+    return currentIndex >= 0
+      ? crm.orders[currentIndex + 1] ?? null
+      : crm.orders.find((order) => order.id !== selectedOrder.id) ?? null;
+  })() : null;
 
   const updateSelectedCustomer = (customer: {
     customerId: string;
@@ -169,13 +369,14 @@ export default function Confirmation() {
         </MobileBottomSheet>
       </section>
 
-      {crm.error ? <div className="rounded-2xl border border-danger/20 bg-danger/5 p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold text-danger"><Filter size={15} /> Confirmation CRM needs attention</div><p className="mt-1 text-[11.5px] text-danger/85">{crm.error}</p><button onClick={() => void crm.refresh()} className="mt-3 rounded-lg bg-danger px-3 py-2 text-[11px] font-semibold text-white">Try again</button></div> : viewMode === "focus" ? (
+      {crm.error && <div className="rounded-2xl border border-danger/20 bg-danger/5 p-4"><div className="flex items-center gap-2 text-[12.5px] font-semibold text-danger"><Filter size={15} /> Confirmation CRM needs attention</div><p className="mt-1 text-[11.5px] text-danger/85">{crm.error}</p><button onClick={() => void crm.refresh()} className="mt-3 rounded-lg bg-danger px-3 py-2 text-[11px] font-semibold text-white">Try again</button></div>}
+      {viewMode === "focus" ? (
         selectedOrder && crm.workspaceId && crm.userId
-          ? <ConfirmationOrderDrawer presentation="focus" workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => setViewMode("queue")} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onCustomerUpdated={updateSelectedCustomer} onOpenRelatedOrder={openRelatedOrder} onSaveAndNext={saveAndNext} onSendStatusMessage={sendStatusMessage} sendingStatusMessage={sendingWhatsAppOrderId === selectedOrder.id} />
+          ? <ConfirmationOrderDrawer presentation="focus" workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => setViewMode("queue")} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onCustomerUpdated={updateSelectedCustomer} onOpenRelatedOrder={openRelatedOrder} nextOrder={nextOrder} orderSwitch={orderSwitch} workLease={activeLease} workAccess={workAccess} workAccessError={workAccessError} onWorkLeaseUpdated={updateActiveLeaseVersion} onTakeOver={takeOverSelectedOrder} onSendStatusMessage={sendStatusMessage} sendingStatusMessage={sendingWhatsAppOrderId === selectedOrder.id} />
           : <ConfirmationOrdersTable orders={crm.orders} loading={crm.loading} onOpen={openOrder} selectedId={selectedOrder?.id} onSendStatusMessage={sendStatusMessage} sendingOrderId={sendingWhatsAppOrderId} />
       ) : <><ConfirmationOrdersTable orders={crm.orders} loading={crm.loading} onOpen={openOrder} selectedId={selectedOrder?.id} onSendStatusMessage={sendStatusMessage} sendingOrderId={sendingWhatsAppOrderId} />{crm.hasMore && <div className="flex justify-center"><button onClick={() => void crm.loadMore()} disabled={crm.loadingMore} className="inline-flex items-center gap-1.5 rounded-lg border border-base-border bg-base-surface px-4 py-2 text-[11.5px] font-semibold text-ink hover:border-brand/30 disabled:opacity-50">{crm.loadingMore && <RefreshCw size={13} className="animate-spin" />} {crm.loadingMore ? "Loading" : "Load more orders"}</button></div>}</>}
 
-      {viewMode === "queue" && selectedOrder && crm.workspaceId && crm.userId && <ConfirmationOrderDrawer workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => setSelectedOrder(null)} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onCustomerUpdated={updateSelectedCustomer} onOpenRelatedOrder={openRelatedOrder} onSaveAndNext={saveAndNext} onSendStatusMessage={sendStatusMessage} sendingStatusMessage={sendingWhatsAppOrderId === selectedOrder.id} />}
+      {viewMode === "queue" && selectedOrder && crm.workspaceId && crm.userId && <ConfirmationOrderDrawer workspaceId={crm.workspaceId} userId={crm.userId} order={selectedOrder} agents={crm.agents} canManage={crm.canManage} language={language} onClose={() => { cancelOrderSwitch(); openRequestRef.current += 1; releaseActiveLease("drawer_closed"); setSelectedOrder(null); }} onOrderSaved={crm.refresh} onSaveStatus={saveStatus} onCustomerUpdated={updateSelectedCustomer} onOpenRelatedOrder={openRelatedOrder} nextOrder={nextOrder} orderSwitch={orderSwitch} workLease={activeLease} workAccess={workAccess} workAccessError={workAccessError} onWorkLeaseUpdated={updateActiveLeaseVersion} onTakeOver={takeOverSelectedOrder} onSendStatusMessage={sendStatusMessage} sendingStatusMessage={sendingWhatsAppOrderId === selectedOrder.id} />}
     </div>
   );
 }

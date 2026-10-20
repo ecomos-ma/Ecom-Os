@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
+import { Link } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/Toast";
 import { supabase } from "../lib/supabase";
@@ -589,6 +590,8 @@ export default function AdsManager() {
         title="Meta Ads Manager"
         subtitle="Manage, launch and automate Meta advertising with exact-only COD attribution."
         action={
+          <div className="flex flex-wrap items-center gap-2">
+          <Link to="/ads-manager/launch-studio" className="inline-flex items-center gap-2 rounded-xl bg-brand px-3.5 py-2 text-[13px] font-semibold text-white"><Rocket size={14} /> Launch Studio</Link>
           <button
             onClick={sync}
             disabled={busy}
@@ -597,6 +600,7 @@ export default function AdsManager() {
             <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Sync
             now
           </button>
+          </div>
         }
       />
       <div className="grid gap-3 rounded-2xl border border-base-border bg-base-surface p-4 xl:grid-cols-[minmax(240px,1fr)_minmax(180px,1fr)_auto_auto_auto]">
@@ -1412,18 +1416,14 @@ function EntityEditor({
             }
           : { ...form };
       if (!mode.row && mode.tab === "creatives" && creativeFile) {
-        const [uploaded] = await uploadMetaCreativeFiles(workspaceId, [
+        const [uploaded] = await uploadMetaCreativeFiles(accountId, [
           creativeFile,
         ]);
-        const media = await metaAdsService.manage("upload_creative", {
-          ad_account_id: accountId,
-          payload: { ...uploaded, filename: creativeFile.name },
-        });
         payload = {
           ...payload,
           ...(uploaded.media_type === "video"
-            ? { video_id: media.id }
-            : { image_hash: media.hash }),
+            ? { video_id: uploaded.video_id }
+            : { image_hash: uploaded.image_hash }),
         };
       }
       if (mode.row) {
@@ -1761,7 +1761,7 @@ function BulkLauncher({
     setBusy(true);
     try {
       const uploaded = await uploadMetaCreativeFiles(
-        workspaceId,
+        accountId,
         files,
         (done, total) => setProgress(Math.round((done / total) * 100)),
       );

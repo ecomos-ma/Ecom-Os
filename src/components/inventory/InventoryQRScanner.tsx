@@ -23,6 +23,7 @@ interface OrderResult {
   city: string | null;
   status: string | null;
   shipping_status: string | null;
+  delivery_status: string | null;
   created_at: string;
   returned_to_stock: boolean;
   sku: string | null;
@@ -92,7 +93,7 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
     }
     
     // Check if status is returnable
-    const rawStatus = String(order.shipping_status || order.status || "");
+    const rawStatus = String(order.shipping_status || order.delivery_status || "");
     return isReturnableStatus(rawStatus);
   }, [isAlreadyReturnedToStock]);
 
@@ -256,6 +257,7 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
             city,
             status,
             shipping_status,
+            delivery_status,
             created_at,
             returned_to_stock,
             sku,
@@ -299,6 +301,7 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
             city,
             status,
             shipping_status,
+            delivery_status,
             created_at,
             returned_to_stock,
             sku,
@@ -358,6 +361,7 @@ export function InventoryQRScanner({ isOpen, onClose, onQRDetected, onViewOrder 
           city,
           status,
           shipping_status,
+          delivery_status,
           created_at,
           workspace_id,
           returned_to_stock,

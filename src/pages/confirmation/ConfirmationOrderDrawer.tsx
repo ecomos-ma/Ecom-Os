@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -10,6 +11,7 @@ import {
   LoaderCircle,
   MapPin,
   MessageCircle,
+  Mic,
   List,
   Package,
   Pencil,
@@ -22,7 +24,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
-import { StatusSelect } from "../../components/StatusSelect";
+import { ConfirmationOutcomePicker } from "./ConfirmationOutcomePicker";
 import { toast } from "../../components/Toast";
 import { normalizeStatus, type StatusLanguage } from "../../lib/statusEngine";
 import {
@@ -33,21 +35,30 @@ import {
   getConfirmationOrderDetails,
   getConfirmationRecordingUrl,
   markConfirmationOrderUpsell,
+  type ConfirmationUpsellItemChange,
   scheduleConfirmationCallback,
   updateConfirmationCustomerProfile,
   uploadConfirmationRecording,
 } from "../../services/confirmationCrmService";
-import { CallRecorder, SecureRecordingPlayer } from "./CallRecorder";
+import { CallRecorder, SecureRecordingPlayer, type CallRecorderHandle } from "./CallRecorder";
 import type {
   ConfirmationAgent,
   ConfirmationOrder,
   ConfirmationOrderDetails,
   ConfirmationRecording,
+  ConfirmationWorkLease,
 } from "./types";
 import { useI18n } from "../../i18n";
+import { useAuth } from "../../hooks/useAuth";
 import whatsappLogo from "../../assets/integrationicon/imgi_37_whatssap.png";
 
 type DrawerTab = "overview" | "history" | "calls";
+
+export type ConfirmationOrderSwitch = {
+  phase: "entering";
+  orderNumber: string;
+  customerName: string;
+};
 
 function age(value: string) {
   const milliseconds = Date.now() - new Date(value).getTime();
@@ -100,7 +111,13 @@ export function ConfirmationOrderDrawer({
   onSaveStatus,
   onCustomerUpdated,
   onOpenRelatedOrder,
-  onSaveAndNext,
+  nextOrder,
+  orderSwitch,
+  workLease,
+  workAccess,
+  workAccessError,
+  onWorkLeaseUpdated,
+  onTakeOver,
   onSendStatusMessage,
   sendingStatusMessage,
   presentation = "drawer",
@@ -113,7 +130,7 @@ export function ConfirmationOrderDrawer({
   language: StatusLanguage;
   onClose: () => void;
   onOrderSaved: () => Promise<void>;
-  onSaveStatus: (status: string) => Promise<void>;
+  onSaveStatus: (status: string, claimNext?: boolean, change?: { isUpsell?: boolean; total?: number; items?: ConfirmationUpsellItemChange[] }) => Promise<void>;
   onCustomerUpdated: (customer: {
     customerId: string;
     customerName: string;
@@ -122,12 +139,20 @@ export function ConfirmationOrderDrawer({
     address: string | null;
   }) => void;
   onOpenRelatedOrder: (orderId: string) => void;
-  onSaveAndNext: () => void;
+  nextOrder: Pick<ConfirmationOrder, "orderNumber" | "customerName"> | null;
+  orderSwitch?: ConfirmationOrderSwitch | null;
+  workLease: ConfirmationWorkLease | null;
+  workAccess: "acquiring" | "ready" | "legacy" | "blocked";
+  workAccessError?: string | null;
+  onWorkLeaseUpdated: (updatedAt: string) => void;
+  onTakeOver: () => Promise<void>;
   onSendStatusMessage: (order: ConfirmationOrder) => Promise<void>;
   sendingStatusMessage: boolean;
   presentation?: "drawer" | "focus";
 }) {
   const focusMode = presentation === "focus";
+  const isNextOrder = orderSwitch?.phase === "entering" && orderSwitch.orderNumber === order.orderNumber;
+  const { session } = useAuth();
   const { formatCurrency, formatDateTime } = useI18n();
   const money = (value: number) => formatCurrency(Number(value || 0));
   const dateTime = (value: string | null | undefined) => value ? formatDateTime(value) : "—";
@@ -137,9 +162,22 @@ export function ConfirmationOrderDrawer({
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [status, setStatus] = useState(normalizeStatus(order.status));
   const [savingStatus, setSavingStatus] = useState(false);
+  const [saveIntent, setSaveIntent] = useState<"save" | "next" | null>(null);
+  const [statusFeedback, setStatusFeedback] = useState<"idle" | "saved">("idle");
   const [savingUpsell, setSavingUpsell] = useState(false);
   const [upsellEnabled, setUpsellEnabled] = useState(order.isUpsell);
   const [upsellPrice, setUpsellPrice] = useState(String(order.upsellValue ?? order.total));
+  const [itemDrafts, setItemDrafts] = useState<ConfirmationUpsellItemChange[]>(() => order.products.map((product) => ({
+    item_id: product.itemId, name: product.name, quantity: product.quantity,
+    color: product.color || "", note: product.comment || "",
+  })));
+  const [savedUpsell, setSavedUpsell] = useState(() => ({
+    enabled: order.isUpsell, total: Number(order.upsellValue ?? order.total),
+    items: JSON.stringify(order.products.map((product) => ({
+      item_id: product.itemId, name: product.name, quantity: product.quantity,
+      color: product.color || "", note: product.comment || "",
+    }))),
+  }));
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [callbackAt, setCallbackAt] = useState(() => {
@@ -152,6 +190,8 @@ export function ConfirmationOrderDrawer({
   const [assignment, setAssignment] = useState(order.assignedAgent?.id || "");
   const [savingAssignment, setSavingAssignment] = useState(false);
   const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});
+  const [recorderOpen, setRecorderOpen] = useState(false);
+  const recorderRef = useRef<CallRecorderHandle | null>(null);
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [customerDraft, setCustomerDraft] = useState({
@@ -164,6 +204,14 @@ export function ConfirmationOrderDrawer({
   const [addressSaveState, setAddressSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
   const addressSaveTimerRef = useRef<number | null>(null);
   const addressRequestRef = useRef(0);
+  const statusFeedbackTimerRef = useRef<number | null>(null);
+  const orderHeadingRef = useRef<HTMLHeadingElement | null>(null);
+
+  useEffect(() => {
+    if (orderSwitch?.phase !== "entering" || orderSwitch.orderNumber !== order.orderNumber) return;
+    const frame = window.requestAnimationFrame(() => orderHeadingRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [order.id, orderSwitch?.phase]);
 
   const refreshDetails = async () => {
     setLoadingDetails(true);
@@ -171,8 +219,10 @@ export function ConfirmationOrderDrawer({
     try {
       const nextDetails = await getConfirmationOrderDetails(workspaceId, order);
       setDetails(nextDetails);
+      return nextDetails;
     } catch (error: any) {
       setDetailsError(error?.message || "Could not load this order’s CRM details.");
+      return null;
     } finally {
       setLoadingDetails(false);
     }
@@ -180,11 +230,20 @@ export function ConfirmationOrderDrawer({
 
   useEffect(() => {
     setStatus(normalizeStatus(order.status));
+    setStatusFeedback("idle");
+    setSaveIntent(null);
     setSavingUpsell(false);
     setUpsellEnabled(order.isUpsell);
     setUpsellPrice(String(order.upsellValue ?? order.total));
+    const initialItems = order.products.map((product) => ({
+      item_id: product.itemId, name: product.name, quantity: product.quantity,
+      color: product.color || "", note: product.comment || "",
+    }));
+    setItemDrafts(initialItems);
+    setSavedUpsell({ enabled: order.isUpsell, total: Number(order.upsellValue ?? order.total), items: JSON.stringify(initialItems) });
     setAssignment(order.assignedAgent?.id || "");
     setTab("overview");
+    setRecorderOpen(false);
     setRecordingUrls({});
     setEditingCustomer(false);
     setCustomerDraft({
@@ -200,16 +259,26 @@ export function ConfirmationOrderDrawer({
       window.clearTimeout(addressSaveTimerRef.current);
       addressSaveTimerRef.current = null;
     }
+    if (statusFeedbackTimerRef.current !== null) {
+      window.clearTimeout(statusFeedbackTimerRef.current);
+      statusFeedbackTimerRef.current = null;
+    }
     void refreshDetails();
   }, [order.id, order.customerId]);
 
   useEffect(() => () => {
     if (addressSaveTimerRef.current !== null) window.clearTimeout(addressSaveTimerRef.current);
+    if (statusFeedbackTimerRef.current !== null) window.clearTimeout(statusFeedbackTimerRef.current);
   }, []);
+
+  const closeDrawer = () => {
+    if (recorderRef.current?.hasUnfinished() && !window.confirm("A recording is still active or has not been saved. Leave and discard it?")) return;
+    onClose();
+  };
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") closeDrawer();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
@@ -221,19 +290,37 @@ export function ConfirmationOrderDrawer({
   );
 
   const adjustedUpsellTotal = Number(upsellPrice);
-  const upsellDirty = upsellEnabled !== order.isUpsell
-    || (upsellEnabled && Math.abs(adjustedUpsellTotal - Number(order.upsellValue ?? order.total)) > 0.009);
+  const itemDirty = JSON.stringify(itemDrafts) !== savedUpsell.items;
+  const upsellDirty = upsellEnabled !== savedUpsell.enabled
+    || (upsellEnabled && (Math.abs(adjustedUpsellTotal - savedUpsell.total) > 0.009 || itemDirty));
+  const validItemDrafts = itemDrafts.length > 0 && itemDrafts.length <= 20 && itemDrafts.every((item) =>
+    item.name.trim().length > 0 && item.name.trim().length <= 160
+    && Number.isInteger(item.quantity) && item.quantity >= 1 && item.quantity <= 999
+    && item.color.length <= 120 && item.note.length <= 500);
+  const updateItemDraft = (index: number, change: Partial<ConfirmationUpsellItemChange>) =>
+    setItemDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...change } : item));
 
   const saveUpsell = async (quiet = false) => {
     if (savingUpsell) return;
-    if (upsellEnabled && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0)) {
-      throw new Error("Enter the adjusted total before saving the upsell.");
+    if (upsellEnabled && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0 || !validItemDrafts)) {
+      throw new Error("Enter a valid total and product details before saving the upsell.");
     }
     setSavingUpsell(true);
     try {
-      await markConfirmationOrderUpsell(workspaceId, order, userId, upsellEnabled, adjustedUpsellTotal);
-      if (!quiet) toast.success(upsellEnabled ? "Upsell and adjusted price saved." : "Upsell removed.");
-      await Promise.all([refreshDetails(), onOrderSaved()]);
+      const result = await markConfirmationOrderUpsell(workspaceId, order, userId, upsellEnabled, adjustedUpsellTotal, workLease, session?.access_token, upsellEnabled && itemDirty ? itemDrafts : undefined);
+      onWorkLeaseUpdated(result.updatedAt);
+      setSavedUpsell({ enabled: upsellEnabled, total: result.total, items: JSON.stringify(itemDrafts) });
+      if (!quiet) toast.success(upsellEnabled ? "Upsell, product details and price saved." : "Upsell removed.");
+      const latestDetails = await refreshDetails();
+      if (latestDetails && upsellEnabled && itemDirty) {
+        const latestItems = latestDetails.order.products.map((product) => ({
+          item_id: product.itemId, name: product.name, quantity: product.quantity,
+          color: product.color || "", note: product.comment || "",
+        }));
+        setItemDrafts(latestItems);
+        setSavedUpsell({ enabled: upsellEnabled, total: result.total, items: JSON.stringify(latestItems) });
+      }
+      void onOrderSaved().catch(() => undefined);
     } catch (error: any) {
       if (!quiet) toast.error(error?.message || "Could not save the upsell.");
       throw error;
@@ -242,22 +329,52 @@ export function ConfirmationOrderDrawer({
     }
   };
 
-  const saveStatus = async (andNext = false) => {
+  const saveStatus = async (andNext = false, forcedStatus?: string) => {
     if (savingStatus) return;
+    if (andNext && recorderRef.current?.hasUnfinished()) {
+      toast.error("Stop and save the voice recording before moving to the next order.");
+      setRecorderOpen(true);
+      setTab("calls");
+      return;
+    }
+    const outcome = forcedStatus ?? status;
+    if (outcome === "confirmed" && upsellEnabled && upsellDirty && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0 || !validItemDrafts)) {
+      toast.error("Check the upsell total and product details before confirming.");
+      return;
+    }
+    if (forcedStatus) setStatus(normalizeStatus(forcedStatus));
     setSavingStatus(true);
+    setSaveIntent(andNext ? "next" : "save");
+    setStatusFeedback("idle");
     try {
-      // A confirmation never drops a price edit. When the agent has checked
-      // upsell, save that price first and then record the confirmation.
-      if (status === "confirmed" && upsellDirty) await saveUpsell(true);
-      await onSaveStatus(status);
-      toast.success("Confirmation status saved.");
-      await Promise.all([refreshDetails(), onOrderSaved()]);
-      if (andNext) onSaveAndNext();
+      // A confirmation never drops a price edit. The lease-aware RPC persists
+      // the outcome and price change in the same database transaction.
+      await onSaveStatus(outcome, andNext, outcome === "confirmed" && upsellDirty ? {
+        isUpsell: upsellEnabled,
+        total: upsellEnabled ? adjustedUpsellTotal : undefined,
+        items: upsellEnabled && itemDirty ? itemDrafts : undefined,
+      } : undefined);
+      if (outcome === "confirmed" && upsellDirty) setSavedUpsell({ enabled: upsellEnabled, total: adjustedUpsellTotal, items: JSON.stringify(itemDrafts) });
+      // The mutation result already updates the active order and the next order
+      // loads its own details. Full queue/detail refreshes are background work;
+      // they must never hold the Save & next transition button.
+      if (!andNext) {
+        void Promise.all([refreshDetails(), onOrderSaved()]).catch(() => undefined);
+      }
+      if (!andNext) {
+        setStatusFeedback("saved");
+        if (statusFeedbackTimerRef.current !== null) window.clearTimeout(statusFeedbackTimerRef.current);
+        statusFeedbackTimerRef.current = window.setTimeout(() => {
+          setStatusFeedback("idle");
+          statusFeedbackTimerRef.current = null;
+        }, 1800);
+      }
     } catch (error: any) {
+      if (forcedStatus) setStatus(normalizeStatus(order.status));
       toast.error(error?.message || "Could not save the confirmation status.");
-      setStatus(normalizeStatus(order.status));
     } finally {
       setSavingStatus(false);
+      setSaveIntent(null);
     }
   };
 
@@ -396,20 +513,30 @@ export function ConfirmationOrderDrawer({
     }
   };
 
-  const startPhoneCall = async () => {
+  const startPhoneCall = async (logActivity = true) => {
     if (!order.phone) return;
-    try {
-      await addConfirmationActivity(workspaceId, order, userId, "CALL_STARTED", { source: "device_phone_handler" });
-    } catch {
-      // A supported phone action remains available even if the non-critical audit insert fails.
+    if (logActivity) {
+      try {
+        await addConfirmationActivity(workspaceId, order, userId, "CALL_STARTED", { source: "device_phone_handler" });
+      } catch {
+        // The dialer remains available if a non-critical activity insert fails.
+      }
     }
     window.location.href = `tel:${order.phone}`;
   };
 
+  const recordAndCall = async () => {
+    if (!order.phone) return;
+    setRecorderOpen(true);
+    setTab("calls");
+    const started = await recorderRef.current?.start();
+    if (started) await startPhoneCall(false);
+  };
+
   const saveRecording = async ({ recordingId, blob, startedAt, endedAt }: { recordingId: string; blob: Blob; startedAt: Date; endedAt: Date }) => {
     await uploadConfirmationRecording(workspaceId, order, userId, blob, startedAt, endedAt, recordingId);
-    toast.success("Recording saved securely.");
-    await Promise.all([refreshDetails(), onOrderSaved()]);
+    toast.success("Recording saved to Team → Call Review.");
+    void Promise.all([refreshDetails(), onOrderSaved()]).catch(() => undefined);
   };
 
   const loadRecording = async (recording: ConfirmationRecording) => {
@@ -424,13 +551,15 @@ export function ConfirmationOrderDrawer({
 
   return (
     <div className={focusMode ? "relative flex h-[calc(100dvh-250px)] min-h-[620px] overflow-hidden rounded-2xl border border-base-border bg-base-surface shadow-sm" : "fixed inset-0 z-[70] flex justify-end bg-ink/25 backdrop-blur-[1px] max-md:items-end"} role="dialog" aria-modal={!focusMode} aria-label={`Confirmation CRM for ${order.orderNumber}`}>
-      {!focusMode && <button onClick={onClose} aria-label="Close order drawer" className="absolute inset-0 cursor-default" />}
-      <aside className={focusMode ? "relative flex h-full w-full flex-col bg-base-surface" : "relative flex h-full w-full max-w-[850px] flex-col border-l border-base-border bg-base-surface shadow-2xl max-md:mt-[calc(env(safe-area-inset-top)+.75rem)] max-md:h-[calc(100dvh-env(safe-area-inset-top)-.75rem)] max-md:max-w-none max-md:rounded-t-[28px] max-md:border-l-0 max-md:border-t max-md:pb-[env(safe-area-inset-bottom)]"}>
+      {!focusMode && <button onClick={closeDrawer} aria-label="Close order drawer" className="absolute inset-0 cursor-default" />}
+      <aside key={order.id} className={`${focusMode ? "relative flex h-full w-full flex-col bg-base-surface" : "relative flex h-full w-full max-w-[850px] flex-col border-l border-base-border bg-base-surface shadow-2xl max-md:mt-[calc(env(safe-area-inset-top)+.75rem)] max-md:h-[calc(100dvh-env(safe-area-inset-top)-.75rem)] max-md:max-w-none max-md:rounded-t-[28px] max-md:border-l-0 max-md:border-t max-md:pb-[env(safe-area-inset-bottom)]"} ${isNextOrder ? "confirmation-next-enter" : ""}`}>
+        {isNextOrder && <div aria-hidden="true" className="confirmation-next-accent pointer-events-none absolute inset-x-0 top-0 z-10 h-[3px] bg-brand" />}
         <header className="shrink-0 border-b border-base-border bg-base-surface px-5 py-4 max-md:px-4">
+          <div role="status" aria-live="polite" className={`mb-3 flex min-h-7 max-w-full items-center gap-2 rounded-lg border px-3 py-1 text-[11px] font-semibold transition-colors duration-300 ${isNextOrder ? "confirmation-next-cue border-brand/25 bg-brand/10 text-brand" : "border-base-border bg-base-raised/50 text-ink-muted"}`}><ArrowRight size={13} className="shrink-0" /><span className="shrink-0 uppercase tracking-wide">{isNextOrder ? "Next order" : "Current order"}</span><span className="font-mono font-bold">{order.orderNumber}</span><span className="truncate opacity-80">{order.customerName}</span></div>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-[18px] font-semibold text-ink">{order.customerName}</h2>
+                <h2 ref={orderHeadingRef} tabIndex={-1} className="truncate text-[18px] font-semibold text-ink outline-none">{order.customerName}</h2>
                 <StatusBadge status={order.status} size="sm" />
                 <ConfirmationMethodBadge method={(order as any).confirmation_method} />
               </div>
@@ -441,13 +570,17 @@ export function ConfirmationOrderDrawer({
                 <span>{money(order.total)}</span>
               </div>
             </div>
-            <button onClick={onClose} aria-label={focusMode ? "Return to order list" : "Close order drawer"} title={focusMode ? "Return to order list" : "Close"} className="inline-flex items-center gap-1.5 rounded-xl p-2 text-ink-muted transition-colors hover:bg-base-raised hover:text-ink">{focusMode ? <><List size={17} /><span className="hidden text-[11px] font-semibold sm:inline">Order list</span></> : <X size={18} />}</button>
+            <button onClick={closeDrawer} aria-label={focusMode ? "Return to order list" : "Close order drawer"} title={focusMode ? "Return to order list" : "Close"} className="inline-flex items-center gap-1.5 rounded-xl p-2 text-ink-muted transition-colors hover:bg-base-raised hover:text-ink">{focusMode ? <><List size={17} /><span className="hidden text-[11px] font-semibold sm:inline">Order list</span></> : <X size={18} />}</button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button onClick={() => void startPhoneCall()} disabled={!order.phone} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-[11.5px] font-semibold text-white shadow-sm hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Phone size={13} /> Call customer</button>
+            <button type="button" onClick={() => void recordAndCall()} disabled={!order.phone || workAccess === "acquiring" || workAccess === "blocked"} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-[11.5px] font-semibold text-rose-600 transition-colors hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Mic size={13} /> Record & call</button>
             <button type="button" onClick={() => void onSendStatusMessage(order)} disabled={!order.phone || sendingStatusMessage} title="Send the WhatsApp Automation message configured for this order status" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#25D366]/30 bg-[#25D366]/10 px-3 py-2 text-[11.5px] font-semibold text-[#159447] hover:bg-[#25D366]/15 disabled:cursor-not-allowed disabled:opacity-50 max-md:flex-1 max-md:justify-center">{sendingStatusMessage ? <LoaderCircle size={13} className="animate-spin" /> : <img src={whatsappLogo} alt="" className="h-[15px] w-[15px] object-contain" />} {sendingStatusMessage ? "Sending…" : "Send live message"}</button>
             <button onClick={() => void copyPhone()} disabled={!order.phone} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[11.5px] font-semibold text-ink hover:border-brand/25 disabled:opacity-50 max-md:flex-1 max-md:justify-center"><Copy size={13} /> Copy phone</button>
             {activeCallback && <span className="inline-flex items-center gap-1.5 rounded-lg bg-violet-500/10 px-2.5 py-2 text-[11px] font-semibold text-violet-600 dark:text-violet-300"><CalendarClock size={13} /> Callback {dateTime(activeCallback.scheduledAt)}</span>}
+          </div>
+          <div className={recorderOpen || tab === "calls" ? "mt-3" : "hidden"}>
+            <CallRecorder ref={recorderRef} disabled={workAccess === "acquiring" || workAccess === "blocked"} onUpload={saveRecording} onActivity={(activity, metadata) => addConfirmationActivity(workspaceId, order, userId, activity, metadata)} />
           </div>
         </header>
 
@@ -465,13 +598,19 @@ export function ConfirmationOrderDrawer({
           {tab === "overview" && (
             <div className="space-y-5">
               <section className="grid gap-3 md:grid-cols-[1.1fr_0.9fr]">
-                <div className="rounded-2xl bg-base-raised/65 p-4">
+                <div className="rounded-2xl border border-brand/15 bg-brand/[0.025] p-4">
                   <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Confirmation outcome</div>
-                  <div className="mt-2 flex gap-2">
-                    <StatusSelect value={status} onChange={setStatus} language={language} disabled={savingStatus} className="min-w-0 flex-1" />
-                    <button onClick={() => void saveStatus(false)} disabled={savingStatus || status === normalizeStatus(order.status)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-[11.5px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"><Save size={13} /> {savingStatus ? "Saving" : "Save"}</button>
+                  <button type="button" onClick={() => void saveStatus(true, "confirmed")} disabled={savingStatus || workAccess === "acquiring" || workAccess === "blocked"}
+                    className="mt-2 flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-brand px-4 py-2.5 text-left text-white shadow-sm transition-colors hover:bg-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span className="inline-flex items-center gap-2 text-[12.5px] font-bold">{saveIntent === "next" ? <LoaderCircle size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {saveIntent === "next" ? "Confirming…" : nextOrder ? "Confirm & next order" : "Confirm & finish queue"}</span>
+                    {nextOrder && <span className="hidden max-w-[42%] truncate text-[10px] font-semibold text-white/80 sm:block">{nextOrder.orderNumber} <ArrowRight size={12} className="ml-1 inline" /></span>}
+                  </button>
+                  <div className="mt-3 flex gap-2">
+                    <ConfirmationOutcomePicker value={status} onChange={setStatus} language={language} disabled={savingStatus || workAccess === "acquiring" || workAccess === "blocked"} />
+                    <button onClick={() => void saveStatus(false)} disabled={savingStatus || workAccess === "acquiring" || workAccess === "blocked" || status === normalizeStatus(order.status)} className={`inline-flex min-w-[100px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-[11.5px] font-semibold transition-colors disabled:cursor-not-allowed ${statusFeedback === "saved" ? "border-emerald-300 bg-emerald-50 text-emerald-700 disabled:opacity-100" : "border-base-border bg-base-surface text-ink hover:border-brand/35 disabled:opacity-45"}`}>{saveIntent === "save" ? <LoaderCircle size={13} className="animate-spin" /> : statusFeedback === "saved" ? <Check size={13} /> : <Save size={13} />} {saveIntent === "save" ? "Saving" : statusFeedback === "saved" ? "Saved" : "Save outcome"}</button>
                   </div>
-                  <button onClick={() => void saveStatus(true)} disabled={savingStatus} className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-brand/25 bg-brand/10 px-3 py-2 text-[11.5px] font-semibold text-brand hover:bg-brand/15 disabled:opacity-50"><CheckCircle2 size={13} /> Save & next</button>
+                  {(workAccess === "acquiring" || workAccess === "blocked") && <div className={`mt-2 rounded-lg px-3 py-2 text-[10.5px] font-semibold ${workAccess === "blocked" ? "border border-amber-500/20 bg-amber-500/10 text-amber-700" : "bg-brand/5 text-brand"}`}><span>{workAccess === "acquiring" ? "Securing this order for editing…" : workAccessError || "This order is currently read-only."}</span>{workAccess === "blocked" && canManage && <button type="button" onClick={() => void onTakeOver()} className="ml-2 rounded-md bg-amber-600 px-2 py-1 text-[10px] font-bold text-white">Take over with reason</button>}</div>}
+                  {status !== "confirmed" && <button onClick={() => void saveStatus(true)} disabled={savingStatus || workAccess === "acquiring" || workAccess === "blocked"} className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand hover:underline disabled:opacity-50">Save selected outcome & next <ArrowRight size={13} /></button>}
                 </div>
                 <div className="rounded-2xl border border-base-border p-4">
                   <div className="flex items-center justify-between gap-2">
@@ -519,7 +658,7 @@ export function ConfirmationOrderDrawer({
                     <Zap size={15} className="text-violet-600" />
                     Mark upsell
                   </label>
-                  <span className="text-[11px] text-ink-muted">Check it, set the final price, then save before confirming.</span>
+                  <span className="text-[11px] text-ink-muted">Adjust this order only; the product catalog stays unchanged.</span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-end gap-2">
                   <label className="min-w-[190px] flex-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
@@ -538,11 +677,11 @@ export function ConfirmationOrderDrawer({
                   <button
                     type="button"
                     onClick={() => void saveUpsell()}
-                    disabled={savingUpsell || !upsellDirty || (upsellEnabled && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0))}
+                    disabled={savingUpsell || !upsellDirty || (upsellEnabled && (!Number.isFinite(adjustedUpsellTotal) || adjustedUpsellTotal <= 0 || !validItemDrafts))}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-[11.5px] font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     {savingUpsell ? <LoaderCircle size={13} className="animate-spin" /> : <Save size={13} />}
-                    {savingUpsell ? "Saving" : "Save upsell & price"}
+                    {savingUpsell ? "Saving" : "Save upsell details"}
                   </button>
                 </div>
               </section>
@@ -550,15 +689,21 @@ export function ConfirmationOrderDrawer({
               <section>
                 <div className="mb-2 flex items-center justify-between"><h3 className="text-[13px] font-semibold text-ink">Ordered products</h3><span className="text-[11px] text-ink-muted">{order.products.length} item{order.products.length === 1 ? "" : "s"}</span></div>
                 <div className="space-y-2">
-                  {order.products.map((product, index) => (
-                    <div key={`${product.id || product.sku || product.name}-${index}`} className="flex gap-3 rounded-2xl border border-base-border bg-base-surface p-3">
+                  {(details?.order.products ?? order.products).map((product, index) => (
+                    <div key={`${product.itemId || product.id || product.sku || product.name}-${index}`} className="flex gap-3 rounded-2xl border border-base-border bg-base-surface p-3">
                       <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-base-raised">
                         {product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-ink-faint"><Package size={20} /></span>}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-semibold text-ink">{product.name}</div>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-muted"><span>SKU: {product.sku || "—"}</span>{product.variant && <span>{product.variant}</span>}{product.stock !== null && <span>Stock: {product.stock}</span>}</div>
-                        <div className="mt-3 flex items-center justify-between text-[12px]"><span className="text-ink-muted">Qty {product.quantity} × {money(product.unitPrice)}</span><span className="font-mono font-bold text-ink">{money(product.quantity * product.unitPrice)}</span></div>
+                        {upsellEnabled && itemDrafts[index] ? <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(85px,0.6fr)_minmax(0,1fr)]">
+                          <label className="text-[10px] font-semibold text-ink-muted">Product name<input value={itemDrafts[index].name} onChange={(event) => updateItemDraft(index, { name: event.target.value })} maxLength={160} disabled={savingUpsell} className="mt-1 w-full rounded-lg border border-base-border bg-base-raised px-2.5 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                          <label className="text-[10px] font-semibold text-ink-muted">Quantity<input type="number" min={1} max={999} value={itemDrafts[index].quantity} onChange={(event) => updateItemDraft(index, { quantity: Number(event.target.value) })} disabled={savingUpsell} className="mt-1 w-full rounded-lg border border-base-border bg-base-raised px-2.5 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                          <label className="text-[10px] font-semibold text-ink-muted">Color / option<input value={itemDrafts[index].color} onChange={(event) => updateItemDraft(index, { color: event.target.value })} maxLength={120} disabled={savingUpsell} placeholder="e.g. Black" className="mt-1 w-full rounded-lg border border-base-border bg-base-raised px-2.5 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                          <label className="text-[10px] font-semibold text-ink-muted sm:col-span-3">Product comment<textarea value={itemDrafts[index].note} onChange={(event) => updateItemDraft(index, { note: event.target.value })} maxLength={500} rows={2} disabled={savingUpsell} placeholder="Size, color request or other detail for this item" className="mt-1 w-full resize-none rounded-lg border border-base-border bg-base-raised px-2.5 py-2 text-[12px] text-ink outline-none focus:border-brand/50" /></label>
+                        </div> : <div className="mt-3 flex items-center justify-between text-[12px]"><span className="text-ink-muted">Qty {product.quantity} × {money(product.unitPrice)}{product.color ? ` · ${product.color}` : ""}</span><span className="font-mono font-bold text-ink">{money(product.quantity * product.unitPrice)}</span></div>}
+                        {!upsellEnabled && product.comment && <p className="mt-2 rounded-lg bg-base-raised px-2.5 py-2 text-[11px] text-ink-muted">{product.comment}</p>}
                       </div>
                     </div>
                   ))}
@@ -611,7 +756,7 @@ export function ConfirmationOrderDrawer({
 
           {tab === "calls" && (
             <div className="space-y-5">
-              <CallRecorder onUpload={saveRecording} onActivity={(activity, metadata) => addConfirmationActivity(workspaceId, order, userId, activity, metadata)} />
+              <p className="text-[11px] text-ink-muted">Stop & save uploads microphone audio to the private Team → Call Review record for this order. Customer phone audio requires a supported calling provider.</p>
               <section>
                 <div className="mb-2 flex items-center justify-between"><h3 className="text-[13px] font-semibold text-ink">Secure recordings</h3><span className="text-[11px] text-ink-muted">Owner/admin and recording agent only</span></div>
                 {loadingDetails ? <div className="h-24 animate-pulse rounded-2xl bg-base-raised" /> : details?.recordings.length ? <div className="space-y-2">{details.recordings.map((recording) => <div key={recording.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-base-border p-3"><div><div className="text-[12px] font-semibold text-ink">{recording.recordingSource === "browser_microphone" ? "Microphone recording" : "Provider recording"}</div><div className="mt-0.5 text-[10.5px] text-ink-muted">{recording.agentName || "Agent"} · {dateTime(recording.createdAt)}</div></div><RecordingAccess recording={recording} url={recordingUrls[recording.id]} onLoad={() => void loadRecording(recording)} /></div>)}</div> : <p className="rounded-xl bg-base-raised/45 px-3 py-4 text-[11.5px] text-ink-muted">No recordings have been saved for this order.</p>}

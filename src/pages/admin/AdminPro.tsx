@@ -1,4 +1,4 @@
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { CommandCenter } from "./admin-pro/CommandCenter";
 import { OrdersPage, UsersPage } from "./admin-pro/Management";
 import { SupportPageV3 } from "./admin-pro/SupportV3";
@@ -14,7 +14,8 @@ import { PaymentMethodsPage } from "./admin-pro/BankTransferSettings";
 import ErrorCenter from "./ErrorCenter";
 import AdminDataDeletionRequests from "./AdminDataDeletionRequests";
 import AdminLegalSettings from "./AdminLegalSettings";
-import ThemeDomainLicensing from "./ThemeDomainLicensing";
+import ClientLicenses from "./ClientLicenses";
+import ClientLicenseDetail from "./ClientLicenseDetail";
 
 export default function AdminPro() {
   const { pathname } = useLocation();
@@ -37,6 +38,8 @@ export default function AdminPro() {
   if (pathname.startsWith("/admin/errors")) return <ErrorCenter />;
   if (pathname.startsWith("/admin/deletion-requests")) return <AdminDataDeletionRequests />;
   if (pathname.startsWith("/admin/legal-settings")) return <AdminLegalSettings />;
-  if (pathname.startsWith("/admin/theme-domains")) return <ThemeDomainLicensing />;
+  if (pathname.startsWith("/admin/client-licenses/")) return <ClientLicenseDetail />;
+  if (pathname === "/admin/client-licenses") return <ClientLicenses />;
+  if (pathname.startsWith("/admin/theme-domains")) return <Navigate to="/admin/client-licenses" replace />;
   return <CommandCenter />;
 }

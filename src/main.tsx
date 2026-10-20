@@ -4,6 +4,7 @@ import App from "./App";
 import { initTheme } from "./hooks/useTheme";
 import { providerManager } from "./lib/shipping/ProviderManager";
 import "./index.css";
+import "./lib/pwaInstallPrompt";
 import "./registerServiceWorker";
 
 initTheme();

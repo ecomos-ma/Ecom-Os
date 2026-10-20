@@ -4,6 +4,7 @@ import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { StatusBadge } from "../components/StatusBadge";
 import { ShippingStatusBadge } from "../components/ShippingStatusBadge";
+import { ShippingStatusSelect } from "../components/ShippingStatusSelect";
 import { Modal } from "../components/Modal";
 import { CitySelector, type CitySelectorValue } from "../components/CitySelector";
 import { supabase } from "../lib/supabase";
@@ -368,7 +369,7 @@ export default function Orders() {
       <MobileBottomSheet isOpen={mobileFiltersOpen} onClose={() => setMobileFiltersOpen(false)} title="Filter orders">
         <div className="space-y-4">
           <label className="block text-xs font-bold uppercase tracking-wide text-ink-faint">
-            Order status
+            Confirmation status
             <StatusSelect
               value={status}
               onChange={setStatus}
@@ -418,8 +419,8 @@ export default function Orders() {
               <th className="px-4 py-3 font-medium">SKU</th>
               <th className="px-4 py-3 font-medium">Variant</th>
               <th className="px-4 py-3 font-medium">Tracking</th>
-              <th className="px-4 py-3 font-medium min-w-[120px]">Status</th>
-              <th className="px-4 py-3 font-medium min-w-[140px]">Shipping Status</th>
+              <th className="px-4 py-3 font-medium min-w-[120px]">Confirmation</th>
+              <th className="px-4 py-3 font-medium min-w-[140px]">Delivery status</th>
             </tr>
           </thead>
           <tbody>
@@ -579,12 +580,11 @@ export default function Orders() {
               )}
 
               <div className="flex gap-2 items-center justify-between">
-                {/* Statuses - Status badge shows order.status, Shipping Status badge shows order.shipping_status */}
                 <div className="flex gap-2 overflow-x-auto whitespace-nowrap scrollbar-hide py-0.5">
-                  <StatusBadge status={o.status} />
+                  <span className="inline-flex items-center gap-1" title="Confirmation status"><span className="text-[10px] text-ink-faint">Confirmation</span><StatusBadge status={o.status} /></span>
                   <ConfirmationMethodBadge method={(o as any).confirmation_method} />
                   <WhatsAppChangeBadge order={o} />
-                  <ShippingStatusBadge status={o.shipping_status} />
+                  <span className="inline-flex items-center gap-1" title="Delivery status"><span className="text-[10px] text-ink-faint">Delivery</span><ShippingStatusBadge status={o.shipping_status} /></span>
                   {o.whatsapp_status && <WhatsAppBadge status={o.whatsapp_status} />}
                 </div>
                 <div className="text-[11px] text-ink-muted font-medium">
@@ -792,9 +792,10 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
   const [address, setAddress] = useState(order.address || "");
   const [total, setTotal] = useState(String(order.total));
   const [status, setStatus] = useState<CanonicalStatus>(normalizeStatus(order.status));
-  const [deliveryStatus, setDeliveryStatus] = useState<CanonicalStatus>(
-    normalizeStatus(order.delivery_status ?? (isConfirmedOrderStatus(order.status) ? "pending" : ""))
-  );
+  const initialDeliveryStatus = normalizeShippingStatus(order.shipping_status || order.delivery_status)
+    || String(order.shipping_status || "").trim();
+  const [deliveryStatus, setDeliveryStatus] = useState<string>(initialDeliveryStatus);
+  const hasProviderTracking = Boolean(String(order.tracking_number || order.coliaty_parcel_code || "").trim());
   const [busy, setBusy] = useState(false);
   const [upsellBusy, setUpsellBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -923,10 +924,14 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
         address,
         total: Number(total),
         status: normalizeStatus(status),
-        delivery_status: normalizeShippingStatus(deliveryStatus),
         phone,
         shipping_cost: shippingCost,
       };
+      if (!hasProviderTracking && deliveryStatus !== initialDeliveryStatus) {
+        const nextDeliveryStatus = normalizeShippingStatus(deliveryStatus);
+        updatePayload.shipping_status = nextDeliveryStatus;
+        updatePayload.delivery_status = nextDeliveryStatus ?? "pending";
+      }
 
       // Track confirmation method for manual confirmations
       const newStatus = normalizeStatus(status);
@@ -961,9 +966,13 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
             city_name: cityValue.city_name,
             total: Number(total),
             status: normalizeStatus(status),
-            delivery_status: normalizeShippingStatus(deliveryStatus),
             phone,
           };
+          if (!hasProviderTracking && deliveryStatus !== initialDeliveryStatus) {
+            const nextDeliveryStatus = normalizeShippingStatus(deliveryStatus);
+            fallbackPayload.shipping_status = nextDeliveryStatus;
+            fallbackPayload.delivery_status = nextDeliveryStatus ?? "pending";
+          }
 
           // Track confirmation method for manual confirmations (fallback path)
           if (newStatus === 'confirmed' && order.status !== 'confirmed') {
@@ -1173,16 +1182,18 @@ function EditOrderModal({ order, onClose, onUpdated }: { order: Order; onClose: 
         </button>
 
         <div>
-          <label className="mb-1 block text-[12px] text-ink-muted">Shipping Status</label>
-          <StatusSelect
+          <label className="mb-1 block text-[12px] text-ink-muted">Delivery status</label>
+          <ShippingStatusSelect
             value={deliveryStatus}
             onChange={(val) => setDeliveryStatus(val)}
+            disabled={hasProviderTracking}
             className="w-full rounded-lg border border-base-border bg-base-raised px-3 py-2 text-[13px] text-ink focus:border-brand-accent/50 outline-none"
           />
+          {hasProviderTracking && <p className="mt-1 text-[11px] text-ink-muted">Delivery status is managed by the shipping provider for this tracked order.</p>}
         </div>
 
         <div>
-          <label className="mb-1 block text-[12px] text-ink-muted">Status</label>
+          <label className="mb-1 block text-[12px] text-ink-muted">Confirmation status</label>
           <StatusSelect
             value={status}
             onChange={(val) => setStatus(val as CanonicalStatus)}

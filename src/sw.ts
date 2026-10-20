@@ -7,32 +7,66 @@ import { CacheFirst, NetworkOnly } from "workbox-strategies";
 
 declare let self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string | null }> };
 
-clientsClaim();
-cleanupOutdatedCaches();
+const isApexRecoveryWorker = self.location.hostname === "ecomos.ma";
 
-// Authenticated pages and user-uploaded images must never survive account changes.
-// Keep only versioned build assets and a generic offline page in the precache.
-registerRoute(
-  ({ request }) => request.mode === "navigate",
-  new NetworkOnly(),
-);
-precacheAndRoute(self.__WB_MANIFEST);
-registerRoute(({ url }) => /\.supabase\.co$/i.test(url.hostname), new NetworkOnly());
-registerRoute(
-  ({ url }) => /^fonts\.(?:googleapis|gstatic)\.com$/i.test(url.hostname),
-  new CacheFirst({ cacheName: "google-fonts-cache", plugins: [new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 31_536_000 })] }),
-);
-// Remove private runtime caches left behind by older service-worker versions.
-self.addEventListener("activate", (event) => {
-  event.waitUntil((async () => {
-    const names = await caches.keys();
-    await Promise.all(names.filter((name) => ["ecomos-pages", "image-cache", "static-resources"].includes(name)).map((name) => caches.delete(name)));
-  })());
-});
+if (isApexRecoveryWorker) {
+  self.addEventListener("install", (event) => {
+    event.waitUntil(self.skipWaiting());
+  });
 
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") void self.skipWaiting();
-});
+  self.addEventListener("activate", (event) => {
+    event.waitUntil((async () => {
+      await self.registration.unregister();
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames
+        .filter((name) => name.startsWith("workbox-") || ["ecomos-pages", "image-cache", "static-resources"].includes(name))
+        .map((name) => caches.delete(name)));
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      await Promise.all(clients.map(async (client) => {
+        const target = new URL(client.url);
+        if (target.hostname !== "ecomos.ma") return;
+        target.hostname = "www.ecomos.ma";
+        await (client as WindowClient).navigate(target.href);
+      }));
+    })());
+  });
+} else {
+  clientsClaim();
+  cleanupOutdatedCaches();
+
+  // Authenticated pages and user-uploaded images must never survive account changes.
+  // Keep only versioned build assets and a generic offline page in the precache.
+  registerRoute(
+    ({ request }) => request.mode === "navigate",
+    new NetworkOnly(),
+  );
+  precacheAndRoute(self.__WB_MANIFEST);
+  // Do not route Supabase through the service worker. Authenticated API calls
+  // must use the browser's direct network path so writes cannot be held behind
+  // a stale worker or its lifecycle during an update.
+  registerRoute(
+    ({ url }) => /^fonts\.(?:googleapis|gstatic)\.com$/i.test(url.hostname),
+    new CacheFirst({ cacheName: "google-fonts-cache", plugins: [new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 31_536_000 })] }),
+  );
+  // Remove private runtime caches left behind by older service-worker versions.
+  self.addEventListener("activate", (event) => {
+    event.waitUntil((async () => {
+      const names = await caches.keys();
+      await Promise.all(names.filter((name) => ["ecomos-pages", "image-cache", "static-resources"].includes(name)).map((name) => caches.delete(name)));
+    })());
+  });
+
+  self.addEventListener("message", (event) => {
+    if (event.data?.type === "SKIP_WAITING") void self.skipWaiting();
+  });
+
+  setCatchHandler(async ({ event }) => {
+    if (event instanceof FetchEvent && event.request.mode === "navigate") {
+      return (await matchPrecache("/offline.html")) ?? Response.error();
+    }
+    return Response.error();
+  });
+}
 
 setCatchHandler(async ({ event }) => {
   if (event instanceof FetchEvent && event.request.mode === "navigate") {
@@ -60,6 +94,7 @@ function safeInternalUrl(value: unknown): string {
   }
 }
 
+if (!isApexRecoveryWorker) {
 self.addEventListener("push", (event: PushEvent) => {
   let payload: PushPayload = {};
   try { payload = event.data?.json() as PushPayload ?? {}; } catch { payload = { body: event.data?.text() }; }
@@ -105,3 +140,4 @@ self.addEventListener("notificationclose", (event: NotificationEvent) => {
     windows.forEach((client) => client.postMessage({ type: "ECOMOS_NOTIFICATION_CLOSED", notification_id: notificationId }));
   })());
 });
+}

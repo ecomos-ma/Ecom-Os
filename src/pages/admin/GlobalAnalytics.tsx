@@ -41,6 +41,8 @@ import { supabase } from "../../lib/supabase";
 import { toast } from "../../components/Toast";
 import type { Profile, Workspace } from "../../lib/types";
 import { convertAdSpend } from "../../lib/metrics";
+import { normalizeStatusOrNull } from "../../lib/statusEngine";
+import { normalizeShippingStatus } from "../../lib/shippingStatus";
 
 type RangeKey = "today" | "yesterday" | "7d" | "30d" | "month" | "last-month" | "custom";
 
@@ -59,6 +61,7 @@ interface AnalyticsOrder {
   order_number?: string;
   tracking_number?: string | null;
   shipping_status?: string | null;
+  delivery_status?: string | null;
 }
 
 interface AnalyticsExpense {
@@ -138,10 +141,13 @@ const STATUS_OPTIONS: { key: StatusFilter; label: string }[] = [
 const formatCurrency = (value: number) => `MAD ${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 const formatNumber = (value: number) => value.toLocaleString("en-US");
 
-// Helper to get effective status with priority: shipping_status > status (when tracking_number exists)
-function getEffectiveStatus(order: AnalyticsOrder): string {
-  const hasShipment = !!order.tracking_number && String(order.tracking_number).trim() !== "";
-  return hasShipment ? (order.shipping_status || order.status) : order.status;
+function getDeliveryBucket(order: AnalyticsOrder): "shipped" | "delivered" | "returned" | "cancelled" | null {
+  const phase = normalizeShippingStatus(order.shipping_status) || normalizeShippingStatus(order.delivery_status);
+  if (phase === "DELIVERED") return "delivered";
+  if (phase === "CANCELED") return "cancelled";
+  if (["REFUSED", "DELIVERY_FAILED", "RETURNED_TO_AGENCY", "RETURN_TO_DEPOT", "RETURN_IN_PROGRESS", "RETURNED_TO_SENDER"].includes(phase || "")) return "returned";
+  if (phase) return "shipped";
+  return null;
 }
 
 export default function GlobalAnalytics() {
@@ -209,7 +215,7 @@ export default function GlobalAnalytics() {
       const toIso = end.toISOString();
 
       const [{ data: ordersData }, { data: expensesData }, { data: adSpendData }, { data: customersData }, { data: workspacesData }, { data: profilesData }] = await Promise.all([
-        supabase.from("orders").select('id:"Order ID", workspace_id, total, status, created_at, delivered_at, cancelled_at, city, tracking_number, shipping_status').gte("created_at", fromIso).lte("created_at", toIso),
+        supabase.from("orders").select('id:"Order ID", workspace_id, total, status, created_at, delivered_at, cancelled_at, city, tracking_number, shipping_status, delivery_status').gte("created_at", fromIso).lte("created_at", toIso),
         supabase.from("expenses").select("id, workspace_id, amount, date").gte("date", start.toISOString().slice(0, 10)).lte("date", end.toISOString().slice(0, 10)),
         supabase.from("ad_spend").select("id, workspace_id, amount, date").gte("date", start.toISOString().slice(0, 10)).lte("date", end.toISOString().slice(0, 10)),
         supabase.from("customers").select("id, workspace_id, created_at").gte("created_at", fromIso).lte("created_at", toIso),
@@ -260,8 +266,13 @@ export default function GlobalAnalytics() {
       }
 
       const filteredOrders = orders.filter((order) => {
-        const effectiveStatus = getEffectiveStatus(order);
-        if (statusFilter !== "all" && effectiveStatus !== statusFilter) return false;
+        const confirmationStatus = normalizeStatusOrNull(order.status);
+        const deliveryBucket = getDeliveryBucket(order);
+        if (statusFilter !== "all" && (
+          statusFilter === "shipped" || statusFilter === "delivered" || statusFilter === "returned"
+            ? deliveryBucket !== statusFilter
+            : confirmationStatus !== statusFilter && !(statusFilter === "cancelled" && deliveryBucket === "cancelled")
+        )) return false;
         if (workspaceFilter !== "all" && order.workspace_id !== workspaceFilter) return false;
         return true;
       });
@@ -271,11 +282,12 @@ export default function GlobalAnalytics() {
         if (!summary) continue;
         summary.orders += 1;
         summary.revenue += Number(order.total || 0);
-        const effectiveStatus = getEffectiveStatus(order);
-        if (effectiveStatus === "delivered") summary.delivered += 1;
-        if (effectiveStatus === "cancelled") summary.cancelled += 1;
-        if (effectiveStatus === "confirmed") summary.confirmed += 1;
-        if (effectiveStatus === "pending") summary.pending += 1;
+        const confirmationStatus = normalizeStatusOrNull(order.status);
+        const deliveryBucket = getDeliveryBucket(order);
+        if (deliveryBucket === "delivered") summary.delivered += 1;
+        if (confirmationStatus === "cancelled" || deliveryBucket === "cancelled") summary.cancelled += 1;
+        if (confirmationStatus === "confirmed") summary.confirmed += 1;
+        if (confirmationStatus === "pending" || confirmationStatus === "new") summary.pending += 1;
         if (order.created_at) summary.lastActivity = order.created_at;
       }
 

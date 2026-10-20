@@ -97,3 +97,67 @@ test("notification catalog entries are standalone SQL inserts without escaped ev
     assert.ok(catalogBlock.includes(`'${key}'`));
   }
 });
+
+test("payroll periods, rule versions, and invoice totals are server-enforced", () => {
+  const migration = read("supabase/migrations/20261019022000_agent_payroll_integrity.sql");
+
+  assert.match(migration, /prevent_agent_payroll_period_overlap_v1/);
+  assert.match(migration, /PAYROLL_PERIOD_OVERLAP/);
+  assert.match(migration, /tstzrange\(existing\.starts_at, existing\.ends_at, '\[\)'\)/);
+  assert.match(migration, /prevent_agent_payment_rule_overlap_v1/);
+  assert.match(migration, /PAYMENT_RULE_EFFECTIVE_PERIOD_OVERLAP/);
+  assert.match(migration, /PAYMENT_RULE_EFFECTIVE_DATE_MUST_ADVANCE/);
+  assert.match(migration, /set effective_to = v_effective_from - 1/);
+  assert.match(migration, /sync_agent_invoice_totals_v1/);
+  assert.match(migration, /coalesce\(sum\(line\.amount\), 0\) as total/);
+});
+
+test("invoice generation is locked, idempotent, and carries late earnings forward", () => {
+  const migration = read("supabase/migrations/20261019022000_agent_payroll_integrity.sql");
+
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /v_period_status = 'generated'/);
+  assert.match(migration, /'idempotent', true/);
+  assert.match(migration, /earning\.status = 'accrued'[\s\S]*earning\.earned_at < p_ends_at/);
+  assert.doesNotMatch(migration, /earning\.earned_at >= p_starts_at[\s\S]*earning\.earned_at < p_ends_at/);
+  assert.match(migration, /'carried_forward_earnings'/);
+  assert.match(migration, /on conflict \(invoice_id, earning_id\) do nothing/);
+  assert.match(migration, /revoke all on function public\.generate_agent_payroll_invoices_internal_v1[\s\S]*from public, anon, authenticated/);
+});
+
+test("payment corrections preserve ledger history and derive invoice balances", () => {
+  const migration = read("supabase/migrations/20261019026000_agent_payment_reversal_and_disputes.sql");
+  const finance = read("src/pages/AgentInvoices.tsx");
+  const service = read("src/services/agentPayrollService.ts");
+
+  assert.match(migration, /refresh_agent_invoice_payment_status_v1/);
+  assert.match(migration, /payment\.status = 'recorded'/);
+  assert.match(migration, /when v_has_open_dispute then 'disputed'/);
+  assert.match(migration, /reverse_agent_payment_v1/);
+  assert.match(migration, /set status = 'reversed'/);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.agent_(payments|payment_allocations)/i);
+  assert.match(migration, /payment_reversed/);
+  assert.match(migration, /resolve_agent_payment_dispute_v1/);
+  assert.match(migration, /payment_dispute_resolved/);
+  assert.match(migration, /revoke all on function public\.refresh_agent_invoice_payment_status_v1[\s\S]*authenticated/);
+  assert.match(service, /reverseAgentPayment/);
+  assert.match(service, /resolveAgentPaymentDispute/);
+  assert.match(finance, /Recorded transfers are never deleted/);
+  assert.match(finance, /Resolve & reverse/);
+});
+
+test("agent compensation editor uses separate intents and never activates unverified upsell math", () => {
+  const editor = read("src/pages/team/AgentCompensationEditor.tsx");
+  const migration = read("supabase/migrations/20261020160000_agent_compensation_editor_v2.sql");
+
+  assert.match(editor, /per_confirmed_order: "Confirmed order"/);
+  assert.match(editor, /per_delivered_order: "Delivered order"/);
+  assert.match(editor, /fixed_salary: "Base salary"/);
+  assert.match(editor, /awaiting verified incremental order value/);
+  assert.match(editor, /save_agent_compensation_rule_v2/);
+  assert.match(editor, /p_rule_id: current\?\.id \?\? null/);
+  assert.match(migration, /PAYMENT_RULE_EFFECTIVE_DATE_MUST_ADVANCE/);
+  assert.match(migration, /DUPLICATE_ACTIVE_PAYMENT_INTENT/);
+  assert.match(migration, /amount_type = 'percentage'/);
+  assert.doesNotMatch(migration, /delete\s+from\s+public\.agent_(?:payment_rules|earnings|invoices)/i);
+});

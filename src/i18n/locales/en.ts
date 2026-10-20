@@ -33,6 +33,7 @@ const en = {
   "navigation.antiFakeOrders": "Anti-Fake Orders",
   "navigation.productsInventory": "Products & Inventory",
   "navigation.adsManager": "Ads Manager",
+  "navigation.launchStudio": "Launch Studio",
   "navigation.legacyAdsManager": "Legacy Ads Manager",
   "navigation.tiktokAds": "TikTok Ads",
   "navigation.expenses": "Expenses",

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useDashboardData } from "../hooks/useDashboardData";
+import { getShippingStatusLabel, normalizeShippingStatus } from "../lib/shippingStatus";
 import {
   TrendingUp, DollarSign, Users, ShoppingCart,
   Package, Truck, AlertCircle, CheckCircle,
@@ -204,6 +205,7 @@ export function PremiumDashboard() {
     customer: o.customer_id || "Customer",
     amount: `$${Number(o.total || 0).toLocaleString()}`,
     status: o.status,
+    shippingStatus: o.shipping_status || o.delivery_status,
     date: new Date(o.created_at || new Date()).toLocaleDateString(),
   }));
 
@@ -363,16 +365,15 @@ export function PremiumDashboard() {
           />
           <div className="space-y-3">
             {recentOrders.map((order) => {
-              // Priority: shipping_status > status (when tracking_number exists)
-              const hasShipment = !!(order as any).tracking_number && (order as any).tracking_number.trim() !== "";
-              const displayStatus = hasShipment ? (order as any).shipping_status : order.status;
+              const deliveryStatus = normalizeShippingStatus(order.shippingStatus);
+              const displayStatus = deliveryStatus ? getShippingStatusLabel(deliveryStatus, "en") : order.status;
               return (
                 <div key={order.id} className="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
                       <div className="font-semibold text-slate-900 dark:text-white">{order.customer}</div>
                       <PremiumBadge
-                        variant={displayStatus === "completed" ? "success" : displayStatus === "pending" ? "warning" : displayStatus === "processing" ? "info" : "error"}
+                        variant={deliveryStatus === "DELIVERED" ? "success" : deliveryStatus === "NEW_PARCEL" || displayStatus === "pending" ? "warning" : deliveryStatus ? "info" : "error"}
                         size="sm"
                       >
                         {displayStatus}

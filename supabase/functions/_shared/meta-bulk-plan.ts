@@ -12,12 +12,24 @@ export interface BulkCreative {
   media_type?: "image" | "video";
 }
 export interface BulkLaunchConfiguration {
-  campaign?: { id?: string; name?: string; objective?: string };
+  campaign?: { id?: string; name?: string; objective?: string; daily_budget?: number };
+  budget_mode?: "CBO" | "ABO";
   adsets?: Array<{
     id?: string;
     name?: string;
     daily_budget?: number;
     targeting?: Record<string, unknown>;
+    start_time?: string;
+    end_time?: string;
+  }>;
+  ads?: Array<{
+    name?: string;
+    adset_index: number;
+    creative_index: number;
+    primary_text?: string;
+    headline?: string;
+    destination_url?: string;
+    call_to_action?: string;
   }>;
   adset_count?: number;
   creatives?: BulkCreative[];
@@ -75,6 +87,55 @@ export function buildBulkLaunchPlan(config: BulkLaunchConfiguration): {
   const creatives = config.creatives ?? [];
   if (!creatives.length || creatives.length > 1000)
     throw new Error("Provide between 1 and 1000 creatives");
+  if (config.ads) {
+    const adsets = config.adsets ?? [];
+    if (!adsets.length || adsets.length > 1000)
+      throw new Error("Provide between 1 and 1000 ad sets");
+    if (!config.ads.length || config.ads.length > 1000)
+      throw new Error("Provide between 1 and 1000 ads");
+    if (config.budget_mode && !["CBO", "ABO"].includes(config.budget_mode))
+      throw new Error("Budget mode must be CBO or ABO");
+    if (new Set(adsets.map((adset) => (adset.name ?? "").trim().toLowerCase())).size !== adsets.length)
+      throw new Error("Ad set names must be unique within a campaign");
+    if (config.budget_mode === "CBO") {
+      if (!Number.isFinite(Number(config.campaign?.daily_budget)) || Number(config.campaign?.daily_budget) < 1)
+        throw new Error("CBO requires a campaign daily budget");
+      if (adsets.some((adset) => Number(adset.daily_budget ?? 0) > 0))
+        throw new Error("CBO ad sets cannot have individual daily budgets");
+    } else if (adsets.some((adset) => !Number.isFinite(Number(adset.daily_budget)) || Number(adset.daily_budget) < 1)) {
+      throw new Error("ABO requires a daily budget on every ad set");
+    }
+    for (const adset of adsets) {
+      if (adset.start_time && (!Number.isFinite(Date.parse(adset.start_time)) || Date.parse(adset.start_time) <= Date.now()))
+        throw new Error("Scheduled start times must be in the future");
+      if (adset.end_time && (!Number.isFinite(Date.parse(adset.end_time)) || Date.parse(adset.end_time) <= Date.parse(adset.start_time ?? new Date().toISOString())))
+        throw new Error("Ad set end time must follow its start time");
+    }
+    const items: PlannedAd[] = config.ads.map((ad, index) => {
+      if (!Number.isInteger(ad.adset_index) || ad.adset_index < 0 || ad.adset_index >= adsets.length)
+        throw new Error(`Ad ${index + 1} has no valid ad set`);
+      if (!Number.isInteger(ad.creative_index) || ad.creative_index < 0 || ad.creative_index >= creatives.length)
+        throw new Error(`Ad ${index + 1} has no creative`);
+      return { index, adset_index: ad.adset_index, creative_index: ad.creative_index, text_index: 0, headline_index: 0 };
+    });
+    if (adsets.some((_, index) => !items.some((item) => item.adset_index === index)))
+      throw new Error("Every ad set needs at least one ad");
+    for (let index = 0; index < adsets.length; index += 1) {
+      const names = config.ads.filter((ad) => ad.adset_index === index).map((ad) => (ad.name ?? "").trim().toLowerCase());
+      if (new Set(names).size !== names.length) throw new Error("Ad names must be unique within each ad set");
+    }
+    return {
+      campaign_count: config.campaign?.id ? 0 : 1,
+      adset_count: adsets.filter((adset) => !adset.id).length,
+      ad_count: items.length,
+      creative_count: creatives.length,
+      max_daily_budget: config.budget_mode === "CBO"
+        ? Number(config.campaign?.daily_budget)
+        : adsets.reduce((sum, adset) => sum + Number(adset.daily_budget), 0),
+      create_status: config.create_status === "ACTIVE" ? "ACTIVE" : "PAUSED",
+      items,
+    };
+  }
   const mode = config.distribution_mode ?? "one_per_adset";
   const selected = config.adsets ?? [];
   const requestedCount = Math.min(

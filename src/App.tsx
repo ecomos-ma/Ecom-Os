@@ -56,6 +56,7 @@ const AntiFakeOrders = lazy(() => import("./pages/AntiFakeOrders"));
 const ProductsAndInventory = lazy(() => import("./pages/ProductsAndInventory"));
 const ProductDetails = lazy(() => import("./pages/ProductDetails"));
 const AdsManager = lazy(() => import("./pages/AdsManager"));
+const MetaLaunchStudio = lazy(() => import("./pages/MetaLaunchStudio"));
 const LegacyAdsManager = lazy(() => import("./pages/LegacyAdsManager"));
 const TikTokAds = lazy(() => import("./pages/TikTokAds"));
 const Expenses = lazy(() => import("./pages/Expenses"));
@@ -71,7 +72,6 @@ const Invite = lazy(() => import("./pages/Invite"));
 
 const AdminPro = lazy(() => import("./pages/admin/AdminPro"));
 const PublicLandingPage = lazy(() => import("./pages/public/LandingPage"));
-const ThemeDomainLicensing = lazy(() => import("./pages/admin/ThemeDomainLicensing"));
 
 function LoadablePage({ children }: { children: ReactNode }) {
   return (
@@ -521,6 +521,16 @@ export default function App() {
                     }
                   />
                   <Route
+                    path="/ads-manager/launch-studio"
+                    element={
+                      <LoadablePage>
+                        <PermissionGuard permission="ads">
+                          <MetaLaunchStudio />
+                        </PermissionGuard>
+                      </LoadablePage>
+                    }
+                  />
+                  <Route
                     path="/ads-manager-legacy"
                     element={
                       <LoadablePage>
@@ -529,6 +539,10 @@ export default function App() {
                         </PermissionGuard>
                       </LoadablePage>
                     }
+                  />
+                  <Route
+                    path="/ads-manager-legacy/launch-studio"
+                    element={<Navigate to="/ads-manager-legacy" replace />}
                   />
                   <Route
                     path="/tiktok-ads"

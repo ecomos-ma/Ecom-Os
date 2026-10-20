@@ -1,5 +1,26 @@
 import { supabase } from "../lib/supabase";
 
+async function ensureSession() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error("Your EcomOS session could not be verified. Please sign in again.");
+  if (!data.session || (data.session.expires_at ?? 0) * 1000 <= Date.now() + 60_000) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.error || !refreshed.data.session)
+      throw new Error("Your EcomOS session has expired. Please sign in again.");
+  }
+}
+
+async function functionError(error: { message?: string; context?: unknown }, fallback: string): Promise<Error> {
+  let message = error.message || fallback;
+  if (error.context instanceof Response) {
+    try {
+      const payload = await error.context.clone().json() as { error?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) message = payload.error.trim();
+    } catch { /* Preserve the transport error when the response is not JSON. */ }
+  }
+  return new Error(message);
+}
+
 export interface MetaAsset { id: string; name?: string; username?: string; currency?: string; timezone?: string; is_default?: boolean; is_enabled?: boolean; last_sync_at?: string | null; last_sync_error?: string | null; [key: string]: unknown }
 export interface MetaConnectionStatus {
   state: string;
@@ -16,8 +37,9 @@ export interface MetaConnectionStatus {
 }
 
 async function invoke<T>(name: string, body: Record<string, unknown>): Promise<T> {
+  await ensureSession();
   const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) throw new Error(error.message || `${name} failed`);
+  if (error) throw await functionError(error, `${name} failed`);
   if (data?.error) throw new Error(String(data.error));
   return data as T;
 }
@@ -41,21 +63,61 @@ export const metaAdsService = {
   runRule: (ruleId: string, dryRun = false) => invoke<any>("meta-rules", { action: dryRun ? "test" : "run", rule_id: ruleId, dry_run: dryRun }),
 };
 
-export async function uploadMetaCreativeFiles(workspaceId: string, files: File[], onProgress?: (completed: number, total: number) => void) {
+async function invokeMediaForm(form: FormData) {
+  await ensureSession();
+  const { data, error } = await supabase.functions.invoke("meta-media-upload", { body: form });
+  if (error) throw await functionError(error, "Creative upload failed");
+  if (data?.error || !data?.success) throw new Error(String(data?.error ?? "Creative upload failed"));
+  return data;
+}
+
+async function uploadVideoInChunks(adAccountId: string, file: File, source: "oauth" | "legacy") {
+  if (!file.size || file.size > 1024 * 1024 * 1024) throw new Error("Videos must be 1 GB or smaller.");
+  const startForm = new FormData();
+  startForm.set("phase", "start"); startForm.set("ad_account_id", adAccountId); startForm.set("file_size", String(file.size)); startForm.set("source", source);
+  const started = await invokeMediaForm(startForm);
+  const ticket = String(started.ticket ?? "");
+  if (!ticket) throw new Error("Meta did not open a video upload session.");
+  let offset = Number(started.start_offset);
+  let end = Number(started.end_offset);
+  for (let part = 0; offset !== end && part < 10000; part += 1) {
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(end) || offset < 0 || end <= offset || end > file.size || end - offset > 18 * 1024 * 1024)
+      throw new Error("Meta returned an invalid video chunk range.");
+    const transfer = new FormData();
+    transfer.set("phase", "transfer"); transfer.set("ad_account_id", adAccountId); transfer.set("source", source);
+    transfer.set("ticket", ticket); transfer.set("start_offset", String(offset));
+    transfer.set("file", new File([file.slice(offset, end)], file.name, { type: file.type }));
+    const next = await invokeMediaForm(transfer);
+    const nextOffset = Number(next.start_offset);
+    const nextEnd = Number(next.end_offset);
+    if (nextOffset <= offset) throw new Error("Meta did not advance the video upload.");
+    offset = nextOffset; end = nextEnd;
+  }
+  if (offset !== end || offset !== file.size) throw new Error("Video upload did not complete.");
+  const finish = new FormData();
+  finish.set("phase", "finish"); finish.set("ad_account_id", adAccountId); finish.set("source", source);
+  finish.set("ticket", ticket); finish.set("name", file.name);
+  return invokeMediaForm(finish);
+}
+
+export async function uploadMetaCreativeFiles(adAccountId: string, files: File[], onProgress?: (completed: number, total: number) => void, source: "oauth" | "legacy" = "oauth") {
   if (files.length > 1000) throw new Error("A batch can contain at most 1000 creative files.");
   const queue = files.map((file, index) => ({ file, index }));
-  const results: Array<{ name: string; source_url: string; media_type: "image" | "video" }> = new Array(files.length);
+  const results: Array<{ name: string; image_hash?: string; video_id?: string; media_type: "image" | "video" }> = new Array(files.length);
   let completed = 0;
   const worker = async () => {
     for (;;) {
       const next = queue.shift(); if (!next) return;
-      const safeName = next.file.name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(-120);
-      const path = `${workspaceId}/${crypto.randomUUID()}-${safeName}`;
-      const { error } = await supabase.storage.from("meta-creatives").upload(path, next.file, { cacheControl: "3600", upsert: false });
-      if (error) throw error;
-      const { data, error: signedError } = await supabase.storage.from("meta-creatives").createSignedUrl(path, 24 * 60 * 60);
-      if (signedError || !data?.signedUrl) throw signedError ?? new Error("Creative upload URL could not be created");
-      results[next.index] = { name: next.file.name, source_url: data.signedUrl, media_type: next.file.type.startsWith("video/") ? "video" : "image" };
+      let data;
+      if (next.file.type.startsWith("video/")) data = await uploadVideoInChunks(adAccountId, next.file, source);
+      else {
+        const form = new FormData();
+        form.set("ad_account_id", adAccountId);
+        form.set("source", source);
+        form.set("file", next.file);
+        data = await invokeMediaForm(form);
+      }
+      results[next.index] = { name: String(data.name), image_hash: data.image_hash, video_id: data.video_id, media_type: data.media_type };
       completed += 1; onProgress?.(completed, files.length);
     }
   };

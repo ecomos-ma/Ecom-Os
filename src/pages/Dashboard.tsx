@@ -349,15 +349,14 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
       if (!rawDate) return false;
       const od = new Date(rawDate);
       if (isNaN(od.getTime())) return false;
-      const dsInternal = o?.delivery_status ? normalizeStatus(o.delivery_status) : null;
-      const sInternal = normalizeStatus(o?.status);
-      const isDeliveredToday = dsInternal === 'DELIVERED' || (!o?.delivery_status && sInternal === 'DELIVERED');
+      const deliveryPhase = o?.shipping_status || o?.delivery_status;
+      const isDeliveredToday = Boolean(deliveryPhase) && normalizeStatus(deliveryPhase) === 'DELIVERED';
       return isToday(od) && isDeliveredToday;
     }).length;
 
     const statusCounts = filteredOrders.reduce(
       (acc, o: any) => {
-        const statusText = `${String(o?.status || "").toLowerCase()} ${String(o?.delivery_status || "").toLowerCase()}`;
+        const statusText = String(o?.status || "").toLowerCase();
         if (/confirm/.test(statusText)) {
           acc.confirmed += 1;
           return acc;
@@ -457,15 +456,16 @@ export default function Dashboard({ orders: propOrders }: DashboardProps) {
 
       bucket.orders += 1;
 
-      const internalStatus = normalizeStatus(o?.shipping_status || o?.delivery_status || o?.status);
-      const isDelivered = internalStatus === 'DELIVERED';
+      const deliveryPhase = o?.shipping_status || o?.delivery_status;
+      const isDelivered = Boolean(deliveryPhase) && normalizeStatus(deliveryPhase) === 'DELIVERED';
 
       if (isDelivered) {
         bucket.delivered += 1;
         bucket.revenue += Number(o?.total || 0);
       }
 
-      if (internalStatus === 'CONFIRMED' || internalStatus === 'OUT_FOR_DELIVERY' || internalStatus === 'DELIVERED' || internalStatus === 'COMING_BACK') {
+      const confirmationStatus = normalizeStatus(o?.status);
+      if (confirmationStatus === 'CONFIRMED' || confirmationStatus === 'OUT_FOR_DELIVERY' || confirmationStatus === 'DELIVERED' || confirmationStatus === 'COMING_BACK') {
         bucket.confirmed += 1;
       }
     });

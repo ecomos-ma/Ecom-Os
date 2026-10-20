@@ -35,6 +35,7 @@ const fr: Record<keyof typeof en, string> = {
   "navigation.antiFakeOrders": "Anti-fausses commandes",
   "navigation.productsInventory": "Produits et stock",
   "navigation.adsManager": "Gestionnaire de publicités",
+  "navigation.launchStudio": "Studio de lancement",
   "navigation.legacyAdsManager": "Gestionnaire publicitaire classique",
   "navigation.tiktokAds": "Publicités TikTok",
   "navigation.expenses": "Dépenses",

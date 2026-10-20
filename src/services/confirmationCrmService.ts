@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ANON_KEY } from "../lib/supabase";
 import { normalizeStatus } from "../lib/statusEngine";
 import type {
   ConfirmationAgent,
@@ -11,6 +11,7 @@ import type {
   ConfirmationRecording,
   ConfirmationSummary,
   ConfirmationTimelineEntry,
+  ConfirmationWorkLease,
   CustomerHistoryOrder,
 } from "../pages/confirmation/types";
 
@@ -35,6 +36,7 @@ const ORDER_COLUMNS = `
   variant_price,
   quantity,
   created_at,
+  updated_at,
   confirmed_at,
   cancelled_at,
   is_upsell,
@@ -92,6 +94,7 @@ function toOrder(row: any, assignedAgent: ConfirmationAgent | null, products: Co
     quantity: Number(row.quantity || 1),
     variantPrice: row.variant_price === null || row.variant_price === undefined ? null : Number(row.variant_price),
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
     confirmedAt: row.confirmed_at ?? null,
     cancelledAt: row.cancelled_at ?? null,
     isUpsell: row.is_upsell === true,
@@ -200,7 +203,7 @@ async function loadProductsForOrders(workspaceId: string, rows: any[]): Promise<
     orderIds.length
       ? supabase
         .from("order_items")
-        .select("id, order_id, product_id, quantity, unit_price")
+        .select("id, order_id, product_id, quantity, unit_price, variant_name, variant_options, agent_name_override, agent_color, agent_note")
         .eq("workspace_id", workspaceId)
         .in("order_id", orderIds)
       : Promise.resolve({ data: [], error: null }),
@@ -246,12 +249,15 @@ async function loadProductsForOrders(workspaceId: string, rows: any[]): Promise<
     const items = itemsByOrder.get(id) ?? [];
     if (items.length) {
       result.set(id, items.map((item: any) => {
-        const product = productsById.get(item.product_id);
+        const product = productsById.get(item.product_id) ?? (row.sku ? productsBySku.get(row.sku) : null);
         return {
+          itemId: item.id,
           id: product?.id ?? item.product_id ?? null,
-          name: product?.name || row.product_variant || row.sku || "Product unavailable",
+          name: item.agent_name_override || product?.name || row.product_variant || row.sku || "Product unavailable",
           sku: product?.sku || row.sku || null,
-          variant: product?.variant || row.product_variant || null,
+          variant: item.variant_name || item.variant_options || product?.variant || row.product_variant || null,
+          color: item.agent_color || null,
+          comment: item.agent_note || null,
           imageUrl: product?.image_url || null,
           quantity: Number(item.quantity || 1),
           unitPrice: Number(item.unit_price ?? row.variant_price ?? row.total ?? 0),
@@ -263,10 +269,13 @@ async function loadProductsForOrders(workspaceId: string, rows: any[]): Promise<
 
     const product = row.sku ? productsBySku.get(row.sku) : null;
     result.set(id, [{
+      itemId: null,
       id: product?.id ?? null,
       name: product?.name || row.product_variant || row.sku || "Product unavailable",
       sku: product?.sku || row.sku || null,
       variant: product?.variant || row.product_variant || null,
+      color: null,
+      comment: null,
       imageUrl: product?.image_url || null,
       quantity: Number(row.quantity || 1),
       unitPrice: Number(row.variant_price ?? row.total ?? 0),
@@ -430,7 +439,11 @@ export async function getConfirmationAgents(workspaceId: string): Promise<Confir
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
-export async function getConfirmationOrders(workspaceId: string, filters: ConfirmationOrderFilters) {
+export async function getConfirmationOrders(
+  workspaceId: string,
+  filters: ConfirmationOrderFilters,
+  onBaseOrders?: (result: { orders: ConfirmationOrder[]; total: number }) => void,
+) {
   let scopedOrderIds: string[] | undefined;
   if (filters.myAgentId || filters.assignedAgentId || filters.queue === "unassigned" || filters.queue === "callback_due") {
     const targetAgent = filters.assignedAgentId || filters.myAgentId || null;
@@ -478,6 +491,27 @@ export async function getConfirmationOrders(workspaceId: string, filters: Confir
   const { data, error, count } = await query.range(from, from + filters.pageSize - 1);
   if (error) throw error;
   let rows = (data ?? []) as any[];
+
+  // Render the authorized, paged order rows immediately. Product, assignment,
+  // and activity enrichment continues without holding the whole queue blank.
+  if (onBaseOrders && !filters.search?.trim() && filters.queue !== "unassigned") {
+    onBaseOrders({
+      orders: rows.map((row) => toOrder(row, null, [{
+        itemId: null,
+        id: null,
+        name: row.product_variant || row.sku || "Product unavailable",
+        sku: row.sku || null,
+        variant: row.product_variant || null,
+        color: null,
+        comment: null,
+        imageUrl: null,
+        quantity: Number(row.quantity || 1),
+        unitPrice: Number(row.variant_price ?? row.total ?? 0),
+        stock: null,
+      }], null)).filter((order): order is ConfirmationOrder => Boolean(order)),
+      total: count ?? rows.length,
+    });
+  }
 
   const orderIds = uniqueStrings(rows.map(orderIdOf));
   const assignments = await loadLatestAssignments(workspaceId, orderIds).catch(() => new Map<string, string>());
@@ -536,7 +570,7 @@ export async function getConfirmationOrderDetails(workspaceId: string, order: Co
     ? notesQuery.or(`customer_id.eq.${order.customerId},order_id.eq.${order.id}`)
     : notesQuery.eq("order_id", order.id);
 
-  const [notesResult, callbacksResult, activitiesResult, eventsResult, recordingsResult, historyResult] = await Promise.all([
+  const [notesResult, callbacksResult, activitiesResult, eventsResult, recordingsResult, historyResult, currentOrderResult] = await Promise.all([
     notesQuery.order("created_at", { ascending: false }),
     supabase.from("confirmation_callbacks").select("id, agent_id, scheduled_at, status, note, completed_at").eq("workspace_id", workspaceId).eq("order_id", order.id).order("scheduled_at", { ascending: true }),
     supabase.from("confirmation_activities").select("id, agent_id, activity_type, metadata, created_at").eq("workspace_id", workspaceId).eq("order_id", order.id).order("created_at", { ascending: false }),
@@ -548,12 +582,13 @@ export async function getConfirmationOrderDetails(workspaceId: string, order: Co
       p_phone: order.phone,
       p_exclude_order_id: order.id,
     }),
+    supabase.from("orders").select(ORDER_COLUMNS).eq("workspace_id", workspaceId).eq("Order ID", order.id).maybeSingle(),
   ]);
 
   const missingCrmSchema = [notesResult.error, callbacksResult.error, activitiesResult.error, recordingsResult.error]
     .some((error: any) => error?.code === "42P01");
   if (missingCrmSchema) throw new Error("Confirmation CRM database migration is not deployed yet.");
-  const firstError = [notesResult.error, callbacksResult.error, activitiesResult.error, recordingsResult.error, historyResult.error]
+  const firstError = [notesResult.error, callbacksResult.error, activitiesResult.error, recordingsResult.error, historyResult.error, currentOrderResult.error]
     .find(Boolean);
   if (firstError) throw firstError;
 
@@ -614,18 +649,113 @@ export async function getConfirmationOrderDetails(workspaceId: string, order: Co
     deliveryStatus: row.delivery_status ?? null,
     createdAt: row.created_at,
   }));
-  return { order, notes, callbacks, history, timeline, recordings };
+  const latestRow = currentOrderResult.data;
+  const productMap = latestRow ? await loadProductsForOrders(workspaceId, [latestRow]) : null;
+  const currentOrder = latestRow
+    ? toOrder(latestRow, order.assignedAgent, productMap?.get(order.id) ?? order.products, order.lastActivity) ?? order
+    : order;
+  return { order: currentOrder, notes, callbacks, history, timeline, recordings };
 }
 
 type ConfirmationOrderChange = {
   status?: string;
   isUpsell?: boolean;
   total?: number;
+  items?: ConfirmationUpsellItemChange[];
+};
+
+export type ConfirmationUpsellItemChange = {
+  item_id: string | null;
+  name: string;
+  quantity: number;
+  color: string;
+  note: string;
+};
+
+type ConfirmationRpcOptions = {
+  lease?: ConfirmationWorkLease | null;
+  claimNext?: boolean;
+  accessToken?: string | null;
+};
+
+export type ConfirmationSaveResult = {
+  orderId: string;
+  status: string;
+  total: number;
+  updatedAt: string;
+  nextOrderId: string | null;
+  nextLease: ConfirmationWorkLease | null;
+  reconciled?: boolean;
 };
 
 function confirmationChangeRpcUnavailable(error: any) {
   const message = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
   return error?.code === "PGRST202" || message.includes("could not find the function") || message.includes("schema cache");
+}
+
+function toWorkLease(data: any, fallbackOrderId: string): ConfirmationWorkLease {
+  return {
+    mode: "server",
+    leaseId: data?.lease_id ?? null,
+    leaseToken: data?.lease_token ?? null,
+    orderId: data?.order_id ?? fallbackOrderId,
+    agentId: data?.agent_id ?? null,
+    workState: data?.work_state === "call_active" || data?.work_state === "callback_reserved" ? data.work_state : "open",
+    expiresAt: data?.expires_at ?? null,
+    orderUpdatedAt: data?.order_updated_at ?? null,
+  };
+}
+
+export async function acquireConfirmationWork(
+  workspaceId: string,
+  orderId: string,
+  takeoverReason?: string,
+): Promise<ConfirmationWorkLease> {
+  const { data, error } = await supabase.rpc("acquire_confirmation_work_v1", {
+    p_workspace_id: workspaceId,
+    p_order_id: orderId,
+    p_work_state: "open",
+    p_takeover_reason: takeoverReason?.trim() || null,
+  });
+  if (!error) return toWorkLease(data, orderId);
+  if (!confirmationChangeRpcUnavailable(error)) throw error;
+  return {
+    mode: "legacy",
+    leaseId: null,
+    leaseToken: null,
+    orderId,
+    agentId: null,
+    workState: "open",
+    expiresAt: null,
+    orderUpdatedAt: null,
+  };
+}
+
+export async function renewConfirmationWork(workspaceId: string, lease: ConfirmationWorkLease) {
+  if (lease.mode !== "server" || !lease.leaseToken) return lease;
+  const { data, error } = await supabase.rpc("renew_confirmation_work_v1", {
+    p_workspace_id: workspaceId,
+    p_order_id: lease.orderId,
+    p_lease_token: lease.leaseToken,
+    p_work_state: lease.workState,
+  });
+  if (error) throw error;
+  return {
+    ...lease,
+    expiresAt: data?.expires_at ?? lease.expiresAt,
+    workState: data?.work_state === "call_active" || data?.work_state === "callback_reserved" ? data.work_state : "open",
+  } as ConfirmationWorkLease;
+}
+
+export async function releaseConfirmationWork(workspaceId: string, lease: ConfirmationWorkLease, reason = "closed") {
+  if (lease.mode !== "server" || !lease.leaseToken) return;
+  const { error } = await supabase.rpc("release_confirmation_work_v1", {
+    p_workspace_id: workspaceId,
+    p_order_id: lease.orderId,
+    p_lease_token: lease.leaseToken,
+    p_reason: reason,
+  });
+  if (error && !confirmationChangeRpcUnavailable(error)) throw error;
 }
 
 /**
@@ -638,7 +768,66 @@ async function saveConfirmationOrderChange(
   order: ConfirmationOrder,
   actorId: string | null | undefined,
   change: ConfirmationOrderChange,
+  options?: ConfirmationRpcOptions,
 ) {
+  if (options?.lease?.mode === "server" && options.lease.leaseToken) {
+    if (change.items?.length && change.isUpsell !== true) throw new Error("Product edits require an upsell.");
+    const rpcBody = {
+      p_workspace_id: workspaceId,
+      p_order_id: order.id,
+      p_lease_token: options.lease.leaseToken,
+      // Legacy orders may have updated_at = NULL. The acquired lease carries
+      // the authoritative database version; created_at is not that version.
+      p_expected_updated_at: options.lease.orderUpdatedAt,
+      p_status: change.status ?? null,
+      p_is_upsell: change.isUpsell ?? null,
+      p_total: change.total ?? null,
+      p_claim_next: options.claimNext === true,
+      ...(change.items?.length ? { p_items: change.items } : {}),
+    };
+    const rpcName = change.items?.length
+      ? "save_confirmation_order_with_items_v1"
+      : "save_confirmation_order_with_lease_v1";
+    // The agent browser repeatedly completed a cross-origin preflight but
+    // never sent the POST. This fixed same-origin endpoint forwards the user's
+    // own JWT to the existing lease/assignment-checked RPC.
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 12_000);
+    let data: any;
+    try {
+      if (options.accessToken) {
+        const response = await fetch(change.items?.length ? "/api/confirmation/save-items" : "/api/confirmation/save", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${options.accessToken}`,
+            "apikey": SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify(rpcBody),
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        data = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (response.status >= 500) throw new ConfirmationSaveTimeoutError();
+          throw new Error(data?.message || `Confirmation save failed (${response.status}).`);
+        }
+      } else {
+        const result = await supabase.rpc(rpcName, rpcBody)
+          .abortSignal(controller.signal);
+        if (result.error) throw result.error;
+        data = result.data;
+      }
+    } catch (requestError) {
+      if (controller.signal.aborted || requestError instanceof TypeError) throw new ConfirmationSaveTimeoutError();
+      throw requestError;
+    } finally {
+      window.clearTimeout(timer);
+    }
+    return data;
+  }
+
+  if (change.items?.length) throw new Error("Reopen this order to secure an editing lease before changing products.");
   const { data, error } = await supabase.rpc("save_confirmation_order_v1", {
     p_workspace_id: workspaceId,
     p_order_id: order.id,
@@ -686,8 +875,79 @@ async function saveConfirmationOrderChange(
   return fallback.data;
 }
 
-export async function updateConfirmationStatus(workspaceId: string, order: ConfirmationOrder, status: string, confirmedByUserId?: string | null) {
-  return saveConfirmationOrderChange(workspaceId, order, confirmedByUserId, { status });
+class ConfirmationSaveTimeoutError extends Error {
+  constructor() {
+    super("The save response timed out. Checking the order before allowing a retry.");
+  }
+}
+
+async function readSavedConfirmationOrder(workspaceId: string, orderId: string) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 8_000);
+  try {
+    const { data, error } = await supabase.from("orders")
+      .select('status,total,updated_at')
+      .eq("workspace_id", workspaceId)
+      .eq("Order ID", orderId)
+      .abortSignal(controller.signal)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function updateConfirmationStatus(
+  workspaceId: string,
+  order: ConfirmationOrder,
+  status: string,
+  confirmedByUserId?: string | null,
+  options?: {
+    lease?: ConfirmationWorkLease | null;
+    claimNext?: boolean;
+    isUpsell?: boolean;
+    total?: number;
+    items?: ConfirmationUpsellItemChange[];
+    accessToken?: string | null;
+  },
+): Promise<ConfirmationSaveResult> {
+  let data: any;
+  try {
+    data = await saveConfirmationOrderChange(workspaceId, order, confirmedByUserId, {
+      status,
+      isUpsell: options?.isUpsell,
+      total: options?.total,
+      items: options?.items,
+    }, options);
+  } catch (error) {
+    if (!(error instanceof ConfirmationSaveTimeoutError)) throw error;
+    let actual: Awaited<ReturnType<typeof readSavedConfirmationOrder>>;
+    try {
+      actual = await readSavedConfirmationOrder(workspaceId, order.id);
+    } catch {
+      throw new Error("The save result could not be verified. Refresh the order before retrying; do not submit it twice yet.");
+    }
+    const changed = actual?.updated_at && actual.updated_at !== order.updatedAt;
+    const desiredTotal = options?.total ?? order.total;
+    if (changed && actual?.status === status && Math.abs(Number(actual.total) - desiredTotal) < 0.01) {
+      return {
+        orderId: order.id, status: actual.status, total: Number(actual.total),
+        updatedAt: actual.updated_at, nextOrderId: null, nextLease: null,
+        reconciled: true,
+      };
+    }
+    throw new Error("The save did not appear on the server. Nothing has been confirmed; check your connection and retry.");
+  }
+  const nextLease = data?.next_lease ? toWorkLease(data.next_lease, data.next_order_id) : null;
+  return {
+    orderId: data?.order_id ?? order.id,
+    status: data?.status ?? status,
+    total: Number(data?.total ?? order.total),
+    updatedAt: data?.updated_at ?? new Date().toISOString(),
+    nextOrderId: data?.next_order_id ?? null,
+    nextLease,
+  };
 }
 
 export async function markConfirmationOrderUpsell(
@@ -696,14 +956,22 @@ export async function markConfirmationOrderUpsell(
   agentId: string,
   enabled: boolean,
   adjustedTotal = order.total,
+  lease?: ConfirmationWorkLease | null,
+  accessToken?: string | null,
+  items?: ConfirmationUpsellItemChange[],
 ) {
   if (enabled && (!Number.isFinite(adjustedTotal) || adjustedTotal <= 0)) {
     throw new Error("Enter a valid adjusted order total before saving the upsell.");
   }
-  return saveConfirmationOrderChange(workspaceId, order, agentId, {
+  const data: any = await saveConfirmationOrderChange(workspaceId, order, agentId, {
     isUpsell: enabled,
     total: enabled ? adjustedTotal : undefined,
-  });
+    items: enabled ? items : undefined,
+  }, { lease, accessToken });
+  return {
+    updatedAt: data?.updated_at ?? new Date().toISOString(),
+    total: Number(data?.total ?? adjustedTotal),
+  };
 }
 
 export type ConfirmationCustomerUpdate = {
@@ -860,7 +1128,11 @@ export async function uploadConfirmationRecording(
     ended_at: endedAt.toISOString(),
   });
   if (metadataError) {
-    await supabase.storage.from("call-recordings").remove([path]);
+    // A retry may be completing metadata for an object uploaded earlier. Do
+    // not delete that existing recording when the metadata insert fails.
+    if (!objectAlreadyExists) {
+      await supabase.storage.from("call-recordings").remove([path]);
+    }
     throw metadataError;
   }
   await addConfirmationActivity(workspaceId, order, agentId, "RECORDING_SAVED", { duration_seconds: durationSeconds });

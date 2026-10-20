@@ -1,131 +1,130 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { hashIp, isPublicIp, normalizeIpApiResponse } from "../supabase/functions/_shared/live-view-geo.ts";
-import { mergeAdjacentGeoPolygons } from "../src/lib/mergeAdjacentGeoPolygons.ts";
+import { normalizeMapboxGeocodeResponse, normalizeNominatimGeocodeResponse } from "../supabase/functions/_shared/live-view-geocoding-provider.ts";
 
-const migration = readFileSync("supabase/migrations/20260908153104_live_view_realtime_projection.sql", "utf8");
+const originalMigration = readFileSync("supabase/migrations/20260908153104_live_view_realtime_projection.sql", "utf8");
+const geocodingMigration = readFileSync("supabase/migrations/20261018164520_live_view_real_order_geocoding.sql", "utf8");
 const service = readFileSync("src/services/liveViewService.ts", "utf8");
 const hook = readFileSync("src/hooks/useLiveView.ts", "utf8");
 const globe = readFileSync("src/components/live-view/LiveGlobe.tsx", "utf8");
 const liveCss = readFileSync("src/pages/live-view/LiveView.css", "utf8");
 const page = readFileSync("src/pages/LiveView.tsx", "utf8");
-const provider = readFileSync("supabase/functions/_shared/live-view-ipapi-provider.ts", "utf8");
+const provider = readFileSync("supabase/functions/_shared/live-view-geocoding-provider.ts", "utf8");
 const geolocate = readFileSync("supabase/functions/live-view-geolocate/index.ts", "utf8");
-const mapping = readFileSync("src/lib/googleSheetsMappingEngine.ts", "utf8");
 
-test("IP validation accepts public IPv4/IPv6 and rejects local, reserved, and malformed values", () => {
-  assert.equal(isPublicIp("8.8.8.8"), true);
-  assert.equal(isPublicIp("2606:4700:4700::1111"), true);
-  for (const value of ["127.0.0.1", "10.1.2.3", "192.168.1.4", "169.254.1.2", "203.0.113.9", "::1", "fc00::1", "fe80::1", "2001:db8::1", "not-an-ip"]) {
-    assert.equal(isPublicIp(value), false, value);
-  }
+test("Mapbox v6 response normalization preserves real delivery coordinates", () => {
+  const result = normalizeMapboxGeocodeResponse({ features: [{
+    geometry: { coordinates: [-7.5898, 33.5731] },
+    properties: {
+      feature_type: "address", name: "12 Rue Exemple",
+      context: { place: { name: "Casablanca" }, region: { name: "Casablanca-Settat" }, country: { name: "Morocco", country_code: "MA" } },
+    },
+  }] });
+  assert.deepEqual(result, { city: "Casablanca", region: "Casablanca-Settat", country: "Morocco", countryCode: "MA", latitude: 33.5731, longitude: -7.5898, accuracy: "address" });
+  assert.equal(normalizeMapboxGeocodeResponse({ features: [{ geometry: { coordinates: [500, 200] } }] }), null);
 });
 
-test("provider payload normalization requires valid coordinates and never returns the IP", () => {
-  const normalized = normalizeIpApiResponse({ ip: "8.8.8.8", city: "Mountain View", region: "California", country: "United States", country_code: "US", lat: 37.4, lon: -122.1 });
-  assert.deepEqual(normalized, { city: "Mountain View", region: "California", country: "United States", countryCode: "US", latitude: 37.4, longitude: -122.1, confidence: "high" });
-  assert.equal(normalizeIpApiResponse({ city: "Nowhere", lat: 200, lon: 0 }), null);
-  assert.equal(normalizeIpApiResponse({ is_bogon: true, lat: 1, lon: 1 }), null);
+test("Nominatim response normalization supports multilingual city data", () => {
+  const result = normalizeNominatimGeocodeResponse([{ lat: "31.6295", lon: "-7.9811", type: "city", category: "place", address: { city: "Marrakech", state: "Marrakesh-Safi", country: "المغرب", country_code: "ma" } }]);
+  assert.deepEqual(result, { city: "Marrakech", region: "Marrakesh-Safi", country: "المغرب", countryCode: "MA", latitude: 31.6295, longitude: -7.9811, accuracy: "city" });
 });
 
-test("provider abstraction uses POST so IPs and keys never enter URL logs", () => {
-  assert.match(provider, /interface IpGeolocationProvider/);
-  assert.match(provider, /method:\s*"POST"/);
-  assert.doesNotMatch(provider, /api\.ipapi\.is\/\?/);
+test("server geocoding uses a permanent Mapbox v6 request and a compliant optional Nominatim provider", () => {
+  assert.match(provider, /search\/geocode\/v6\/forward/);
+  assert.match(provider, /set\("permanent", "true"\)/);
+  assert.match(provider, /set\("autocomplete", "false"\)/);
+  assert.match(provider, /minimumDelayMs = 1100/);
+  assert.match(provider, /NOMINATIM_BASE_URL/);
+  assert.doesNotMatch(provider, /nominatim\.openstreetmap\.org/);
   assert.doesNotMatch(provider, /console\.(log|error|warn)/);
 });
 
-test("production geolocation is authenticated, IP-hashed, cached, and updates only projected events", () => {
-  assert.match(geolocate, /LIVE_VIEW_IP_GEOLOCATION_ENABLED/);
-  assert.match(geolocate, /disabled_pending_explicit_approval/);
-  assert.match(geolocate, /LIVE_VIEW_IP_HASH_SALT/);
-  assert.match(geolocate, /hashIp\(ip, salt\)/);
-  assert.match(geolocate, /live_view_geo_cache/);
-  assert.match(geolocate, /x-youcan-cron-secret/);
+test("delivery geocoding is authenticated, address-hashed, cached, and returns no customer address", () => {
+  assert.match(geolocate, /LIVE_VIEW_GEO_HASH_SALT/);
+  assert.match(geolocate, /hashQuery\(candidate\.query, hashSalt\)/);
+  assert.match(geolocate, /live_view_geocode_cache/);
   assert.match(geolocate, /profile_workspaces/);
-  assert.match(geolocate, /\.eq\("order_id", order\["Order ID"\]\)\.eq\("workspace_id", workspaceId\)/);
+  assert.match(geolocate, /x-youcan-cron-secret/);
+  assert.match(geolocate, /shipping_latitude/);
+  assert.match(geolocate, /shipping_geo_accuracy/);
+  assert.match(geolocate, /provider_status/);
   assert.doesNotMatch(geolocate, /console\.(log|error|warn)/);
+  assert.doesNotMatch(geolocate, /return json\([^;]*address/s);
 });
 
-test("IP cache identity is salted and deterministic without retaining the raw address", async () => {
-  const first = await hashIp("8.8.8.8", "test-salt-one");
-  const repeat = await hashIp("8.8.8.8", "test-salt-one");
-  const secondSalt = await hashIp("8.8.8.8", "test-salt-two");
-  assert.equal(first, repeat);
-  assert.notEqual(first, secondSalt);
-  assert.match(first, /^[a-f0-9]{64}$/);
-  assert.equal(first.includes("8.8.8.8"), false);
+test("database stores verified coordinates without exposing the geocode cache", () => {
+  assert.match(geocodingMigration, /add column if not exists shipping_latitude double precision/);
+  assert.match(geocodingMigration, /orders_shipping_coordinates_check/);
+  assert.match(geocodingMigration, /query_hash text primary key/);
+  assert.match(geocodingMigration, /revoke all on table public\.live_view_geocode_cache from public, anon, authenticated/);
+  assert.match(geocodingMigration, /clear_stale_order_shipping_coordinates_v1/);
+  assert.match(geocodingMigration, /shipping_geocode_query_hash/);
+  assert.doesNotMatch(geocodingMigration.split("create table if not exists public.live_view_geocode_cache")[1].split(");")[0], /address text/i);
 });
 
-test("Google Sheets continues to map IP aliases to the one canonical customer_ip field", () => {
-  assert.match(mapping, /field:\s*'customer_ip'/);
-  assert.match(mapping, /'IP Address':\s*'customer_ip'/);
-  assert.match(mapping, /'Customer IP':\s*'customer_ip'/);
-  assert.match(mapping, /lowerKey\.includes\('customer ip'\)/);
+test("projection uses stored coordinates, then verified city, otherwise an unplotted unknown state", () => {
+  assert.match(geocodingMigration, /new\.shipping_latitude is not null and new\.shipping_longitude is not null/);
+  assert.match(geocodingMigration, /resolve_live_view_verified_city_v2/);
+  assert.match(geocodingMigration, /coalesce\(resolved\.geo_source, 'unknown'\)/);
+  assert.match(geocodingMigration, /coalesce\(locations\.shipping_latitude, locations\.latitude\)/);
+  const resolver = geocodingMigration.split("create or replace function public.resolve_live_view_verified_city_v2")[1].split("revoke all on function")[0];
+  assert.doesNotMatch(resolver, /live_view_region_catalog|live_view_country_catalog/);
 });
 
-test("Live View projection is stable, PII-minimal, RLS protected, and admin access is permission-scoped", () => {
-  assert.match(migration, /order_id uuid primary key/);
-  assert.match(migration, /enable row level security/);
-  assert.match(migration, /is_active_workspace_member\(workspace_id\)/);
-  assert.match(migration, /has_platform_permission\('orders\.read_all'\)/);
-  assert.match(migration, /revoke all on table public\.live_view_geo_cache from anon, authenticated/);
-  const eventDefinition = migration.split("create table if not exists public.live_view_events")[1].split(");")[0];
-  assert.doesNotMatch(eventDefinition, /customer_ip|email|phone|customer_name|address/i);
-});
-
-test("Realtime deduplicates updates, filters seller subscriptions, reconciles, and bounds bursts", () => {
+test("realtime resolves new orders, accepts coordinate updates, reconciles, and bounds activity", () => {
   assert.match(service, /filter: `workspace_id=eq\.\$\{workspaceId\}`/);
-  assert.match(service, /payload\.eventType === "INSERT"/);
-  assert.match(hook, /seen\.current\.has\(event\.order_id\)/);
+  assert.match(service, /payload\.eventType !== "DELETE"/);
+  assert.match(service, /requestOrderGeolocation/);
+  assert.match(hook, /eventType === "INSERT"/);
+  assert.match(hook, /requestOrderGeolocation\(workspaceId, event\.order_id\)/);
+  assert.match(hook, /filter\(\(item\) => item\.order_id !== event\.order_id\)/);
   assert.match(hook, /slice\(0, 30\)/);
   assert.match(hook, /60_000/);
-  assert.match(globe, /events\.slice\(0, 500\)/);
-  assert.match(globe, /slice\(0, 300\)/);
-  assert.match(globe, /slice\(0, 16\)/);
-  assert.match(globe, /pulseEvents[\s\S]*slice\(0, 12\)/);
-  assert.match(globe, /arcDashAnimateTime=\{720\}/);
 });
 
-test("globe dissolves the southern boundary and keeps Morocco in focus", () => {
+test("Earth uses accurate polygons with one uniform blush treatment and no satellite imagery", () => {
   assert.match(globe, /ne_110m_admin_0_countries\.geojson\?raw/);
-  assert.match(globe, /mergeAdjacentGeoPolygons/);
-  assert.match(globe, /isMoroccoTerritory/);
-  assert.match(globe, /\.concat\(north && south \? \[north, south\] : \[\]\)/);
-  assert.match(globe, /pathsData=\{outlinePath/);
+  assert.match(globe, /MeshPhongMaterial/);
+  assert.match(globe, /color: "#fdf8fa"/);
+  assert.match(globe, /polygonCapColor=\{\(\) => "#f8dce8"\}/);
+  assert.match(globe, /polygonStrokeColor=\{\(\) => "#d48ba7"\}/);
   assert.match(globe, /polygonStrokeColor/);
-  assert.match(globe, /polygonLabel/);
-  assert.match(globe, /isSeparateWesternSaharaFeature/);
-  assert.match(globe, /altitude: 0\.88/);
+  assert.doesNotMatch(globe, /isMorocco|WesternSahara|#d9658d|polygonCapColor=\{\(feature/);
+  assert.doesNotMatch(globe, /earth-blue-marble|earth-topology|night-sky|globeImageUrl|backgroundImageUrl/);
+  assert.doesNotMatch(globe, /arcsData|startLat|startLng/);
+});
+
+test("verified markers cluster by zoom, stay globe-anchored, pulse, and open real order data", () => {
+  assert.match(globe, /events\.slice\(0, 600\)/);
+  assert.match(globe, /toFixed\(clusterPrecision\)/);
+  assert.match(globe, /onZoom=/);
+  assert.match(globe, /pointLat="lat"/);
+  assert.match(globe, /pointLng="lng"/);
+  assert.match(globe, /ringsData=\{rings\}/);
+  assert.match(globe, /newest\.latitude/);
+  assert.match(globe, /onSelect\(item\.events\)/);
   assert.match(globe, /visibilitychange/);
-  assert.match(globe, /areaBudgetRatio/);
-  assert.match(liveCss, /height:100%;min-height:0/);
+});
+
+test("Live View is a full-viewport map with floating controls and no redundant bands", () => {
+  assert.match(liveCss, /height:100%;min-height:0;overflow:hidden/);
+  assert.match(page, /live-metrics/);
+  assert.match(page, /live-top-right/);
+  assert.match(page, /live-order-popover/);
   assert.match(page, /Focus Morocco/);
+  assert.match(page, /Reset Earth view/);
+  assert.match(page, /requestFullscreen/);
+  assert.doesNotMatch(page, /live-view-top|live-sidebar|live-location-note|Orders around the world/);
 });
 
-test("Morocco geometry includes the southern polygon without its internal seam", () => {
-  const countries = JSON.parse(readFileSync("node_modules/three-globe/example/country-polygons/ne_110m_admin_0_countries.geojson", "utf8"));
-  const north = countries.features.find((feature: { properties: { NAME: string } }) => feature.properties.NAME === "Morocco").geometry.coordinates[0];
-  const south = countries.features.find((feature: { properties: { NAME: string } }) => feature.properties.NAME === "W. Sahara").geometry.coordinates[0];
-  const outline = mergeAdjacentGeoPolygons(north, south);
-  assert.ok(outline);
-  assert.deepEqual(outline[0], outline.at(-1));
-  assert.ok(Math.min(...outline.map((point) => point[1])) < 22);
-  assert.ok(Math.max(...outline.map((point) => point[1])) > 35);
-});
-
-test("fallback aliases are multilingual and the UI never invents a visitor metric", () => {
-  assert.match(migration, /'Casablanca','MA','الدار البيضاء'/);
-  assert.match(migration, /'Marrakech','MA','مراكش'/);
-  assert.doesNotMatch(`${page}\n${service}\n${migration}`, /visitor(s| count| metric)?/i);
-});
-
-test("production resolver honors provider-city mappings before region/country fallbacks", () => {
-  const fallback = readFileSync("supabase/migrations/20260908162524_live_view_location_fallback_reconciliation.sql", "utf8");
-  assert.match(fallback, /public\.shipping_city_mapping/);
-  assert.match(fallback, /'provider_city'/);
-  assert.match(fallback, /public\.live_view_region_catalog/);
-  assert.match(fallback, /public\.live_view_country_catalog/);
-  assert.match(fallback, /geo_source<>'ip'/);
+test("projection remains PII-minimal, RLS protected, and uses real multilingual city aliases", () => {
+  assert.match(originalMigration, /enable row level security/);
+  assert.match(originalMigration, /is_active_workspace_member\(workspace_id\)/);
+  assert.match(originalMigration, /has_platform_permission\('orders\.read_all'\)/);
+  const eventDefinition = originalMigration.split("create table if not exists public.live_view_events")[1].split(");")[0];
+  assert.doesNotMatch(eventDefinition, /customer_ip|email|phone|customer_name|address/i);
+  assert.match(originalMigration, /'Casablanca','MA','الدار البيضاء'/);
+  assert.match(originalMigration, /'Marrakech','MA','مراكش'/);
+  assert.doesNotMatch(`${page}\n${service}\n${geocodingMigration}`, /random\(|Math\.random/);
 });

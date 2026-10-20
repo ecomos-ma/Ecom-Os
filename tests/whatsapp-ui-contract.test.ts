@@ -93,7 +93,7 @@ test("Confirmation status messages are server-derived, workspace-scoped, and que
 });
 
 test("mobile navigation is an adaptive safe-area dock on portrait and landscape phones", () => {
-  assert.match(styles, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
+  assert.match(mobileChrome, /gridTemplateColumns: `repeat\(\$\{Math\.max\(mobileNavCount, 1\)\}, minmax\(0, 1fr\)\)`/);
   assert.match(styles, /--mobile-nav-total: calc\(var\(--mobile-nav-height\) \+ max\(\.25rem, var\(--safe-bottom\)\)\)/);
   assert.match(styles, /\.mobile-bottom-nav \{[\s\S]*?bottom: 0;[\s\S]*?height: var\(--mobile-nav-total\)/);
   assert.match(styles, /\.app-main \{[\s\S]*?padding-bottom: var\(--mobile-nav-total\)/);
@@ -101,13 +101,14 @@ test("mobile navigation is an adaptive safe-area dock on portrait and landscape 
   assert.match(layout, /<main className="app-main/);
   assert.match(mobileChrome, /const mobilePrimaryNav = useMemo/);
   assert.match(mobileChrome, /Phone \/ PWA bottom navigation/);
-  assert.match(mobileChrome, /aria-label="More pages"/);
+  assert.match(mobileChrome, /aria-label="Open sidebar menu"/);
+  assert.match(mobileChrome, /aria-label="Scan returns"/);
   assert.doesNotMatch(mobileChrome, /mobile-center-fab/);
 });
 
 test("only EcomOS PNG favicon references remain", () => {
   assert.doesNotMatch(html, /favicon\.ico|lovable/i);
-  assert.match(html, /favicon\.png\?v=ecomos/);
+  assert.match(html, /favicon\.png\?v=2/);
   assert.equal(existsSync(new URL("../public/favicon.ico", import.meta.url)), false);
   assert.equal(existsSync(new URL("../public/icon-72-test.png", import.meta.url)), false);
   assert.equal(existsSync(new URL("../public/icon-96-test.png", import.meta.url)), false);

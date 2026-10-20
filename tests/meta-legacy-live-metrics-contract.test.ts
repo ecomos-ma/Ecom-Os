@@ -46,6 +46,16 @@ test("sync places the refreshed campaigns into the visible page state", () => {
   assert.match(page, /setCampaigns\(syncedCampaigns\)/);
 });
 
+test("a connected account automatically recovers a missing first campaign sync", () => {
+  const page = read("src/pages/LegacyAdsManager.tsx");
+
+  assert.match(page, /autoSyncAttemptedRef/);
+  assert.match(page, /status\.connection\?\.last_successful_sync_at/);
+  assert.match(page, /campaigns\.length > 0/);
+  assert.match(page, /void syncNow\(\{ automatic: true \}\)/);
+  assert.match(page, /Meta campaigns recovered: \$\{result\.synced\} imported\./);
+});
+
 test("connected users keep the configured legacy account fixed", () => {
   const edge = read("supabase/functions/meta-legacy/index.ts");
   const service = read("src/services/metaLegacyService.ts");

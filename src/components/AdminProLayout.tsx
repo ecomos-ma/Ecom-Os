@@ -111,7 +111,7 @@ const navGroups: NavGroup[] = [
       { to: "/admin/operations?tab=activity", label: "Audit trail", icon: Activity, permission: "security.read" },
       { to: "/admin/platform?tab=security", label: "Security", icon: ShieldCheck, permission: "security.read" },
       { to: "/admin/platform", label: "Platform settings", icon: Settings2, permission: "settings.read" },
-      { to: "/admin/theme-domains", label: "Theme domains", icon: KeyRound, permission: "settings.manage" },
+      { to: "/admin/client-licenses", label: "Client Licenses", icon: KeyRound, permission: "settings.manage" },
     ],
   },
 ];
@@ -135,6 +135,7 @@ const pageMeta = [
   ["/admin/operations", "Platform", "Platform operations", "Health, integrations, incidents and audit."],
   ["/admin/users", "Access & control", "Users & roles", "Account access and membership management."],
   ["/admin/platform", "Access & control", "Platform settings", "Security and global configuration."],
+  ["/admin/client-licenses", "Access & control", "Client Licenses", "Manage customer licenses, authorized domains and theme activations."],
 ] as const;
 
 function founderNotificationDestination(notice: FounderNotification) {

@@ -23,3 +23,12 @@ export function normalizeThemeDomain(input: unknown): string {
   if (domain.split("").every((character: string) => character >= "0" && character <= "9" || character === ".")) throw new Error("Invalid domain");
   return domain;
 }
+
+export function normalizeThemeDomains(input: unknown): string[] {
+  if (typeof input !== "string") throw new Error("Enter at least one domain");
+  const values = input.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean);
+  if (!values.length) throw new Error("Enter at least one domain");
+  const domains = values.map(normalizeThemeDomain);
+  if (new Set(domains).size !== domains.length) throw new Error("Remove duplicate domains");
+  return domains;
+}

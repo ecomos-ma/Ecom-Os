@@ -433,8 +433,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspace(previewWorkspaceRef.current?.workspace ?? (newWs as Workspace));
     }
 
-    // Record legal acceptance if user hasn't accepted current versions (fire-and-forget)
-    if (!localProfile.terms_version_accepted || !localProfile.privacy_version_accepted) {
+    const isInvitedTeamMember = ["agent", "supervisor"].includes(String(localProfile.role || "").toLowerCase());
+
+    // Legal acceptance is captured during customer signup. Invited operators
+    // must not retry an optional customer table on every workspace boot.
+    if (!isInvitedTeamMember && (!localProfile.terms_version_accepted || !localProfile.privacy_version_accepted)) {
       recordLegalAcceptance(userId, "signup").catch((error) => {
         console.warn("[useAuth] Failed to record legal acceptance:", error);
         // Don't block auth flow if this fails
@@ -508,17 +511,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // HARD GATE: Verify subscription status from backend before allowing any access
-    let { data: accessData, error: accessError } = await supabase.rpc("resolve_workspace_access_v1", {
-      p_user_id: userId,
-      p_workspace_id: workspaceId,
-    });
-
     // An accepted agent/supervisor is a workspace member, never a billing
     // customer. Verify the active membership directly and make that membership
     // sufficient for app entry; team members must never see checkout or a
     // payment-review screen because they have no subscription of their own.
-    const isInvitedTeamMember = ["agent", "supervisor"].includes(String(localProfile.role || "").toLowerCase());
     const membershipResult = isInvitedTeamMember
       ? await supabase
         .from("profile_workspaces")
@@ -533,6 +529,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       && membershipResult.data.is_owner === false
       && ["agent", "supervisor"].includes(String(membershipResult.data.role || "").toLowerCase()),
     );
+    let accessData: any = null;
+    let accessError: any = membershipResult?.error ?? null;
     if (hasActiveTeamMembership) {
       accessData = {
         allowed: true,
@@ -547,8 +545,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       };
       accessError = null;
-    } else if (accessError && isInvitedTeamMember && isLegacyWorkspaceBillingResolverError(accessError)) {
-      console.warn("[useAuth] Team membership could not be verified during a legacy billing resolver error.");
+    } else {
+      // Owners are resolved through billing. Team members with a verified
+      // membership never call this owner-only resolver, avoiding a noisy 403.
+      const resolved = await supabase.rpc("resolve_workspace_access_v1", {
+        p_user_id: userId,
+        p_workspace_id: workspaceId,
+      });
+      accessData = resolved.data;
+      accessError = resolved.error;
+      if (accessError && isInvitedTeamMember && isLegacyWorkspaceBillingResolverError(accessError)) {
+        console.warn("[useAuth] Team membership could not be verified during a legacy billing resolver error.");
+      }
     }
 
     // HARD GATE: If subscription check fails, deny all access

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Bell,
   BarChart3,
@@ -10,7 +11,6 @@ import {
   Download,
   Home,
   Globe2,
-  LayoutGrid,
   LogOut,
   Megaphone,
   Menu,
@@ -40,9 +40,9 @@ import MobileBottomSheet from "./MobileBottomSheet";
 import ecomosLogo from "../assets/ecomos_logo_137x32.png";
 import whatsappLogo from "../assets/integrationicon/imgi_37_whatssap.png";
 import { getPrefetchHandler } from "../hooks/usePrefetch";
+import { clearPendingInstallPrompt, getPendingInstallPrompt, type DeferredInstallPrompt } from "../lib/pwaInstallPrompt";
 
 type Icon = LucideIcon;
-type DeferredInstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 /* ── "All Pages" data ──────────────────────────────────────────────── */
 
@@ -71,6 +71,7 @@ const pages: PageEntry[] = [
   { to: "/delivering",         label: "Delivering Parcels",  desc: "Track live parcels",               cat: "core",    icon: Truck,           perm: "orders" },
   { to: "/shipping",           label: "Carrier Shipping",   desc: "Carrier dispatch & logs",          cat: "core",    icon: Truck,           perm: "shipping", section: "Shipping", shipping: true },
   { to: "/customers",          label: "Customer Directory", desc: "Client directory & LTV",           cat: "ops",     icon: Users,           perm: "customers", section: "Customers" },
+  { to: "/anti-fake-orders",   label: "Anti-Fake Orders",   desc: "Review suspicious orders",         cat: "ops",     icon: Shield,          perm: "settings" },
   { to: "/products-inventory", label: "Products & Stock",   desc: "Catalog, stock & variants",        cat: "ops",     icon: Boxes,           perm: "products", section: "Products" },
   { to: "/team",               label: "Team Permissions",   desc: "Members & permissions",            cat: "ops",     icon: Users,           perm: "team", section: "Team" },
   { to: "/ads-manager",        label: "Meta Ads Manager",   desc: "FB & IG campaigns",                cat: "finance", icon: Megaphone,       perm: "ads", section: "Ads Manager" },
@@ -96,6 +97,7 @@ const catLabel: Record<string, string> = {
 const routeTitles: Array<[string, string]> = [
   ["/live-view", "Live View"],
   ["/products-inventory", "Products & Stock"],
+  ["/anti-fake-orders", "Anti-Fake Orders"],
   ["/settings/notifications", "Notifications"],
   ["/scenario", "COD Scenario"],
   ["/confirmation", "Confirmation Desk"],
@@ -124,7 +126,7 @@ function isActive(pathname: string, to: string) {
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-export function MobileAppChrome({ onScan }: { onScan: () => void }) {
+export function MobileAppChrome({ onScan, scannerOpen = false }: { onScan: () => void; scannerOpen?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile, session, workspace, teamPermissions, signOut } = useAuth();
@@ -136,7 +138,8 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState<string>("all");
   const [installOpen, setInstallOpen] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<DeferredInstallPrompt | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<DeferredInstallPrompt | null>(getPendingInstallPrompt);
+  const reduceMotion = useReducedMotion();
 
   const ownerLike = isOwnerLikeRole(profile?.role);
   const isFounder = hasFounderAccess(profile?.role, session?.user?.email);
@@ -155,6 +158,19 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(8);
   };
 
+  const requestInstall = async () => {
+    if (!installPrompt) return;
+    try {
+      await installPrompt.prompt();
+      await installPrompt.userChoice;
+      setInstallOpen(false);
+    } catch {
+      // An expired browser prompt falls back to the manual install instructions.
+    } finally {
+      clearPendingInstallPrompt();
+    }
+  };
+
   const isStandalone = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches
     || (navigator as Navigator & { standalone?: boolean }).standalone === true
@@ -163,12 +179,10 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
   const currentTitle = routeTitles.find(([route]) => isActive(location.pathname, route))?.[1] ?? "Ecom OS";
 
   useEffect(() => {
-    const capture = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as DeferredInstallPrompt);
-    };
-    window.addEventListener("beforeinstallprompt", capture);
-    return () => window.removeEventListener("beforeinstallprompt", capture);
+    const update = () => setInstallPrompt(getPendingInstallPrompt());
+    window.addEventListener("ecomos-install-prompt-changed", update);
+    update();
+    return () => window.removeEventListener("ecomos-install-prompt-changed", update);
   }, []);
 
   // All accessible pages
@@ -215,35 +229,31 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
     };
   }, [sidebarOpen]);
 
-  // Match the focused, role-aware mobile workflow. Secondary permitted pages
-  // remain in More, but the primary five slots stay predictable.
+  // Keep the four important actions in a predictable order. The drawer contains
+  // every other accessible destination and is always available from the header.
   const mobilePrimaryNav = useMemo(() => {
-    const preferredPaths = ownerLike || isFounder
-      ? ["/dashboard", "/orders", "/confirmation", "/finance"]
-      : ["/dashboard", "/orders", "/confirmation", "/agent-invoices"];
-    return preferredPaths
+    const deliveryPath = accessiblePages.some((page) => page.to === "/delivering")
+      ? "/delivering"
+      : "/shipping";
+    return ["/dashboard", "/confirmation", deliveryPath]
       .map((path) => accessiblePages.find((page) => page.to === path))
       .filter((page): page is PageEntry => Boolean(page))
       .map((page) => ({
-      ...page,
-      label:
-        page.to === "/dashboard"
-          ? "Home"
-          : page.to === "/orders" && !(ownerLike || isFounder)
-            ? "My Orders"
-          : page.to === "/confirmation"
-            ? "Confirmation"
-            : page.to === "/finance"
-              ? "Finance"
-              : page.to === "/agent-invoices"
-                ? "Invoices"
-              : page.label.replace(" Management", "").replace(" Directory", ""),
-    }));
-  }, [accessiblePages, isFounder, ownerLike]);
-
-  const moreTabActive =
-    sidebarOpen ||
-    !mobilePrimaryNav.some((page) => isActive(location.pathname, page.to));
+        ...page,
+        label: page.to === "/dashboard" ? "Dashboard" : page.to === "/confirmation" ? "Confirm" : "Delivery",
+      }));
+  }, [accessiblePages]);
+  const canScanReturns = can("inventory", "Inventory") || can("products", "Products");
+  const mobileNavCount = mobilePrimaryNav.length + Number(canScanReturns);
+  const activeMobileAction = scannerOpen
+    ? "scan"
+    : mobilePrimaryNav.find((page) => isActive(location.pathname, page.to))?.to;
+  const activeGlass = <motion.span
+    layoutId="mobile-nav-active-glass"
+    className="mobile-nav-glass"
+    transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
+    aria-hidden="true"
+  />;
 
   return (
     <>
@@ -326,7 +336,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
           {/* Left Sidebar Drawer */}
           <aside
-            className="relative z-10 flex h-dvh w-[min(88vw,340px)] max-w-full flex-col border-r border-base-border bg-base-surface shadow-2xl animate-sidebar-in outline-none"
+            className="mobile-navigation-drawer relative z-10 flex h-dvh w-[min(88vw,340px)] max-w-full flex-col border-r border-base-border bg-base-surface shadow-2xl animate-sidebar-in outline-none"
             aria-label="Sidebar navigation menu"
           >
             {/* Drawer Header with Full Brand Logo */}
@@ -364,14 +374,14 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
                   </p>
                 </div>
               </div>
-              <button
+              {can("settings", "Settings") && <button
                 type="button"
                 onClick={() => { setSidebarOpen(false); navigate("/settings"); }}
                 className="p-1.5 rounded-lg text-ink-muted hover:text-brand hover:bg-brand/10 transition-colors"
                 title="Workspace Settings"
               >
                 <Settings size={16} />
-              </button>
+              </button>}
             </div>
 
             {/* Search Input */}
@@ -508,7 +518,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
 
             {/* Sidebar Footer */}
             <div className="p-3 border-t border-base-border/50 bg-base-raised/40 space-y-2">
-              {!isStandalone && (installPrompt || isIos) && (
+              {!isStandalone && (
                 <button
                   type="button"
                   onClick={() => { haptic(); setInstallOpen(true); }}
@@ -518,9 +528,9 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
                   <ChevronRight size={14} />
                 </button>
               )}
-              {can("orders", "Orders") && (
+              {(can("orders", "Orders") || canScanReturns) && (
                 <div className="grid grid-cols-2 gap-1.5">
-                  <button
+                  {can("orders", "Orders") && <button
                     type="button"
                     onClick={() => {
                       haptic();
@@ -531,8 +541,8 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
                   >
                     <Plus size={14} strokeWidth={2.5} />
                     <span>New Order</span>
-                  </button>
-                  <button
+                  </button>}
+                  {canScanReturns && <button
                     type="button"
                     onClick={() => {
                       haptic();
@@ -543,7 +553,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
                   >
                     <ScanLine size={14} />
                     <span>Scan QR</span>
-                  </button>
+                  </button>}
                 </div>
               )}
 
@@ -664,33 +674,27 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
       <nav
         className="mobile-bottom-nav md:hidden"
         aria-label="Main navigation"
-        style={{ gridTemplateColumns: `repeat(${Math.max(mobilePrimaryNav.length + 1, 2)}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${Math.max(mobileNavCount, 1)}, minmax(0, 1fr))` }}
       >
-        {mobilePrimaryNav.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            onPointerDown={getPrefetchHandler(to)}
-            onMouseEnter={getPrefetchHandler(to)}
-            onClick={haptic}
-            className={({ isActive: active }) => `mobile-nav-item ${active ? "is-active" : ""}`}
-          >
-            <Icon size={20} strokeWidth={1.9} />
-            <span>{label}</span>
+        {mobilePrimaryNav.slice(0, 2).map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} onPointerDown={getPrefetchHandler(to)} onMouseEnter={getPrefetchHandler(to)} onClick={haptic}
+            className={`mobile-nav-item ${activeMobileAction === to ? "is-active" : ""}`}>
+            {activeMobileAction === to && activeGlass}
+            <Icon size={21} strokeWidth={1.9} aria-hidden="true" /><span>{label}</span>
           </NavLink>
         ))}
-
-        {/* All remaining, permission-filtered destinations live here. */}
-        <button
-          type="button"
-          onClick={() => { haptic(); setSidebarOpen(true); }}
-          className={`mobile-nav-item ${moreTabActive ? "is-active" : ""}`}
-          aria-label="More pages"
-          aria-haspopup="dialog"
-        >
-          <LayoutGrid size={20} strokeWidth={1.8} />
-          <span>More</span>
-        </button>
+        {canScanReturns && <button type="button" onClick={() => { haptic(); onScan(); }}
+          className={`mobile-nav-item ${activeMobileAction === "scan" ? "is-active" : ""}`} aria-label="Scan returns" aria-pressed={scannerOpen}>
+          {activeMobileAction === "scan" && activeGlass}
+          <ScanLine size={21} strokeWidth={1.9} aria-hidden="true" /><span>Scan Returns</span>
+        </button>}
+        {mobilePrimaryNav.slice(2).map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} onPointerDown={getPrefetchHandler(to)} onMouseEnter={getPrefetchHandler(to)} onClick={haptic}
+            className={`mobile-nav-item ${activeMobileAction === to ? "is-active" : ""}`}>
+            {activeMobileAction === to && activeGlass}
+            <Icon size={21} strokeWidth={1.9} aria-hidden="true" /><span>{label}</span>
+          </NavLink>
+        ))}
       </nav>
 
       {/* ── Quick Actions Sheet ─────────────────────────────────────────── */}
@@ -761,7 +765,7 @@ export function MobileAppChrome({ onScan }: { onScan: () => void }) {
       <MobileBottomSheet isOpen={installOpen} onClose={() => setInstallOpen(false)} title="Install Ecom OS">
         <div className="space-y-4 text-sm text-ink-muted">
           <p>Install Ecom OS for a full-screen, app-like workspace with faster launch from your home screen.</p>
-          {isIos ? <div className="rounded-xl border border-base-border bg-base-raised p-4"><p className="font-semibold text-ink">On iPhone or iPad</p><p className="mt-2 leading-6">Tap the <span className="inline-flex items-center gap-1 font-semibold text-ink"><Share size={14} /> Share</span> button in Safari, then choose <strong className="text-ink">Add to Home Screen</strong>.</p></div> : <button type="button" onClick={async () => { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); setInstallOpen(false); }} disabled={!installPrompt} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 font-semibold text-white disabled:opacity-50"><Download size={16} /> Install app</button>}
+          {isIos ? <div className="rounded-xl border border-base-border bg-base-raised p-4"><p className="font-semibold text-ink">On iPhone or iPad</p><p className="mt-2 leading-6">Tap the <span className="inline-flex items-center gap-1 font-semibold text-ink"><Share size={14} /> Share</span> button in Safari, then choose <strong className="text-ink">Add to Home Screen</strong>.</p></div> : installPrompt ? <button type="button" onClick={() => void requestInstall()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 font-semibold text-white"><Download size={16} /> Install app</button> : <div className="rounded-xl border border-base-border bg-base-raised p-4"><p className="font-semibold text-ink">Install from your browser</p><p className="mt-2 leading-6">Open your browser menu and choose <strong className="text-ink">Install app</strong> or <strong className="text-ink">Add to Home screen</strong>. Installation may require HTTPS outside localhost.</p></div>}
           <p className="text-xs leading-5">Installation options depend on your browser. Ecom OS never asks for notification permission during installation.</p>
         </div>
       </MobileBottomSheet>

@@ -6,10 +6,13 @@ export type ConfirmationAgent = {
 };
 
 export type ConfirmationProduct = {
+  itemId: string | null;
   id: string | null;
   name: string;
   sku: string | null;
   variant: string | null;
+  color: string | null;
+  comment: string | null;
   imageUrl: string | null;
   quantity: number;
   unitPrice: number;
@@ -34,6 +37,7 @@ export type ConfirmationOrder = {
   quantity: number;
   variantPrice: number | null;
   createdAt: string;
+  updatedAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;
   isUpsell: boolean;
@@ -42,6 +46,17 @@ export type ConfirmationOrder = {
   assignedAgent: ConfirmationAgent | null;
   products: ConfirmationProduct[];
   lastActivity: ConfirmationTimelineEntry | null;
+};
+
+export type ConfirmationWorkLease = {
+  mode: "server" | "legacy";
+  leaseId: string | null;
+  leaseToken: string | null;
+  orderId: string;
+  agentId: string | null;
+  workState: "open" | "call_active" | "callback_reserved";
+  expiresAt: string | null;
+  orderUpdatedAt: string | null;
 };
 
 export type ConfirmationTimelineEntry = {

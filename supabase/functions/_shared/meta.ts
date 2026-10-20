@@ -566,6 +566,88 @@ export async function metaUploadImage(
   };
 }
 
+// The browser sends media to this server-side relay. Only Meta's asset identifier
+// is returned; no image or video bytes are written to Supabase Storage/Postgres.
+export async function metaUploadFile(
+  token: string,
+  adAccountId: string,
+  file: File,
+  useAppSecretProof = true,
+): Promise<{ media_type: "image" | "video"; image_hash?: string; video_id?: string }> {
+  const mediaType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : null;
+  if (!mediaType || !["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"].includes(file.type))
+    throw new MetaError("Use a JPG, PNG, WebP, MP4 or MOV creative", 400, "validation");
+  if (!file.size || file.size > 18 * 1024 * 1024)
+    throw new MetaError("Creative must be between 1 byte and 18 MB for direct upload", 400, "validation");
+  const form = new FormData();
+  form.set(mediaType === "image" ? "filename" : "source", file, file.name.replace(/[^A-Za-z0-9._-]/g, "-").slice(-120));
+  if (useAppSecretProof) form.set("appsecret_proof", await appSecretProof(token));
+  const response = await fetch(
+    `${META_GRAPH_BASE}/${normalizeAdAccountId(adAccountId)}/${mediaType === "image" ? "adimages" : "advideos"}`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(120_000) },
+  );
+  const payload = (await response.json().catch(() => ({}))) as JsonObject;
+  if (!response.ok || payload.error) throw classifyMetaError(response.status, payload);
+  if (mediaType === "video") {
+    if (!payload.id) throw new MetaError("Meta did not confirm the video upload", 502, "temporary", true);
+    return { media_type: "video", video_id: String(payload.id) };
+  }
+  const images = payload.images && typeof payload.images === "object" ? payload.images as JsonObject : {};
+  const image = Object.values(images)[0] as JsonObject | undefined;
+  if (!image?.hash) throw new MetaError("Meta did not confirm the image upload", 502, "temporary", true);
+  return { media_type: "image", image_hash: String(image.hash) };
+}
+
+async function metaVideoPost(token: string, adAccountId: string, form: FormData, useAppSecretProof = true): Promise<JsonObject> {
+  if (useAppSecretProof) form.set("appsecret_proof", await appSecretProof(token));
+  const response = await fetch(`https://graph-video.facebook.com/${META_GRAPH_VERSION}/${normalizeAdAccountId(adAccountId)}/advideos`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(120_000),
+  });
+  const payload = (await response.json().catch(() => ({}))) as JsonObject;
+  if (!response.ok || payload.error) throw classifyMetaError(response.status, payload);
+  return payload;
+}
+
+export async function metaVideoStart(token: string, adAccountId: string, fileSize: number, useAppSecretProof = true): Promise<{
+  upload_session_id: string; video_id: string; start_offset: string; end_offset: string;
+}> {
+  if (!Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > 1024 * 1024 * 1024)
+    throw new MetaError("Video must be between 1 byte and 1 GB", 400, "validation");
+  const form = new FormData();
+  form.set("upload_phase", "start"); form.set("file_size", String(fileSize));
+  const result = await metaVideoPost(token, adAccountId, form, useAppSecretProof);
+  if (!result.upload_session_id || !result.video_id || result.start_offset == null || result.end_offset == null)
+    throw new MetaError("Meta did not start the video upload", 502, "temporary", true);
+  return {
+    upload_session_id: String(result.upload_session_id), video_id: String(result.video_id),
+    start_offset: String(result.start_offset), end_offset: String(result.end_offset),
+  };
+}
+
+export async function metaVideoTransfer(token: string, adAccountId: string, sessionId: string, startOffset: number, chunk: File, useAppSecretProof = true): Promise<{
+  start_offset: string; end_offset: string;
+}> {
+  if (!/^\d+$/.test(sessionId) || !Number.isSafeInteger(startOffset) || startOffset < 0 || chunk.size < 1 || chunk.size > 18 * 1024 * 1024)
+    throw new MetaError("Video upload chunk is invalid", 400, "validation");
+  const form = new FormData();
+  form.set("upload_phase", "transfer");
+  form.set("upload_session_id", sessionId);
+  form.set("start_offset", String(startOffset));
+  form.set("video_file_chunk", chunk, "creative-chunk.mp4");
+  const payload = await metaVideoPost(token, adAccountId, form, useAppSecretProof);
+  if (payload.start_offset == null || payload.end_offset == null)
+    throw new MetaError("Meta did not confirm the video chunk", 502, "temporary", true);
+  return { start_offset: String(payload.start_offset), end_offset: String(payload.end_offset) };
+}
+
+export async function metaVideoFinish(token: string, adAccountId: string, sessionId: string, name: string, useAppSecretProof = true): Promise<void> {
+  if (!/^\d+$/.test(sessionId)) throw new MetaError("Video upload session is invalid", 400, "validation");
+  const form = new FormData();
+  form.set("upload_phase", "finish"); form.set("upload_session_id", sessionId); form.set("title", name.slice(0, 120));
+  const result = await metaVideoPost(token, adAccountId, form, useAppSecretProof);
+  if (result.success !== true) throw new MetaError("Meta did not finalize the video upload", 502, "temporary", true);
+}
+
 export async function metaUploadVideo(
   token: string,
   adAccountId: string,
@@ -654,6 +736,26 @@ export async function activeConnection(
   return {
     id: String(data.id),
     accessToken: await decryptSecret(String(data.access_token_encrypted)),
+    row: data as JsonObject,
+  };
+}
+
+export async function activeLegacyConnection(
+  client: SupabaseClient,
+  workspaceId: string,
+): Promise<{ id: string; accessToken: string; adAccountId: string; row: JsonObject }> {
+  const { data, error } = await client
+    .from("meta_legacy_connections")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (error || !data?.access_token_encrypted ||
+    !["connected", "syncing", "sync_failed"].includes(String(data.status)))
+    throw new MetaError("Connect Legacy Ads Manager before continuing", 409, "configuration");
+  return {
+    id: String(data.id),
+    accessToken: await decryptSecret(String(data.access_token_encrypted)),
+    adAccountId: normalizeAdAccountId(data.ad_account_id),
     row: data as JsonObject,
   };
 }

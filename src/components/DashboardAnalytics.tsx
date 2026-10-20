@@ -104,19 +104,19 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
         // Helper functions
         const isConf = (s: string) => normalizeStatusOrNull(s) === "confirmed";
         const isPend = (s: string) => ["pending", "new"].includes(normalizeStatusOrNull(s) || "");
-        const isDeliv = (s: string) => normalizeStatusOrNull(s) === "delivered" || normalizeShippingStatus(s) === "DELIVERED";
-        const isShip = (s: string) => {
-            const shipping = normalizeShippingStatus(s);
-            return normalizeStatusOrNull(s) === "shipped" || Boolean(shipping && [
+        const deliveryStatus = (o: any) => normalizeShippingStatus(o.shipping_status) || normalizeShippingStatus(o.delivery_status);
+        const isDeliv = (s: string | null) => s === "DELIVERED";
+        const isShip = (s: string | null) => {
+            return Boolean(s && [
                 "NEW_PARCEL", "WAITING_PICKUP", "PICKED_UP", "RECEIVED_AT_WAREHOUSE",
                 "IN_DISTRIBUTION", "IN_TRANSIT", "OUT_FOR_DELIVERY",
-            ].includes(shipping));
+            ].includes(s));
         };
-        const isCanc = (s: string) => ["cancelled", "unreachable", "duplicate", "out_of_stock", "blacklisted"].includes(normalizeStatusOrNull(s) || "") || normalizeShippingStatus(s) === "CANCELED";
-        const isRet = (s: string) => ["returned", "refused"].includes(normalizeStatusOrNull(s) || "") || [
+        const isCanc = (s: string) => ["cancelled", "unreachable", "duplicate", "out_of_stock", "blacklisted"].includes(normalizeStatusOrNull(s) || "");
+        const isRet = (s: string | null) => [
             "REFUSED", "DELIVERY_FAILED", "RETURNED_TO_AGENCY", "RETURN_TO_DEPOT",
             "RETURN_IN_PROGRESS", "RETURNED_TO_SENDER",
-        ].includes(normalizeShippingStatus(s) || "");
+        ].includes(s || "");
 
         const parseDates = (raw: string) => { const d = new Date(raw); return isNaN(d.getTime()) ? 0 : d.getTime(); };
         const getCost = (sku: string) => { const p = productsList.find(p => p.sku === sku); return p ? Number(p.cost || 0) : 0; };
@@ -125,7 +125,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
         let totalRevenue = 0;
         let totalProductCost = 0;
         orders.forEach(o => {
-            if (isDeliv(o.delivery_status) || isDeliv(o.status)) {
+            if (isDeliv(deliveryStatus(o))) {
                 totalRevenue += Number(o.total || 0);
 
                 if (o.order_items?.length) {
@@ -139,7 +139,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
             }
         });
 
-        const deliveredCount = orders.filter(o => isDeliv(o.delivery_status) || isDeliv(o.status)).length;
+        const deliveredCount = orders.filter(o => isDeliv(deliveryStatus(o))).length;
         const confirmedCount = orders.filter(o => isConf(o.status)).length;
 
         // Override with canonical values from ProfitEngine (Dashboard props)
@@ -159,7 +159,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
             const c = o.city || "Unknown";
             if (!cityMap[c]) cityMap[c] = { orders: 0, revenue: 0, delivered: 0, cancelled: 0, confirmCount: 0 };
             cityMap[c].orders++;
-            if (isDeliv(o.delivery_status) || isDeliv(o.status)) {
+            if (isDeliv(deliveryStatus(o))) {
                 cityMap[c].delivered++;
                 cityMap[c].revenue += Number(o.total || 0);
             }
@@ -186,7 +186,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
                 prodMap[name].count += q;
                 prodMap[name].revenue += rev;
                 prodMap[name].cost += c;
-                if (isRet(o.status) || isRet(o.delivery_status)) prodMap[name].returned += q;
+                if (isRet(deliveryStatus(o))) prodMap[name].returned += q;
             });
         });
         const topProducts = Object.entries(prodMap)
@@ -225,12 +225,13 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
         let delivTimesMs = 0;
         let delivTimeCount = 0;
         orders.forEach(o => {
-            if (isShip(o.status) || isShip(o.delivery_status)) shipStatuses.Shipped++;
-            else if (isDeliv(o.status) || isDeliv(o.delivery_status)) shipStatuses.Delivered++;
-            else if (isRet(o.status) || isRet(o.delivery_status)) shipStatuses.Returned++;
-            else if (isCanc(o.status)) shipStatuses.Cancelled++;
+            const phase = deliveryStatus(o);
+            if (isShip(phase)) shipStatuses.Shipped++;
+            else if (isDeliv(phase)) shipStatuses.Delivered++;
+            else if (isRet(phase)) shipStatuses.Returned++;
+            else if (phase === "CANCELED") shipStatuses.Cancelled++;
 
-            if ((isDeliv(o.status) || isDeliv(o.delivery_status)) && o.delivered_at && o.created_at) {
+            if (isDeliv(phase) && o.delivered_at && o.created_at) {
                 const diff = parseDates(o.delivered_at) - parseDates(o.created_at);
                 if (diff > 0) { delivTimesMs += diff; delivTimeCount++; }
             }
@@ -241,8 +242,8 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
         // SECTION 6: RETURNS
         const returnReasons: Record<string, number> = {};
         orders.forEach(o => {
-            if (isRet(o.status) || isRet(o.delivery_status)) {
-                const reason = o.shipping_status || "Customer Refused";
+            if (isRet(deliveryStatus(o))) {
+                const reason = deliveryStatus(o) || "Unknown return reason";
                 returnReasons[reason] = (returnReasons[reason] || 0) + 1;
             }
         });
@@ -277,7 +278,7 @@ export function DashboardAnalytics({ data, metrics, startDate, endDate, workspac
 
         // SECTION 9: CASH FLOW
         const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-        const pendingCod = orders.filter(o => isDeliv(o.delivery_status) || isDeliv(o.status)).reduce((s, o) => s + Number(o.total || 0), 0);
+        const pendingCod = orders.filter(o => isDeliv(deliveryStatus(o))).reduce((s, o) => s + Number(o.total || 0), 0);
         const expectedCash = pendingCod - totalExpenses; // rough proxy
 
         // SECTION 10: TIME ANALYTICS uses useOrderTimeAnalytics hook at component top level

@@ -20,6 +20,16 @@ export interface MetaLegacyStatus {
   connection: MetaLegacyConnection | null;
 }
 
+export interface MetaLegacyLaunchAssets {
+  connected: boolean;
+  connection: MetaLegacyConnection;
+  ad_accounts: Array<{ id: string; name: string; currency: string | null; timezone: string | null }>;
+  pages: Array<{ id: string; name: string }>;
+  instagram_accounts: Array<{ id: string; name: string; page_id: string }>;
+  pixels: Array<{ id: string; name: string; ad_account_id: string; is_unavailable: boolean }>;
+  issues?: { pages?: string; pixels?: string; instagram?: string };
+}
+
 export interface MetaLegacyAdAccount {
   ad_account_id: string;
   account_name: string;
@@ -134,6 +144,7 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
 
 export const metaLegacyService = {
   status: () => invoke<MetaLegacyStatus>({ action: "status" }),
+  launchAssets: () => invoke<MetaLegacyLaunchAssets>({ action: "launch_assets" }),
   connect: (adAccountId: string, accessToken: string) =>
     invoke<MetaLegacyStatus>({
       action: "connect",

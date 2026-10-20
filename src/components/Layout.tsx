@@ -16,6 +16,7 @@ import { RefreshCw } from "lucide-react";
 import { MobileAppChrome } from "./MobileAppChrome";
 import { OfflineBanner } from "./ErrorStates";
 import { metaAdsService } from "../services/metaAdsService";
+import { TeamScreenShare } from "./TeamScreenShare";
 
 const InventoryQRScanner = lazy(async () => {
   const module = await import("./inventory/InventoryQRScanner");
@@ -439,7 +440,7 @@ export function Layout() {
         <div className="desktop-app-header hidden md:block">
           <EnhancedHeader />
         </div>
-        <MobileAppChrome onScan={() => setScannerOpen(true)} />
+        <MobileAppChrome onScan={() => setScannerOpen(true)} scannerOpen={scannerOpen} />
         <AdminPreviewBanner />
         <AnnouncementTray />
         <main className="app-main min-h-0 min-w-0 flex-1 overflow-hidden bg-base-surface">
@@ -459,6 +460,7 @@ export function Layout() {
       </div>
       {/* Global toast notifications — mounted once here, used from anywhere */}
       <SupportTicketLauncher />
+      {!isDemoMode && <TeamScreenShare />}
       <PwaUpdateNotice />
       <ToastContainer />
       {scannerOpen ? (

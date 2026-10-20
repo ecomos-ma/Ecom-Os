@@ -179,6 +179,24 @@ test("microphone activity remains explicit and consented", () => {
   assert.match(team, /Open consented call recordings/);
 });
 
+test("confirmation offers record-and-call and saves audio to Team call review", () => {
+  const drawer = read("src/pages/confirmation/ConfirmationOrderDrawer.tsx");
+  const recorder = read("src/pages/confirmation/CallRecorder.tsx");
+  const service = read("src/services/confirmationCrmService.ts");
+  const review = read("src/pages/confirmation/CallReviewPanel.tsx");
+
+  assert.match(drawer, /Record & call/);
+  assert.match(drawer, /recorderRef\.current\?\.start\(\)/);
+  assert.match(drawer, /recorderRef\.current\?\.hasUnfinished\(\)/);
+  assert.match(drawer, /<CallRecorder ref=\{recorderRef\}/);
+  assert.match(recorder, /consentConfirmed/);
+  assert.match(recorder, /void uploadRecording\(ready\)/);
+  assert.match(recorder, /beforeunload/);
+  assert.match(service, /storage\.from\("call-recordings"\)\.upload/);
+  assert.match(service, /from\("confirmation_call_recordings"\)\.insert/);
+  assert.match(review, /from\("confirmation_call_recordings"\)/);
+});
+
 test("team metrics, assignment, upsells and audit events use persisted workflow data", () => {
   const migration = read("supabase/migrations/20260922091324_team_real_agent_metrics.sql");
   const confirmationUpdateMigration = read("supabase/migrations/20260922102000_confirmation_agent_order_updates.sql");
@@ -201,7 +219,7 @@ test("team metrics, assignment, upsells and audit events use persisted workflow 
   assert.match(hook, /avg_response_seconds/);
   assert.match(hook, /autoAssignConfirmationOrders/);
   assert.match(hook, /assign_team_orders_v1/);
-  assert.match(team, /Assign up to 20 \/ agent/);
+  assert.match(team, /Balance all open orders/);
   assert.match(team, /Avg\. first response/);
   assert.match(team, /metricView === "confirmation"/);
   assert.match(team, /visibleActivityLog/);
@@ -214,6 +232,45 @@ test("team metrics, assignment, upsells and audit events use persisted workflow 
   assert.match(drawer, /Mark upsell/);
   assert.match(drawer, /type="checkbox"/);
   assert.match(drawer, /Adjusted order total/);
-  assert.match(drawer, /Save upsell & price/);
+  assert.match(drawer, /Save upsell details/);
   assert.match(orders, /Mark this order as an upsell/);
+});
+
+test("confirmation assignment uses online non-owner agents and supports owner bulk control", () => {
+  const migration = read("supabase/migrations/20261018171517_online_confirmation_assignment.sql");
+  const hook = read("src/hooks/useTeamData.ts");
+  const team = read("src/pages/Team.tsx");
+
+  assert.match(migration, /distribute_online_confirmation_orders_v2/);
+  assert.match(migration, /ap\.status = 'online'/);
+  assert.match(migration, /ap\.last_heartbeat >= now\(\) - interval '2 minutes'/);
+  assert.match(migration, /not coalesce\(pw\.is_owner, false\)/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /for update of o skip locked/);
+  assert.match(migration, /notes[\s\S]*'manual'/);
+  assert.match(migration, /'online_auto'/);
+  assert.match(migration, /trg_orders_online_confirmation_assignment/);
+  assert.match(migration, /trg_agent_presence_confirmation_distribution/);
+  assert.match(migration, /revoke all on function public\.distribute_online_confirmation_orders_internal_v2/);
+  assert.match(migration, /grant execute on function public\.distribute_online_confirmation_orders_v2[\s\S]*to authenticated/);
+  assert.match(hook, /assignOrders/);
+  assert.match(hook, /distributeOnlineConfirmationOrders/);
+  assert.match(team, /Auto-split selected/);
+  assert.match(team, /Select all/);
+  assert.match(team, /Owners are excluded/);
+  assert.match(team, /1 agent receives 100%, 2 receive 50% each, and 4 receive 25% each/);
+});
+
+test("team permissions are stored and read per workspace with a legacy fallback", () => {
+  const migration = read("supabase/migrations/20261019024000_workspace_scoped_team_permissions.sql");
+  const hook = read("src/hooks/useTeamData.ts");
+
+  assert.match(migration, /profile_workspaces[\s\S]*add column if not exists allowed_sections text\[\]/);
+  assert.match(migration, /membership\.allowed_sections,[\s\S]*profile\.allowed_sections/);
+  assert.match(migration, /set role = normalized_role,[\s\S]*allowed_sections = normalized_sections/);
+  assert.match(migration, /profile_id, workspace_id, is_owner, role, status, allowed_sections/);
+  assert.doesNotMatch(migration, /drop trigger if exists trg_prevent_self_profile_changes/);
+  assert.match(hook, /select\("profile_id, is_owner, role, status, allowed_sections, created_at"\)/);
+  assert.match(hook, /workspaceMember\?\.allowed_sections \?\? p\.allowed_sections/);
+  assert.match(hook, /workspaceMember\?\.status === "active"/);
 });

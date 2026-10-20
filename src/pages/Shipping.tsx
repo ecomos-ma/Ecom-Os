@@ -11,10 +11,9 @@ import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/Toast";
 import { useOrders } from "../hooks/useOrders";
-import { StatusBadge } from "../components/StatusBadge";
 import { ShippingStatusBadge } from "../components/ShippingStatusBadge";
-import { StatusSelect } from "../components/StatusSelect";
-import { normalizeStatus, normalizeStatusOrNull, getStatusLabel, type CanonicalStatus } from "../lib/statusEngine";
+import { ShippingStatusSelect } from "../components/ShippingStatusSelect";
+import { normalizeStatusOrNull } from "../lib/statusEngine";
 import { getShippingStatusLabel, normalizeShippingStatus, type ShippingLanguage } from "../lib/shippingStatus";
 import { supabase } from "../lib/supabase";
 import { useI18n } from "../i18n";
@@ -60,6 +59,7 @@ const SHIPPING_TAB_CONFIG = [
 export default function Shipping() {
   const { orders, loading, reload } = useOrders({ status: "all" });
   const { language } = useI18n();
+  const { workspace } = useAuth();
 
   const [activeTab, setActiveTab] = useState("ready");
   const [draftStatus, setDraftStatus] = useState<Record<string, string>>({});
@@ -67,13 +67,10 @@ export default function Shipping() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const dismissTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // 1. Filter out ONLY confirmed orders for shipping workflow
+  // Keep shipments visible even when an older integration changed the order's
+  // confirmation status after it had entered the delivery pipeline.
   const shippingPipelineOrders = useMemo(() => {
-    return orders.filter((o) => {
-      const s = o.status;
-      if (!s) return false;
-      return isConfirmedOrderStatus(s);
-    });
+    return orders.filter((o) => isConfirmedOrderStatus(o.status) || Boolean(String(o.shipping_status ?? "").trim()));
   }, [orders]);
 
   const handleDraftChange = useCallback((orderNumber: string, newStatus: string) => {
@@ -81,7 +78,7 @@ export default function Shipping() {
   }, []);
 
   const displayStatus = (o: any): string => {
-    if (draftStatus[o.order_number]) return draftStatus[o.order_number];
+    if (Object.prototype.hasOwnProperty.call(draftStatus, o.order_number)) return draftStatus[o.order_number];
     // Use shipping_status as the single source of truth - no fallbacks
     // Normalize to ensure we return the internal code
     const rawStatus = o.shipping_status || "";
@@ -92,9 +89,18 @@ export default function Shipping() {
   const handleSave = useCallback(async (o: any) => {
     const orderNumber = o.order_number as string;
     const newShippingStatus = displayStatus(o);
+    const normalizedStatus = newShippingStatus ? normalizeShippingStatus(newShippingStatus) : null;
+    if (newShippingStatus && !normalizedStatus) {
+      toast.error("Choose a valid delivery status before saving.");
+      return;
+    }
+    if (!workspace?.id) {
+      toast.error("Workspace is not available. Please reload and try again.");
+      return;
+    }
 
     // Prevent manual status changes if order has a tracking number
-    if (o.tracking_number && o.tracking_number.trim() !== "") {
+    if (String(o.tracking_number || o.coliaty_parcel_code || "").trim()) {
       toast.error(`Cannot manually change status for order ${orderNumber}. It has a tracking number and is managed by the shipping provider.`);
       return;
     }
@@ -103,16 +109,22 @@ export default function Shipping() {
     setSavingOrders((prev) => ({ ...prev, [orderNumber]: true }));
 
     try {
-      // Only update shipping_status - never modify order.status
-      // The order.status field is managed exclusively by the Confirmation module
-      const payload: Record<string, unknown> = { shipping_status: newShippingStatus };
+      // shipping_status is authoritative for delivery. Mirror the legacy
+      // delivery_status field for existing reports; never change order.status.
+      const payload = {
+        shipping_status: normalizedStatus,
+        delivery_status: normalizedStatus ?? "pending",
+      };
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("orders")
         .update(payload)
-        .eq("order_number", orderNumber);
+        .eq("workspace_id", workspace.id)
+        .eq('"Order ID"', o.id)
+        .select('"Order ID"');
 
       if (error) throw error;
+      if (!data?.length) throw new Error("The order was not updated. Refresh and try again.");
 
       setDraftStatus((prev) => {
         const next = { ...prev };
@@ -120,11 +132,12 @@ export default function Shipping() {
         return next;
       });
 
-      toast.success(`Order ${orderNumber} shipping: ${newShippingStatus} ✓`);
+      toast.success(`Order ${orderNumber}: ${normalizedStatus ? getShippingStatusLabel(normalizedStatus, language as ShippingLanguage) : "Ready to send"}`);
 
       // Optionally slide-out if it no longer belongs to current tab
       const tabConfig = SHIPPING_TAB_CONFIG.find(t => t.id === activeTab);
-      if (activeTab !== "all" && tabConfig && !tabConfig.canonicalIds.includes(newShippingStatus)) {
+      const remainsInTab = activeTab === "all" || (activeTab === "ready" ? !normalizedStatus : Boolean(tabConfig?.canonicalIds.includes(normalizedStatus!)));
+      if (!remainsInTab) {
         setDismissed((prev) => new Set(prev).add(orderNumber));
         dismissTimers.current[orderNumber] = setTimeout(() => {
           setDismissed((prev) => {
@@ -144,7 +157,7 @@ export default function Shipping() {
     } finally {
       setSavingOrders((prev) => ({ ...prev, [orderNumber]: false }));
     }
-  }, [draftStatus, activeTab, reload]);
+  }, [draftStatus, activeTab, reload, workspace?.id, savingOrders, language]);
 
   const filteredOrders = useMemo(() => {
     return shippingPipelineOrders.filter((orderParam) => {
@@ -197,8 +210,6 @@ export default function Shipping() {
   }, [shippingPipelineOrders]);
 
   // ─── Render ─────────────────────────────────────────────────────────────
-  const { workspace } = useAuth();
-  
   // Check if shipping module is enabled
   if (!isShippingModuleEnabled(workspace)) {
     return <ShippingModuleDisabled />;
@@ -297,10 +308,10 @@ export default function Shipping() {
               // ───────────────────────────────────────────────────────────
 
               const currentDispStatus = displayStatus(o);
-              const isDirty = currentDispStatus !== (o.delivery_status || "pending");
+              const isDirty = currentDispStatus !== (normalizeShippingStatus(o.shipping_status) || o.shipping_status || "");
               const isSaving = savingOrders[orderNumber] ?? false;
               const isDismissing = dismissed.has(orderNumber);
-              const hasTrackingNumber = o.tracking_number && o.tracking_number.trim() !== "";
+              const hasTrackingNumber = Boolean(String(o.tracking_number || o.coliaty_parcel_code || "").trim());
 
               return (
                 <div
@@ -327,7 +338,7 @@ export default function Shipping() {
                       <span className="inline-flex items-center rounded-md bg-base-raised border border-base-border px-2 py-0.5 text-[11.5px] font-semibold text-ink-muted">
                         {customerName}
                       </span>
-                      <ShippingStatusBadge status={o.shipping_status} size="sm" />
+                      {o.shipping_status ? <ShippingStatusBadge status={o.shipping_status} size="sm" /> : <span className="inline-flex rounded-full border border-base-border bg-base-raised px-2 py-0.5 text-[11px] font-medium text-ink-muted">Ready to send</span>}
                       {isDirty && (
                         <span className="text-[10.5px] text-amber-600 font-medium italic">
                           unsaved
@@ -397,14 +408,12 @@ export default function Shipping() {
                       WhatsApp
                     </a>
 
-                    <StatusSelect
+                    <ShippingStatusSelect
                       value={currentDispStatus}
                       onChange={(val) => handleDraftChange(orderNumber, val)}
                       disabled={hasTrackingNumber}
                       className={`
-                        appearance-none rounded-lg px-3 py-1.5
-                        text-[11.5px] font-semibold cursor-pointer
-                        outline-none transition-all
+                        cursor-pointer
                         ${isDirty ? "!border-red-500/60 shadow-[0_0_10px_rgba(239,68,68,0.4)]" : ""}
                         ${hasTrackingNumber ? "!opacity-50 !cursor-not-allowed" : ""}
                       `}
@@ -421,7 +430,7 @@ export default function Shipping() {
                     <button
                       id={`btn-save-${orderNumber}`}
                       onClick={() => handleSave(o)}
-                      disabled={isSaving || hasTrackingNumber}
+                      disabled={!isDirty || isSaving || hasTrackingNumber}
                       title={hasTrackingNumber ? "Cannot save: order has tracking number" : undefined}
                       className={`
                         flex items-center gap-1.5 px-3 py-1.5 rounded-lg

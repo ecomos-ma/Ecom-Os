@@ -13,7 +13,11 @@ import type { Workspace, Profile } from "./types";
  * Check if the Shipping module is enabled for a workspace
  */
 export function isShippingModuleEnabled(workspace: Workspace | null | undefined): boolean {
-  return workspace?.shipping_enabled === true;
+  // `shipping_enabled` was introduced after existing workspaces were already
+  // in production.  The database default is ON, so an older row or a
+  // temporarily stale workspace payload that does not include the column must
+  // retain that same default.  Only an explicit `false` disables Shipping.
+  return workspace != null && workspace.shipping_enabled !== false;
 }
 
 /**

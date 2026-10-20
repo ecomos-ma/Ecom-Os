@@ -70,6 +70,10 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
+[functions.meta-media-upload]
+enabled = true
+verify_jwt = false
+
 [functions.meta-rules]
 enabled = true
 verify_jwt = false

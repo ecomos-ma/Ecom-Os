@@ -13,14 +13,24 @@ import { toast } from "../components/Toast";
 import type { WorkspaceInvitation, TeamRole } from "../lib/types";
 import { getUserInitials } from "../services/avatarService";
 import { CallReviewPanel } from "./confirmation/CallReviewPanel";
-import { assignConfirmationOrders, loadAssignmentMode, reconcileSeparatedAssignments, savePaymentRule, setAssignmentMode, type AssignmentMode } from "../services/agentPayrollService";
+import { AgentCompensationEditor } from "./team/AgentCompensationEditor";
+import {
+  assignConfirmationOrders,
+  loadConfirmationAssignmentSettings,
+  reconcileSeparatedAssignments,
+  runConfirmationDistribution,
+  saveConfirmationDistributionSettings,
+  setAssignmentMode,
+  type AssignmentMode,
+  type ConfirmationDistributionMode,
+} from "../services/agentPayrollService";
 import {
   UserPlus, Clock, X, Send, CheckCircle, XCircle, Trash2, Edit3, Lock,
   Unlock, Users, Trophy, Activity, LayoutDashboard, Shield, Star,
   Coffee, AlertCircle, ChevronRight,
   Search, RefreshCw, Award, Zap, Target, BarChart2, MessageSquare,
   Copy, Link2, MonitorUp, Headphones, Mic, PhoneCall, Timer,
-  PhoneIncoming, RotateCcw, Inbox, CircleAlert, CalendarClock, Package, BadgeDollarSign,
+  PhoneIncoming, RotateCcw, Inbox, CircleAlert, CalendarClock, Package, Save,
 } from "lucide-react";
 
 async function invitationFunctionError(error: unknown, data: any) {
@@ -77,7 +87,7 @@ function canReceiveConfirmationWork(member: TeamMember) {
 }
 
 function isAssignableConfirmationOrder(status: string | null | undefined) {
-  return !["cancelled", "confirmed", "shipped", "delivered", "returned", "refused", "blacklisted", "duplicate", "out_of_stock"].includes(
+  return ["new", "pending", "scheduled", "busy", "no_answer", "unreachable", "wrong_number"].includes(
     String(status ?? "pending").trim().toLowerCase(),
   );
 }
@@ -242,17 +252,17 @@ function MemberCard({
 
       <div className="grid grid-cols-2 gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-          <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">Conv. rate</div>
+          <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">Confirmation rate</div>
           <div className="flex items-center gap-3">
             <PercentRing value={conversionRate} tone="violet" />
-            <div><div className="text-[19px] font-bold text-slate-800 dark:text-white">{Math.round(conversionRate)}%</div><div className="text-[9px] text-slate-500">{perf?.confirmed ?? 0} / {perf?.total_assigned ?? 0} confirmed</div></div>
+            <div><div className="text-[19px] font-bold text-slate-800 dark:text-white">{conversionRate.toFixed(1)}%</div><div className="text-[9px] text-slate-500">{perf?.confirmed ?? 0} / {perf?.total_assigned ?? 0} assigned orders confirmed</div></div>
           </div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/60">
           <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">Delivery rate</div>
           <div className="flex items-center gap-3">
             <PercentRing value={deliveryRate} />
-            <div><div className="text-[19px] font-bold text-slate-800 dark:text-white">{Math.round(deliveryRate)}%</div><div className="text-[9px] text-slate-500">Delivered orders</div></div>
+            <div><div className="text-[19px] font-bold text-slate-800 dark:text-white">{deliveryRate.toFixed(1)}%</div><div className="text-[9px] text-slate-500">{perf?.delivered ?? 0} / {perf?.confirmed ?? 0} confirmed orders delivered</div></div>
           </div>
         </div>
       </div>
@@ -282,9 +292,9 @@ function MemberCard({
           <AgentMetric label="Delivered" value={perf?.delivered ?? 0} icon={<CheckCircle size={14} className="text-emerald-500" />} tone="bg-emerald-50/80 dark:bg-emerald-500/10" />
           <AgentMetric label="In delivery" value={perf?.in_delivery ?? 0} icon={<Package size={14} className="text-sky-500" />} tone="bg-sky-50/80 dark:bg-sky-500/10" />
           <AgentMetric label="Returned" value={perf?.returned ?? 0} icon={<RotateCcw size={14} className="text-amber-500" />} tone="bg-amber-50/80 dark:bg-amber-500/10" />
-          <AgentMetric label="Delivery rate" value={`${Math.round(deliveryRate)}%`} icon={<Target size={14} className="text-violet-500" />} tone="bg-violet-50/80 dark:bg-violet-500/10" />
+          <AgentMetric label="Delivery rate" value={`${deliveryRate.toFixed(1)}%`} icon={<Target size={14} className="text-violet-500" />} tone="bg-violet-50/80 dark:bg-violet-500/10" />
         </div>
-        <div className="px-4 pb-3 text-[10px] text-ink-muted">Shipping figures are based on the latest delivery and carrier status stored for this agent’s assigned orders.</div>
+        <div className="px-4 pb-3 text-[10px] text-ink-muted">Delivered ÷ confirmed orders assigned to this agent. Both delivery status fields are checked; pending deliveries remain in the denominator.</div>
       </>}
 
       <div className="flex items-center justify-between border-t border-slate-200 px-4 py-2.5 text-[10px] dark:border-slate-700">
@@ -303,7 +313,8 @@ export default function Team() {
   const navigate = useNavigate();
   const {
     members, invitations, activityLog, performanceMap, loading,
-    reload, updateMemberStatus, updateMemberRole, removeMember, assignOrder, autoAssignConfirmationOrders, setInvitations,
+    reload, updateMemberStatus, updateMemberRole, removeMember, assignOrder, assignOrders,
+    distributeOnlineConfirmationOrders, setInvitations,
   } = useTeamData();
 
   const isOwner = profile?.role === "founder" || profile?.role === "owner";
@@ -334,22 +345,27 @@ export default function Team() {
   const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
 
   // Assignment
-  const [assignMode, setAssignMode] = useState<"manual" | "auto" | "roundrobin">("manual");
   const [assignLoadingId, setAssignLoadingId] = useState<string | null>(null);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [bulkAgentId, setBulkAgentId] = useState("");
   const [confirmationAssignmentMode, setConfirmationAssignmentMode] = useState<AssignmentMode>("shared");
+  const [confirmationDistributionMode, setConfirmationDistributionMode] = useState<ConfirmationDistributionMode>("automatic_equal");
+  const [smartBatchSize, setSmartBatchSize] = useState(3);
+  const [offlineGraceSeconds, setOfflineGraceSeconds] = useState(180);
+  const [workLeaseSeconds, setWorkLeaseSeconds] = useState(180);
+  const [savingDistributionMode, setSavingDistributionMode] = useState(false);
   const [exclusiveRecipient, setExclusiveRecipient] = useState<"agent" | "whatsapp_automation">("agent");
   const [exclusiveAgentId, setExclusiveAgentId] = useState("");
   const [exclusiveQuantity, setExclusiveQuantity] = useState("20");
   const [exclusiveOrderIds, setExclusiveOrderIds] = useState<Set<string>>(new Set());
-  const [memberRules, setMemberRules] = useState<Array<{ id: string; name: string; enabled: boolean }>>([]);
-  const [paymentRuleName, setPaymentRuleName] = useState("Delivered-order commission");
-  const [paymentRuleType, setPaymentRuleType] = useState("per_delivered_order");
-  const [paymentRuleAmount, setPaymentRuleAmount] = useState("10");
-  const [savingPaymentRule, setSavingPaymentRule] = useState(false);
   // Keep assignment on the exact same workspace-wide source as the Orders
   // page. A separate assignment query can drift or be filtered differently.
-  const unassignedOrders = useMemo(() => globalOrders
-    .filter((order) => !order.assigned_to && !exclusiveOrderIds.has(order.id) && isAssignableConfirmationOrder(order.status)), [globalOrders, exclusiveOrderIds]);
+  const assignableOrders = useMemo(() => globalOrders
+    .filter((order) => !exclusiveOrderIds.has(order.id) && isAssignableConfirmationOrder(order.status)), [globalOrders, exclusiveOrderIds]);
+  const unassignedOrderCount = useMemo(
+    () => assignableOrders.filter((order) => !order.assigned_to).length,
+    [assignableOrders],
+  );
 
   const reloadExclusiveRecipients = async () => {
     if (!workspace?.id) return;
@@ -359,13 +375,21 @@ export default function Team() {
 
   useEffect(() => {
     if (!workspace?.id || !isOwner) return;
-    void Promise.all([loadAssignmentMode(workspace.id).then(setConfirmationAssignmentMode).catch(() => setConfirmationAssignmentMode("shared")), reloadExclusiveRecipients()]);
+    void Promise.all([
+      loadConfirmationAssignmentSettings(workspace.id).then((settings) => {
+        setConfirmationAssignmentMode(settings.assignmentMode);
+        setConfirmationDistributionMode(settings.distributionMode);
+        setSmartBatchSize(settings.smartBatchSize);
+        setOfflineGraceSeconds(settings.offlineGraceSeconds);
+        setWorkLeaseSeconds(settings.workLeaseSeconds);
+      }).catch(() => {
+        setConfirmationAssignmentMode("shared");
+        setConfirmationDistributionMode("automatic_equal");
+      }),
+      reloadExclusiveRecipients(),
+    ]);
   }, [workspace?.id, isOwner]);
 
-  useEffect(() => {
-    if (!workspace?.id || !isOwner || !selectedMember?.id) { setMemberRules([]); return; }
-    void supabase.from("agent_payment_rules").select("id,name,enabled").eq("workspace_id", workspace.id).eq("agent_id", selectedMember.id).order("created_at", { ascending: false }).then(({ data }) => setMemberRules((data ?? []) as typeof memberRules));
-  }, [workspace?.id, isOwner, selectedMember?.id]);
 
   // ── Derived ──────────────────────────────────────────────────────────────
 
@@ -381,6 +405,9 @@ export default function Team() {
   const totalConfirmed = Object.values(performanceMap).reduce((s, p) => s + p.confirmed, 0);
   const teamConversionRate = totalAssignedOrders > 0 ? (totalConfirmed / totalAssignedOrders) * 100 : 0;
   const assignmentAgents = members.filter(canReceiveConfirmationWork);
+  const onlineAssignmentAgents = assignmentAgents.filter((member) => member.agent_status === "online");
+  const onlineShare = onlineAssignmentAgents.length ? 100 / onlineAssignmentAgents.length : 0;
+  const selectedAssignableOrders = assignableOrders.filter((order) => selectedOrderIds.has(order.id));
   const pendingInvitationCount = invitations.filter((invitation: any) => invitation.status === "pending").length;
   const auditStart = auditDay === "today" ? localDayStart() : localDayStart(1);
   const auditEnd = auditDay === "today" ? Date.now() : localDayStart();
@@ -392,6 +419,15 @@ export default function Team() {
   const leaderboard = [...members]
     .map(m => ({ member: m, perf: performanceMap[m.id] }))
     .sort((a, b) => (b.perf?.confirmation_rate ?? 0) - (a.perf?.confirmation_rate ?? 0));
+
+  useEffect(() => {
+    const availableIds = new Set(assignableOrders.map((order) => order.id));
+    setSelectedOrderIds((current) => {
+      const next = new Set(Array.from(current).filter((orderId) => availableIds.has(orderId)));
+      if (next.size === current.size && Array.from(next).every((orderId) => current.has(orderId))) return current;
+      return next;
+    });
+  }, [assignableOrders]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -529,43 +565,117 @@ export default function Team() {
     }
   };
 
-  const handleAutoDistribute = async () => {
-    if (!workspace?.id) return;
-    if (!window.confirm(`Auto-assign available confirmation orders across ${assignmentAgents.length} eligible agents (up to 20 active orders per agent)?`)) return;
-    setAssignLoadingId("auto");
+  const handleBulkAssign = async () => {
+    if (!workspace?.id || !bulkAgentId || selectedAssignableOrders.length === 0) return;
+    const target = assignmentAgents.find((member) => member.id === bulkAgentId);
+    if (!target) { toast.error("Choose an eligible non-owner agent."); return; }
+    setAssignLoadingId("bulk-manual");
     try {
-      if (!assignmentAgents.length) throw new Error("Add an active agent with Confirmation access before assigning orders.");
-      let result = await autoAssignConfirmationOrders(20);
-      const hasAvailableSlot = assignmentAgents.some((member) =>
-        (performanceMap[member.id]?.active_count ?? 0) < member.max_active_orders,
-      );
-      // The direct fallback keeps existing live workspaces usable until the
-      // assignment RPC is available. It assigns in round-robin order, so two
-      // agents get a 50/50 batch; as one completes orders, their free slot is
-      // filled first on the next auto-distribute run.
-      if (result?.assigned_count === undefined || (Number(result?.assigned_count ?? 0) === 0 && hasAvailableSlot && unassignedOrders.length > 0)) {
-        const eligible = [...assignmentAgents]
-          .sort((left, right) => (performanceMap[left.id]?.active_count ?? 0) - (performanceMap[right.id]?.active_count ?? 0));
-        const slots = new Map(eligible.map((member) => [member.id, Math.max(0, Math.min(20, member.max_active_orders) - (performanceMap[member.id]?.active_count ?? 0))]));
-        let assigned = 0;
-        let cursor = 0;
-        for (const order of unassignedOrders) {
-          const nextAgent = Array.from(
-            { length: eligible.length },
-            (_, offset) => eligible[(cursor + offset) % eligible.length],
-          ).find((member) => (slots.get(member.id) ?? 0) > 0);
-          if (!nextAgent) break;
-          const nextIndex = eligible.indexOf(nextAgent);
-          await assignOrder(order.id, nextAgent.id);
-          slots.set(nextAgent.id, (slots.get(nextAgent.id) ?? 1) - 1);
-          cursor = (nextIndex + 1) % eligible.length;
-          assigned += 1;
+      await assignOrders(selectedAssignableOrders.map((order) => order.id), target.id);
+      await Promise.all([reload(), reloadGlobalOrders(true)]);
+      setSelectedOrderIds(new Set());
+      toast.success(`${selectedAssignableOrders.length} order${selectedAssignableOrders.length === 1 ? "" : "s"} assigned to ${target.full_name || target.email}.`);
+    } catch (error: any) {
+      toast.error(error?.message || "Selected orders could not be assigned.");
+    } finally {
+      setAssignLoadingId(null);
+    }
+  };
+
+  const handleDistributionModeChange = async (mode: ConfirmationDistributionMode, nextBatchSize = smartBatchSize) => {
+    if (!workspace?.id || savingDistributionMode) return;
+    const batchSize = Math.max(1, Math.min(50, Math.floor(nextBatchSize || 3)));
+    setSavingDistributionMode(true);
+    try {
+      await saveConfirmationDistributionSettings(workspace.id, {
+        distributionMode: mode,
+        smartBatchSize: batchSize,
+        offlineGraceSeconds,
+        workLeaseSeconds,
+      });
+      setConfirmationDistributionMode(mode);
+      setSmartBatchSize(batchSize);
+      toast.success(mode === "manual"
+        ? "Manual assignment is active. Automatic assignment is paused."
+        : mode === "automatic_smart"
+          ? `Smart assignment is active with batches of ${batchSize}.`
+          : "Equal online assignment is active.");
+      if (mode !== "manual" && confirmationAssignmentMode === "shared") {
+        const result = await runConfirmationDistribution(workspace.id);
+        await Promise.all([reload(), reloadGlobalOrders(true)]);
+        if (Number(result.assigned_count || 0) > 0) {
+          toast.success(`${result.assigned_count} open order${result.assigned_count === 1 ? "" : "s"} assigned with the new mode.`);
         }
-        result = { assigned_count: assigned };
       }
-      await reload();
-      const assigned = Number(result?.assigned_count ?? 0);
-      toast.success(assigned ? `${assigned} orders assigned fairly (up to 20 open orders per agent).` : "All eligible agents are at capacity or no unassigned confirmation orders remain.");
+    } catch (error: any) {
+      toast.error(error?.message || "Assignment settings could not be saved.");
+    } finally {
+      setSavingDistributionMode(false);
+    }
+  };
+
+  const handleAutoDistribute = async (selectedOnly = false) => {
+    if (!workspace?.id) return;
+    if (confirmationDistributionMode === "manual") {
+      toast.error("Automatic distribution is paused in Manual mode.");
+      return;
+    }
+    if (confirmationDistributionMode === "automatic_smart" && selectedOnly) {
+      toast.error("Smart mode fills protected agent batches. Use manual assignment for a selected set.");
+      return;
+    }
+    const targetOrders = selectedOnly ? selectedAssignableOrders : assignableOrders;
+    if (targetOrders.length === 0) { toast.error(selectedOnly ? "Select at least one order." : "There are no confirmation orders to balance."); return; }
+    if (!onlineAssignmentAgents.length) { toast.error("No non-owner confirmation agent is online."); return; }
+    const actionLabel = selectedOnly ? `${targetOrders.length} selected order${targetOrders.length === 1 ? "" : "s"}` : `all ${targetOrders.length} open confirmation orders`;
+    const confirmationCopy = confirmationDistributionMode === "automatic_smart"
+      ? `Fill each online agent's protected queue up to ${smartBatchSize} order${smartBatchSize === 1 ? "" : "s"}? Manual, opened, called, and callback orders will not move.`
+      : `Split ${actionLabel} equally across ${onlineAssignmentAgents.length} online agent${onlineAssignmentAgents.length === 1 ? "" : "s"}? Manual, opened, and callback orders will not move.`;
+    if (!window.confirm(confirmationCopy)) return;
+    setAssignLoadingId(selectedOnly ? "bulk-auto" : "auto");
+    try {
+      const orderIds = targetOrders.map((order) => order.id);
+      let result: {
+        assigned_count: number;
+        online_agent_count?: number;
+        share_percent?: number;
+        smart_batch_size?: number;
+        reason?: string;
+      } | null = null;
+      try {
+        result = await runConfirmationDistribution(workspace.id, selectedOnly ? orderIds : undefined);
+      } catch (distributionError: any) {
+        const message = `${distributionError?.code || ""} ${distributionError?.message || ""}`.toLowerCase();
+        const migrationPending = distributionError?.code === "PGRST202" || message.includes("could not find the function") || message.includes("schema cache");
+        if (!migrationPending) throw distributionError;
+        result = await distributeOnlineConfirmationOrders(selectedOnly ? orderIds : undefined, !selectedOnly);
+      }
+
+      // Keep the owner workflow usable while the new migration propagates.
+      // The fallback uses the same deterministic N-way split and never adds
+      // the owner or an offline member to the target set.
+      if (!result) {
+        const groups = new Map(onlineAssignmentAgents.map((member) => [member.id, [] as string[]]));
+        orderIds.forEach((orderId, index) => {
+          const target = onlineAssignmentAgents[index % onlineAssignmentAgents.length];
+          groups.get(target.id)?.push(orderId);
+        });
+        let changed = 0;
+        for (const [agentId, ids] of groups) {
+          if (ids.length === 0) continue;
+          await assignOrders(ids, agentId);
+          changed += ids.length;
+        }
+        result = { assigned_count: changed, online_agent_count: onlineAssignmentAgents.length, share_percent: onlineShare };
+      }
+      if (!result) throw new Error("The distribution service did not return a result.");
+      await Promise.all([reload(), reloadGlobalOrders(true)]);
+      if (selectedOnly) setSelectedOrderIds(new Set());
+      const changed = Number(result.assigned_count ?? 0);
+      const split = Number(result.online_agent_count || onlineAssignmentAgents.length);
+      toast.success(changed > 0
+        ? `${changed} assignment${changed === 1 ? "" : "s"} updated across ${split} online agent${split === 1 ? "" : "s"}.`
+        : `Queue is already balanced across ${split} online agent${split === 1 ? "" : "s"}.`);
     } catch (error: any) {
       toast.error(error?.message || "Automatic assignment failed.");
     } finally {
@@ -607,24 +717,6 @@ export default function Team() {
       toast.success(`${result.assigned_count} of ${result.requested_count} eligible orders assigned to ${exclusiveRecipient === "agent" ? "the agent" : "WhatsApp Automation"}.`);
     } catch (error: any) { toast.error(error?.message || "Exclusive assignment could not be completed."); }
     finally { setAssignLoadingId(null); }
-  };
-
-  const handleSavePaymentRule = async () => {
-    if (!workspace?.id || !selectedMember?.id) return;
-    const amount = Number(paymentRuleAmount);
-    if (!paymentRuleName.trim() || !Number.isFinite(amount) || amount < 0) { toast.error("Enter a rule name and a valid amount."); return; }
-    setSavingPaymentRule(true);
-    try {
-      await savePaymentRule(workspace.id, selectedMember.id, null, paymentRuleName, true, {
-        rule_type: paymentRuleType, metric: paymentRuleType === "avg_answer_time_bonus" ? "avg_answer_seconds" : "order",
-        operator: paymentRuleType === "avg_answer_time_bonus" ? "lt" : null, threshold: paymentRuleType === "avg_answer_time_bonus" ? 30 : null,
-        minimum_sample_size: paymentRuleType === "avg_answer_time_bonus" ? 10 : 0, amount_type: paymentRuleType === "upsell" ? "percentage" : "fixed",
-        amount, period: paymentRuleType === "fixed_salary" || paymentRuleType === "avg_answer_time_bonus" ? "invoice" : "order", effective_from: new Date().toISOString().slice(0, 10),
-      });
-      const { data } = await supabase.from("agent_payment_rules").select("id,name,enabled").eq("workspace_id", workspace.id).eq("agent_id", selectedMember.id).order("created_at", { ascending: false });
-      setMemberRules((data ?? []) as typeof memberRules); toast.success("Payment rule version saved.");
-    } catch (error: any) { toast.error(error?.message || "Payment rule could not be saved."); }
-    finally { setSavingPaymentRule(false); }
   };
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -816,92 +908,216 @@ export default function Team() {
               <button onClick={() => void handleExclusiveAssignment()} disabled={assignLoadingId === "exclusive"} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-semibold text-white disabled:opacity-60"><Target size={15} />{assignLoadingId === "exclusive" ? "Assigning…" : "Assign available"}</button>
             </div><button onClick={() => void reconcileToSharedMode()} className="mt-3 text-xs font-semibold text-amber-700 hover:text-amber-800">Reconcile active recipients and return to Normal / Shared mode</button></>}
           </section>}
-          {/* Mode selector */}
-          <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl border border-base-border bg-base-surface/80">
-            <span className="text-[13px] font-semibold text-ink">Distribution Mode:</span>
-            <div className="flex max-w-full flex-wrap bg-base-raised/80 rounded-xl p-1 gap-1">
-              {(["manual", "auto", "roundrobin"] as const).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => setAssignMode(mode)}
-                  className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all capitalize ${assignMode === mode ? "bg-brand text-white shadow-sm" : "text-ink-muted hover:text-ink"}`}
-                >
-                  {mode === "roundrobin" ? "Round Robin" : mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </button>
-              ))}
-            </div>
-            {assignMode === "auto" && (
-              <button
-                onClick={handleAutoDistribute}
-                   className="flex items-center gap-1.5 rounded-xl bg-emerald-500/15 text-emerald-700 px-3 py-2 text-[12.5px] font-medium hover:bg-emerald-500/25 md:ml-auto"
-              >
-                <Zap size={13} className={assignLoadingId === "auto" ? "animate-pulse" : ""} /> {assignLoadingId === "auto" ? "Assigning…" : "Auto-balance queue · Assign up to 20 / agent"}
-              </button>
-            )}
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Unassigned orders */}
-            <div className="rounded-2xl border border-base-border bg-base-surface/80 overflow-hidden">
-              <div className="px-4 py-3 border-b border-base-border flex items-center justify-between">
-                <span className="text-[13px] font-semibold text-ink flex items-center gap-2">
-                  <AlertCircle size={14} className="text-amber-400" /> Unassigned Orders ({unassignedOrders.length})
-                </span>
+          {isOwner && confirmationAssignmentMode === "shared" && (
+            <section className="rounded-2xl border border-base-border bg-base-surface p-4 shadow-sm">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h2 className="text-sm font-bold text-ink">Human assignment strategy</h2>
+                  <p className="mt-1 max-w-2xl text-xs leading-5 text-ink-muted">Choose one server-enforced strategy. Owners are excluded from automatic queues and manual assignments are protected from automatic movement.</p>
+                </div>
+                {savingDistributionMode && <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand"><RefreshCw size={13} className="animate-spin" /> Saving strategy</span>}
               </div>
-              <div className="max-h-[400px] overflow-y-auto divide-y divide-base-border/50">
-                {unassignedOrders.length === 0 ? (
-                  <div className="py-12"><EmptyState title="No unassigned orders 🎉" description="All confirmed orders are currently assigned to agents." compact /></div>
-                ) : unassignedOrders.map(order => (
-                   <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                     <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-ink">#{order.order_number}</div>
-                      <div className="text-[11px] text-ink-muted">{order.city || "—"} · {Number(order.total).toLocaleString()} MAD</div>
-                    </div>
-                    {assignMode === "manual" && (
-                      <select
-                        defaultValue=""
-                        onChange={e => { if (e.target.value) handleAssignOrder(order.id, e.target.value); }}
-                         className="min-h-11 max-w-full rounded-lg border border-base-border bg-base-raised px-2 py-1.5 text-[12px] text-ink focus:outline-none"
-                        disabled={assignLoadingId === order.id}
-                      >
-                        <option value="">Assign to…</option>
-                        {assignmentAgents.map(m => (
-                          <option key={m.id} value={m.id}>
-                            {m.full_name || m.email} ({performanceMap[m.id]?.active_count ?? 0} active)
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {assignLoadingId === order.id && <RefreshCw size={13} className="animate-spin text-ink-muted" />}
-                  </div>
+              <div className="mt-4 grid gap-2 md:grid-cols-3">
+                {([
+                  { id: "manual" as const, title: "Manual", copy: "You assign single or selected orders. Nothing moves automatically." },
+                  { id: "automatic_equal" as const, title: "Automatic Equal", copy: "All open auto-managed work is balanced across agents who are online now." },
+                  { id: "automatic_smart" as const, title: "Automatic Smart", copy: "Each online agent gets a strict batch; genuine terminal outcomes trigger a safe refill." },
+                ]).map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    disabled={savingDistributionMode}
+                    onClick={() => void handleDistributionModeChange(mode.id)}
+                    className={`rounded-xl border p-3 text-left transition-all disabled:opacity-60 ${confirmationDistributionMode === mode.id ? "border-brand/40 bg-brand/[0.07] ring-1 ring-brand/15" : "border-base-border bg-base-raised/35 hover:border-brand/25"}`}
+                  >
+                    <span className="flex items-center justify-between gap-2 text-[12.5px] font-bold text-ink"><span>{mode.title}</span>{confirmationDistributionMode === mode.id && <CheckCircle size={14} className="text-brand" />}</span>
+                    <span className="mt-1.5 block text-[10.5px] leading-4 text-ink-muted">{mode.copy}</span>
+                  </button>
                 ))}
               </div>
+              {confirmationDistributionMode === "automatic_smart" && (
+                <div className="mt-3 flex flex-col gap-3 rounded-xl border border-violet-500/15 bg-violet-500/[0.05] p-3 sm:flex-row sm:items-end">
+                  <label className="text-[11px] font-semibold text-ink-muted">Orders per active batch
+                    <input type="number" min={1} max={50} value={smartBatchSize} onChange={(event) => setSmartBatchSize(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} className="mt-1.5 h-10 w-full rounded-lg border border-base-border bg-base-surface px-3 text-sm text-ink sm:w-36" />
+                  </label>
+                  <button type="button" disabled={savingDistributionMode} onClick={() => void handleDistributionModeChange("automatic_smart", smartBatchSize)} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white disabled:opacity-60"><Save size={13} /> Apply batch size</button>
+                  <p className="max-w-2xl text-[10.5px] leading-4 text-ink-muted">Only untouched Smart orders can transfer from a slower queue. Open work, calls, callbacks, completed work, and manual assignments stay protected.</p>
+                </div>
+              )}
+            </section>
+          )}
+          <section className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/[0.07] via-base-surface to-base-surface">
+            <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/15 text-emerald-600"><Zap size={18} /></div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-[13px] font-bold text-ink">{confirmationDistributionMode === "automatic_smart" ? "Live Smart batches" : confirmationDistributionMode === "manual" ? "Manual queue" : "Live equal distribution"}</h2>
+                    <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase ${onlineAssignmentAgents.length ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"}`}>
+                      {onlineAssignmentAgents.length} agent{onlineAssignmentAgents.length === 1 ? "" : "s"} online
+                    </span>
+                  </div>
+                  <p className="mt-1 max-w-3xl text-[11.5px] leading-5 text-ink-muted">
+                    {confirmationDistributionMode === "manual"
+                      ? "Automatic assignment is paused. Use the queue controls below to assign single or selected orders."
+                      : confirmationDistributionMode === "automatic_smart"
+                        ? `Each online agent receives up to ${smartBatchSize} protected orders. A genuine completed outcome refills the fastest agent without taking active or callback work.`
+                        : "New confirmation orders go to online team agents only. The workspace owner is never counted: 1 agent receives 100%, 2 receive 50% each, and 4 receive 25% each."}
+                  </p>
+                </div>
+              </div>
+              {isAdmin && (
+                <button
+                  onClick={() => void handleAutoDistribute(false)}
+                  disabled={assignLoadingId !== null || onlineAssignmentAgents.length === 0 || confirmationAssignmentMode !== "shared" || confirmationDistributionMode === "manual"}
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-[12px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {assignLoadingId === "auto" ? <RefreshCw size={14} className="animate-spin" /> : <BarChart2 size={14} />}
+                  {assignLoadingId === "auto" ? "Applying…" : confirmationDistributionMode === "automatic_smart" ? "Fill smart batches" : "Balance all open orders"}
+                </button>
+              )}
+            </div>
+            {onlineAssignmentAgents.length > 0 && (
+              <div className="flex flex-wrap gap-2 border-t border-emerald-500/15 px-4 py-3">
+                {onlineAssignmentAgents.map((member) => (
+                  <span key={member.id} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-base-surface/80 px-2.5 py-1.5 text-[10.5px] font-semibold text-ink">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {member.full_name || member.email}
+                    <span className="text-emerald-600">{Number.isInteger(onlineShare) ? onlineShare : onlineShare.toFixed(1)}%</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {confirmationAssignmentMode !== "shared" && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-[11.5px] text-amber-700">
+              <AlertCircle size={15} className="mt-0.5 shrink-0" /> Live distribution and bulk controls pause while Separated mode is active. Use the recipient controls above or reconcile back to Normal / Shared.
+            </div>
+          )}
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.75fr)]">
+            <div className="overflow-hidden rounded-2xl border border-base-border bg-base-surface/80">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-border px-4 py-3">
+                <div>
+                  <span className="flex items-center gap-2 text-[13px] font-semibold text-ink">
+                    <Inbox size={14} className="text-brand" /> Confirmation queue ({assignableOrders.length})
+                  </span>
+                  <p className="mt-0.5 text-[10.5px] text-ink-muted">{unassignedOrderCount} unassigned · {assignableOrders.length - unassignedOrderCount} assigned</p>
+                </div>
+                {isAdmin && assignableOrders.length > 0 && (
+                  <label className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold text-ink-muted">
+                    <input
+                      type="checkbox"
+                      checked={selectedOrderIds.size === assignableOrders.length}
+                      onChange={(event) => setSelectedOrderIds(event.target.checked ? new Set(assignableOrders.map((order) => order.id)) : new Set())}
+                      disabled={confirmationAssignmentMode !== "shared"}
+                      className="h-4 w-4 rounded border-base-border accent-[var(--color-brand)]"
+                    />
+                    Select all
+                  </label>
+                )}
+              </div>
+
+              {isAdmin && (
+                <div className="flex flex-col gap-2 border-b border-base-border bg-base-raised/40 p-3 sm:flex-row sm:items-center">
+                  <span className="shrink-0 text-[11px] font-semibold text-ink">{selectedAssignableOrders.length} selected</span>
+                  <select
+                    value={bulkAgentId}
+                    onChange={(event) => setBulkAgentId(event.target.value)}
+                    disabled={confirmationAssignmentMode !== "shared" || selectedAssignableOrders.length === 0}
+                    className="min-h-10 min-w-0 flex-1 rounded-lg border border-base-border bg-base-surface px-3 text-[11.5px] text-ink outline-none disabled:opacity-50"
+                  >
+                    <option value="">Choose agent…</option>
+                    {assignmentAgents.map((member) => <option key={member.id} value={member.id}>{member.full_name || member.email} · {member.agent_status === "online" ? "Online" : "Offline"}</option>)}
+                  </select>
+                  <button
+                    onClick={() => void handleBulkAssign()}
+                    disabled={!bulkAgentId || selectedAssignableOrders.length === 0 || assignLoadingId !== null || confirmationAssignmentMode !== "shared"}
+                    className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-brand px-3 text-[11.5px] font-semibold text-white disabled:opacity-50"
+                  >
+                    {assignLoadingId === "bulk-manual" && <RefreshCw size={13} className="animate-spin" />} Assign selected
+                  </button>
+                  <button
+                    onClick={() => void handleAutoDistribute(true)}
+                    disabled={selectedAssignableOrders.length === 0 || onlineAssignmentAgents.length === 0 || assignLoadingId !== null || confirmationAssignmentMode !== "shared" || confirmationDistributionMode !== "automatic_equal"}
+                    className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 text-[11.5px] font-semibold text-emerald-700 disabled:opacity-50"
+                  >
+                    {assignLoadingId === "bulk-auto" ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />} Auto-split selected
+                  </button>
+                </div>
+              )}
+
+              <div className="max-h-[520px] divide-y divide-base-border/50 overflow-y-auto">
+                {assignableOrders.length === 0 ? (
+                  <div className="py-14"><EmptyState title="Queue is clear" description="New orders that need confirmation will appear here automatically." compact /></div>
+                ) : assignableOrders.map((order) => {
+                  const assignee = assignmentAgents.find((member) => member.id === order.assigned_to);
+                  return (
+                    <div key={order.id} className={`flex flex-wrap items-center gap-3 px-4 py-3 transition-colors ${selectedOrderIds.has(order.id) ? "bg-brand/[0.045]" : "hover:bg-base-raised/35"}`}>
+                      {isAdmin && (
+                        <input
+                          type="checkbox"
+                          checked={selectedOrderIds.has(order.id)}
+                          onChange={(event) => setSelectedOrderIds((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(order.id); else next.delete(order.id);
+                            return next;
+                          })}
+                          disabled={confirmationAssignmentMode !== "shared"}
+                          aria-label={`Select order ${order.order_number}`}
+                          className="h-4 w-4 shrink-0 rounded border-base-border accent-[var(--color-brand)]"
+                        />
+                      )}
+                      <div className="min-w-[150px] flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[12.5px] font-semibold text-ink">#{order.order_number}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${assignee ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"}`}>{assignee ? "Assigned" : "Unassigned"}</span>
+                        </div>
+                        <div className="mt-0.5 text-[10.5px] text-ink-muted">{order.city || "—"} · {Number(order.total).toLocaleString()} MAD{assignee ? ` · ${assignee.full_name || assignee.email}` : ""}</div>
+                      </div>
+                      {isAdmin && (
+                        <select
+                          value={assignee?.id ?? ""}
+                          onChange={(event) => { if (event.target.value) void handleAssignOrder(order.id, event.target.value); }}
+                          disabled={assignLoadingId !== null || confirmationAssignmentMode !== "shared"}
+                          className="min-h-10 max-w-full rounded-lg border border-base-border bg-base-raised px-2.5 text-[11px] text-ink outline-none disabled:opacity-50"
+                        >
+                          <option value="">Assign to…</option>
+                          {assignmentAgents.map((member) => <option key={member.id} value={member.id}>{member.full_name || member.email}{member.agent_status === "online" ? " · Online" : " · Offline"}</option>)}
+                        </select>
+                      )}
+                      {assignLoadingId === order.id && <RefreshCw size={13} className="animate-spin text-ink-muted" />}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Agent workload */}
-            <div className="rounded-2xl border border-base-border bg-base-surface/80 overflow-hidden">
-              <div className="px-4 py-3 border-b border-base-border">
-                <span className="text-[13px] font-semibold text-ink flex items-center gap-2">
-                  <BarChart2 size={14} className="text-brand" /> Agent Workload
-                </span>
+            <div className="overflow-hidden rounded-2xl border border-base-border bg-base-surface/80">
+              <div className="border-b border-base-border px-4 py-3">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-ink"><BarChart2 size={14} className="text-brand" /> Agent workload</span>
+                <p className="mt-1 text-[10.5px] text-ink-muted">Owners are excluded. Only green online agents receive automatic orders.</p>
               </div>
               <div className="divide-y divide-base-border/50">
-                {assignmentAgents.map(m => {
-                  const perf = performanceMap[m.id];
-                  const pct = perf ? Math.min(100, (perf.active_count / m.max_active_orders) * 100) : 0;
+                {assignmentAgents.length === 0 ? (
+                  <div className="py-12"><EmptyState title="No eligible agents" description="Invite an agent and grant Confirmation access." compact /></div>
+                ) : assignmentAgents.map((member) => {
+                  const assignedCount = assignableOrders.filter((order) => order.assigned_to === member.id).length;
+                  const isOnline = member.agent_status === "online";
                   return (
-                    <div key={m.id} className="flex items-center gap-3 px-4 py-3">
-                      <MemberAvatar member={m} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[12.5px] font-medium text-ink truncate">{m.full_name || m.email}</span>
-                          <span className="text-[11px] text-ink-muted ml-2 shrink-0">{perf?.active_count ?? 0}/{m.max_active_orders}</span>
+                    <div key={member.id} className="flex items-center gap-3 px-4 py-3.5">
+                      <MemberAvatar member={member} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="truncate text-[12px] font-semibold text-ink">{member.full_name || member.email}</span>
+                          <span className="shrink-0 text-[11px] font-bold text-ink">{assignedCount} open</span>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-base-raised overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${pct > 80 ? "bg-danger" : pct > 50 ? "bg-amber-400" : "bg-emerald-400"}`}
-                            style={{ width: `${pct}%` }}
-                          />
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-base-raised">
+                            <div className={`h-full rounded-full transition-all ${isOnline ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`} style={{ width: `${isOnline ? onlineShare : 0}%` }} />
+                          </div>
+                          <span className={`w-20 text-right text-[9.5px] font-semibold ${isOnline ? "text-emerald-600" : "text-ink-faint"}`}>{isOnline ? `${Number.isInteger(onlineShare) ? onlineShare : onlineShare.toFixed(1)}% target` : "Offline"}</span>
                         </div>
                       </div>
                     </div>
@@ -1078,13 +1294,8 @@ export default function Team() {
               </div>
             </div>
 
-            {isOwner && !selectedMember.is_owner && (
-              <div className="border-b border-base-border px-5 py-4">
-                <div className="flex items-start justify-between gap-3"><div><div className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Agent payment</div><p className="mt-1 text-[11px] leading-5 text-ink-muted">Founder-only compensation rules. Each save creates a version, so issued invoices keep their historical rate.</p></div><BadgeDollarSign size={17} className="text-brand" /></div>
-                <div className="mt-3 flex flex-wrap gap-1.5">{memberRules.length ? memberRules.map((rule) => <span key={rule.id} className={`rounded-full px-2.5 py-1 text-[10.5px] font-semibold ${rule.enabled ? "bg-emerald-500/10 text-emerald-700" : "bg-base-raised text-ink-muted"}`}>{rule.name}</span>) : <span className="text-[11px] text-ink-faint">No payment rules configured.</span>}</div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3"><input value={paymentRuleName} onChange={(event) => setPaymentRuleName(event.target.value)} placeholder="Rule name" className="rounded-lg border border-base-border bg-base-raised px-3 py-2 text-xs text-ink" /><select value={paymentRuleType} onChange={(event) => setPaymentRuleType(event.target.value)} className="rounded-lg border border-base-border bg-base-raised px-3 py-2 text-xs text-ink"><option value="per_delivered_order">Per delivered order</option><option value="per_confirmed_order">Per confirmed order</option><option value="upsell">Upsell percentage</option><option value="avg_answer_time_bonus">Answer-time bonus</option><option value="fixed_salary">Fixed salary</option></select><input value={paymentRuleAmount} onChange={(event) => setPaymentRuleAmount(event.target.value)} inputMode="decimal" placeholder="MAD" className="rounded-lg border border-base-border bg-base-raised px-3 py-2 text-xs text-ink" /></div>
-                <button onClick={() => void handleSavePaymentRule()} disabled={savingPaymentRule} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-60"><BadgeDollarSign size={14} />{savingPaymentRule ? "Saving…" : "Save payment rule version"}</button>
-              </div>
+            {isOwner && !selectedMember.is_owner && workspace?.id && (
+              <AgentCompensationEditor workspaceId={workspace.id} agentId={selectedMember.id} />
             )}
 
             {/* Manager-visible live route and consented call status */}
@@ -1105,6 +1316,17 @@ export default function Team() {
                   <Mic size={14} className={selectedMember.active_call ? "animate-pulse" : ""} />
                   {selectedMember.active_call ? "Agent is making a visible, permitted microphone recording now." : "No permitted microphone recording is active."}
                 </div>
+                {selectedMember.id !== profile?.id && ["agent", "supervisor"].includes(selectedMember.role) && <button
+                  type="button"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent("ecomos-watch-live", {
+                      detail: { agentId: selectedMember.id, agentName: selectedMember.full_name || selectedMember.email || "Agent" },
+                    }));
+                    setSelectedMember(null);
+                  }}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-105"
+                ><MonitorUp size={16} /> Request Watch Live</button>}
+                <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">The agent must accept each request and explicitly select the Ecom OS browser tab. Nothing is shared silently.</p>
                 <div className="mt-3 space-y-2">
                   {activityLog.filter((entry) => entry.profile_id === selectedMember.id).slice(0, 6).map((entry) => (
                     <div key={entry.id} className="flex items-center justify-between gap-3 text-[11px]">

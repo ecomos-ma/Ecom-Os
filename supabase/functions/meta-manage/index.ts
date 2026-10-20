@@ -263,6 +263,15 @@ Deno.serve(async (req) => {
       if (action === "delete_workflow" || action === "delete_rule") {
         const table =
           action === "delete_workflow" ? "meta_workflows" : "meta_rules";
+        if (action === "delete_workflow") {
+          const { data: owned } = await client.from("meta_workflows")
+            .select("created_by")
+            .eq("workspace_id", workspaceId)
+            .eq("id", request.entity_id)
+            .maybeSingle();
+          if (!owned || (owned.created_by && owned.created_by !== user.id))
+            throw new MetaError("Only the preset owner can delete it", 403, "permission");
+        }
         const { error } = await client
           .from(table)
           .delete()
@@ -274,12 +283,14 @@ Deno.serve(async (req) => {
       if (action === "duplicate_workflow") {
         const { data: existing } = await client
           .from("meta_workflows")
-          .select("name,description,configuration")
+          .select("name,description,configuration,created_by,visibility")
           .eq("workspace_id", workspaceId)
           .eq("id", request.entity_id)
           .maybeSingle();
         if (!existing)
           throw new MetaError("Workflow not found", 404, "validation");
+        if (existing.visibility !== "workspace" && existing.created_by !== user.id)
+          throw new MetaError("Workflow is private", 403, "permission");
         const { data, error } = await client
           .from("meta_workflows")
           .insert({
@@ -288,6 +299,8 @@ Deno.serve(async (req) => {
             name: `${existing.name} Copy`,
             description: existing.description,
             configuration: existing.configuration,
+            visibility: "private",
+            is_template: true,
           })
           .select("*")
           .single();
@@ -298,7 +311,7 @@ Deno.serve(async (req) => {
         action === "save_workflow" ? "meta_workflows" : "meta_rules";
       const allowed =
         action === "save_workflow"
-          ? ["name", "description", "configuration", "is_template"]
+          ? ["name", "description", "configuration", "is_template", "visibility"]
           : [
               "name",
               "entity_level",
@@ -317,7 +330,21 @@ Deno.serve(async (req) => {
       );
       if (!values.name)
         throw new MetaError("Name is required", 400, "validation");
-      const row = { ...values, workspace_id: workspaceId, created_by: user.id };
+      if (action === "save_workflow") {
+        if (values.visibility && !["private", "workspace"].includes(String(values.visibility)))
+          throw new MetaError("Invalid preset visibility", 400, "validation");
+        if (request.entity_id) {
+          const { data: owned } = await client.from("meta_workflows")
+            .select("created_by")
+            .eq("workspace_id", workspaceId)
+            .eq("id", request.entity_id)
+            .maybeSingle();
+          if (!owned || (owned.created_by && owned.created_by !== user.id))
+            throw new MetaError("Only the preset owner can edit it", 403, "permission");
+        }
+      }
+      const row = { ...values, workspace_id: workspaceId, created_by: user.id,
+        ...(action === "save_workflow" ? { visibility: values.visibility ?? "private" } : {}) };
       const query = request.entity_id
         ? client
             .from(table)

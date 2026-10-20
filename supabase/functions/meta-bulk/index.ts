@@ -1,5 +1,6 @@
 import {
   activeConnection,
+  activeLegacyConnection,
   authenticateRequest,
   corsHeaders,
   errorResponse,
@@ -70,6 +71,14 @@ function resolvedCreativeName(
         240,
       )
     : baseName;
+}
+
+function resolvedCampaignName(config: BulkLaunchConfiguration, jobId: string): string {
+  const base = replaceNamingVariables(
+    config.naming?.campaign ?? config.campaign?.name ?? "TEST {PRODUCT_NAME} {DATE}",
+    { productName: config.product_name, index: 0 },
+  );
+  return config.ads ? `${base.slice(0, 215)} [EcomOS ${jobId.slice(0, 8)}]` : base;
 }
 
 const providerNameCaches = new Map<string, Map<string, string>>();
@@ -156,13 +165,13 @@ async function authorizeLaunchConfiguration(
   if (pixelId) {
     const { data: pixel } = await client
       .from("meta_pixels")
-      .select("meta_pixel_id")
+      .select("meta_pixel_id,is_unavailable")
       .eq("workspace_id", workspaceId)
       .eq("connection_id", connectionId)
       .eq("ad_account_id", accountId)
       .eq("meta_pixel_id", pixelId)
       .maybeSingle();
-    if (!pixel)
+    if (!pixel || pixel.is_unavailable)
       throw new MetaError(
         "Selected Pixel is not authorized for this ad account",
         403,
@@ -179,6 +188,85 @@ async function authorizeLaunchConfiguration(
       "validation",
     );
   }
+  for (const ad of config.ads ?? []) {
+    try {
+      const destination = new URL(String(ad.destination_url ?? config.destination_url ?? ""));
+      if (!["http:", "https:"].includes(destination.protocol)) throw new Error();
+    } catch {
+      throw new MetaError("Every ad needs a valid destination URL", 400, "validation");
+    }
+  }
+}
+
+async function authorizeLegacyLaunchConfiguration(
+  token: string,
+  accountId: string,
+  config: BulkLaunchConfiguration & JsonObject,
+): Promise<void> {
+  const pageId = String(config.page_id ?? "").trim();
+  const pixelId = String(config.pixel_id ?? "").trim();
+  const instagramId = String(config.instagram_account_id ?? "").trim();
+  if (!/^\d{5,40}$/.test(pageId) || !/^\d{5,40}$/.test(pixelId))
+    throw new MetaError("A Page and Pixel are required", 400, "validation");
+  const [page, pixels] = await Promise.all([
+    metaRequest<JsonObject>(pageId, {
+      token, appSecretProof: false,
+      query: { fields: instagramId
+        ? "id,name,instagram_business_account{id},connected_instagram_account{id}"
+        : "id,name" },
+    }),
+    fetchAllPages<JsonObject>(`${accountId}/adspixels`, {
+      token, appSecretProof: false,
+      query: { fields: "id,is_unavailable", limit: 200 },
+    }).catch(() => [] as JsonObject[]),
+  ]);
+  if (String(page.id ?? "") !== pageId)
+    throw new MetaError("Selected Page is not available to this Meta token", 403, "permission");
+  if (instagramId) {
+    const linkedIds = [page.instagram_business_account, page.connected_instagram_account]
+      .map((value) => String(object(value).id ?? ""));
+    if (!linkedIds.includes(instagramId))
+      throw new MetaError("Instagram account is not linked to the selected Page", 403, "permission");
+  }
+  let pixelAuthorized = pixels.some((pixel) => String(pixel.id) === pixelId && pixel.is_unavailable !== true);
+  if (!pixelAuthorized) {
+    // Some manual tokens can read a Pixel directly but do not enumerate it
+    // through the ad account edge. Require Meta to confirm the account link;
+    // a pasted Pixel ID alone is never sufficient authorization.
+    try {
+      const [pixel, accounts] = await Promise.all([
+        metaRequest<JsonObject>(pixelId, {
+          token, appSecretProof: false, query: { fields: "id,is_unavailable" },
+        }),
+        fetchAllPages<JsonObject>(`${pixelId}/adaccounts`, {
+          token, appSecretProof: false, query: { fields: "id", limit: 200 },
+        }),
+      ]);
+      pixelAuthorized = String(pixel.id ?? "") === pixelId && pixel.is_unavailable !== true &&
+        accounts.some((account) => {
+          const id = String(account.id ?? "");
+          return id === accountId || `act_${id}` === accountId;
+        });
+    } catch {
+      pixelAuthorized = false;
+    }
+  }
+  if (!pixelAuthorized)
+    throw new MetaError("Selected Pixel is not available to this ad account", 403, "permission");
+  try {
+    const destination = new URL(String(config.destination_url ?? ""));
+    if (!["http:", "https:"].includes(destination.protocol)) throw new Error();
+    for (const ad of config.ads ?? []) {
+      const url = new URL(String(ad.destination_url ?? config.destination_url ?? ""));
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+    }
+  } catch {
+    throw new MetaError("A valid destination URL is required for every ad", 400, "validation");
+  }
+  if ((config.creatives ?? []).some((creative) => creative.source_url || (!creative.image_hash && !creative.video_id)))
+    throw new MetaError("Upload each creative directly to Meta before publishing", 400, "validation");
+  if (config.campaign?.id || (config.adsets ?? []).some((adset) => adset.id))
+    throw new MetaError("Legacy Launch Studio creates new campaigns and ad sets only", 400, "validation");
 }
 
 async function findByName(
@@ -187,6 +275,7 @@ async function findByName(
   edge: string,
   name: string,
   namespace: string,
+  useAppSecretProof = true,
 ): Promise<string | null> {
   const cacheKey = `${namespace}:${parent}:${edge}`;
   const cached = providerNameCaches.get(cacheKey);
@@ -196,6 +285,7 @@ async function findByName(
     {
       token,
       query: { fields: "id,name", limit: 500 },
+      appSecretProof: useAppSecretProof,
     },
   );
   const names = new Map(
@@ -212,18 +302,15 @@ async function ensureCampaign(
   accountId: string,
   config: BulkLaunchConfiguration,
   jobId: string,
+  useAppSecretProof = true,
 ): Promise<string> {
   if (config.campaign?.id) return String(config.campaign.id);
-  const name = replaceNamingVariables(
-    config.naming?.campaign ??
-      config.campaign?.name ??
-      "TEST {PRODUCT_NAME} {DATE}",
-    { productName: config.product_name, index: 0 },
-  );
-  const existing = await findByName(token, accountId, "campaigns", name, jobId);
+  const name = resolvedCampaignName(config, jobId);
+  const existing = await findByName(token, accountId, "campaigns", name, jobId, useAppSecretProof);
   if (existing) return existing;
   const result = await metaRequest<{ id?: string }>(`${accountId}/campaigns`, {
     token,
+    appSecretProof: useAppSecretProof,
     method: "POST",
     body: {
       name,
@@ -232,6 +319,9 @@ async function ensureCampaign(
       special_ad_categories: [],
       execution_options: [],
       buying_type: "AUCTION",
+      ...(config.budget_mode === "CBO"
+        ? { daily_budget: money(config.campaign?.daily_budget) }
+        : {}),
     },
   });
   if (!result.id)
@@ -253,6 +343,7 @@ async function ensureAdset(
   config: BulkLaunchConfiguration,
   plan: PlannedAd,
   jobId: string,
+  useAppSecretProof = true,
 ): Promise<string> {
   const candidate =
     config.adsets?.[plan.adset_index] ?? config.adsets?.[0] ?? {};
@@ -261,12 +352,14 @@ async function ensureAdset(
     config.naming?.adset ?? candidate.name ?? "Broad {PRODUCT_NAME} {INDEX}",
     { productName: config.product_name, index: plan.adset_index },
   );
-  const existing = await findByName(token, campaignId, "adsets", name, jobId);
+  const existing = await findByName(token, campaignId, "adsets", name, jobId, useAppSecretProof);
   if (existing) return existing;
   const payload: JsonObject = {
     name,
     campaign_id: campaignId,
-    daily_budget: money(candidate.daily_budget ?? 10),
+    ...(config.budget_mode === "CBO"
+      ? {}
+      : { daily_budget: money(candidate.daily_budget ?? 10) }),
     billing_event: "IMPRESSIONS",
     optimization_goal: "OFFSITE_CONVERSIONS",
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
@@ -276,6 +369,8 @@ async function ensureAdset(
       age_max: 65,
     },
     status: status(config.create_status),
+    ...(candidate.start_time ? { start_time: candidate.start_time } : {}),
+    ...(candidate.end_time ? { end_time: candidate.end_time } : {}),
   };
   const pixel = String((config as JsonObject).pixel_id ?? "");
   if (pixel)
@@ -287,6 +382,7 @@ async function ensureAdset(
     };
   const result = await metaRequest<{ id?: string }>(`${accountId}/adsets`, {
     token,
+    appSecretProof: useAppSecretProof,
     method: "POST",
     body: payload,
   });
@@ -309,6 +405,7 @@ async function ensureCreative(
   config: BulkLaunchConfiguration,
   plan: PlannedAd,
   jobId: string,
+  useAppSecretProof = true,
 ): Promise<{
   id: string;
   name: string;
@@ -316,13 +413,17 @@ async function ensureCreative(
   videoId?: string;
 }> {
   const creative = config.creatives?.[plan.creative_index] ?? {};
-  const name = resolvedCreativeName(config, plan);
+  const adConfig = config.ads?.[plan.index];
+  const name = adConfig
+    ? `${adConfig.name || `Ad ${plan.index + 1}`} Creative [${jobId.slice(0, 8)}:${plan.index + 1}]`.slice(0, 240)
+    : resolvedCreativeName(config, plan);
   const existing = await findByName(
     token,
     accountId,
     "adcreatives",
     name,
     jobId,
+    useAppSecretProof,
   );
   if (existing)
     return {
@@ -333,6 +434,8 @@ async function ensureCreative(
     };
   let imageHash = creative.image_hash;
   let videoId = creative.video_id;
+  if (!imageHash && !videoId && creative.source_url && !useAppSecretProof)
+    throw new MetaError("Legacy creatives must be uploaded directly to Meta", 400, "validation");
   if (!imageHash && !videoId && creative.source_url) {
     if (creative.media_type === "video")
       videoId = (
@@ -362,7 +465,7 @@ async function ensureCreative(
       "validation",
     );
   const raw = config as JsonObject;
-  const destination = String(raw.destination_url ?? "");
+  const destination = String(adConfig?.destination_url ?? raw.destination_url ?? "");
   const pageId = String(raw.page_id ?? "");
   if (!destination || !pageId)
     throw new MetaError(
@@ -370,9 +473,9 @@ async function ensureCreative(
       400,
       "validation",
     );
-  const primaryText =
+  const primaryText = adConfig?.primary_text ??
     config.primary_texts?.[plan.text_index] ?? String(raw.primary_text ?? "");
-  const headline =
+  const headline = adConfig?.headline ??
     config.headlines?.[plan.headline_index] ?? String(raw.headline ?? "");
   const attachment = videoId
     ? {
@@ -381,7 +484,7 @@ async function ensureCreative(
         title: headline,
         link_description: String(raw.description ?? ""),
         call_to_action: {
-          type: String(raw.call_to_action ?? "SHOP_NOW"),
+          type: String(adConfig?.call_to_action ?? raw.call_to_action ?? "SHOP_NOW"),
           value: { link: destination },
         },
       }
@@ -392,7 +495,7 @@ async function ensureCreative(
         name: headline,
         description: String(raw.description ?? ""),
         call_to_action: {
-          type: String(raw.call_to_action ?? "SHOP_NOW"),
+          type: String(adConfig?.call_to_action ?? raw.call_to_action ?? "SHOP_NOW"),
           value: { link: destination },
         },
       };
@@ -405,7 +508,7 @@ async function ensureCreative(
   };
   const result = await metaRequest<{ id?: string }>(
     `${accountId}/adcreatives`,
-    { token, method: "POST", body: { name, object_story_spec: story } },
+    { token, method: "POST", body: { name, object_story_spec: story }, appSecretProof: useAppSecretProof },
   );
   if (!result.id)
     throw new MetaError(
@@ -423,6 +526,7 @@ async function processLaunchItem(
   job: JsonObject,
   item: JsonObject,
   token: string,
+  legacy = false,
 ) {
   const config = object(job.configuration) as BulkLaunchConfiguration;
   const plan = object(item.payload) as unknown as PlannedAd;
@@ -448,7 +552,7 @@ async function processLaunchItem(
         "campaign",
         String(config.campaign.id),
       );
-    campaignId = await ensureCampaign(token, accountId, config, String(job.id));
+    campaignId = await ensureCampaign(token, accountId, config, String(job.id), !legacy);
     adsetId = await ensureAdset(
       token,
       accountId,
@@ -456,6 +560,7 @@ async function processLaunchItem(
       config,
       plan,
       String(job.id),
+      !legacy,
     );
   }
   const creativeResult = await ensureCreative(
@@ -465,10 +570,11 @@ async function processLaunchItem(
     config,
     plan,
     String(job.id),
+    !legacy,
   );
   const creativeId = creativeResult.id;
   const creative = config.creatives?.[plan.creative_index] ?? {};
-  const adName = replaceNamingVariables(
+  const adName = config.ads?.[plan.index]?.name || replaceNamingVariables(
     config.naming?.ad ?? "{PRODUCT_NAME} {CREATIVE_NAME} {INDEX}",
     {
       productName: config.product_name,
@@ -482,6 +588,7 @@ async function processLaunchItem(
     "ads",
     adName,
     String(job.id),
+    !legacy,
   );
   const adId =
     existing ??
@@ -499,6 +606,7 @@ async function processLaunchItem(
               "utm_source=facebook&utm_medium=paid_social",
           ),
         },
+        appSecretProof: !legacy,
       })
     ).id;
   if (!adId)
@@ -511,13 +619,21 @@ async function processLaunchItem(
   rememberProviderName(String(job.id), adsetId, "ads", adName, adId);
   const workspaceId = String(job.workspace_id);
   const createStatus = status(config.create_status);
+  if (legacy) {
+    if (!config.campaign?.id) {
+      await persist(client.from("meta_legacy_campaigns").upsert({
+        workspace_id: workspaceId,
+        connection_id: String(job.legacy_connection_id),
+        meta_campaign_id: campaignId,
+        campaign_name: resolvedCampaignName(config, String(job.id)),
+        status: createStatus,
+        budget: config.budget_mode === "CBO" ? config.campaign?.daily_budget ?? null : null,
+      }, { onConflict: "workspace_id,meta_campaign_id" }));
+    }
+    return { ad_id: adId, creative_id: creativeId, adset_id: adsetId, campaign_id: campaignId };
+  }
   if (!config.campaign?.id && !configuredAdset?.id) {
-    const campaignName = replaceNamingVariables(
-      config.naming?.campaign ??
-        config.campaign?.name ??
-        "TEST {PRODUCT_NAME} {DATE}",
-      { productName: config.product_name, index: 0 },
-    );
+    const campaignName = resolvedCampaignName(config, String(job.id));
     await persist(
       client.from("meta_campaigns").upsert(
         {
@@ -528,6 +644,8 @@ async function processLaunchItem(
           campaign_name: campaignName,
           status: createStatus,
           objective: config.campaign?.objective ?? "OUTCOME_SALES",
+          budget: config.budget_mode === "CBO" ? config.campaign?.daily_budget ?? null : null,
+          daily_budget: config.budget_mode === "CBO" ? config.campaign?.daily_budget ?? null : null,
         },
         { onConflict: "workspace_id,ad_account_id,meta_campaign_id" },
       ),
@@ -570,19 +688,20 @@ async function processLaunchItem(
         image_hash: creativeResult.imageHash ?? null,
         video_id: creativeResult.videoId ?? null,
         primary_text:
+          config.ads?.[plan.index]?.primary_text ??
           config.primary_texts?.[plan.text_index] ??
           String((config as JsonObject).primary_text ?? ""),
         headline:
+          config.ads?.[plan.index]?.headline ??
           config.headlines?.[plan.headline_index] ??
           String((config as JsonObject).headline ?? ""),
         description: String((config as JsonObject).description ?? ""),
-        call_to_action: String(
-          (config as JsonObject).call_to_action ?? "SHOP_NOW",
-        ),
+        call_to_action: String(config.ads?.[plan.index]?.call_to_action ??
+          (config as JsonObject).call_to_action ?? "SHOP_NOW"),
         destination_url:
-          String((config as JsonObject).destination_url ?? "") || null,
+          String(config.ads?.[plan.index]?.destination_url ?? (config as JsonObject).destination_url ?? "") || null,
         product_url:
-          String((config as JsonObject).destination_url ?? "") || null,
+          String(config.ads?.[plan.index]?.destination_url ?? (config as JsonObject).destination_url ?? "") || null,
         page_id: String((config as JsonObject).page_id ?? "") || null,
         instagram_account_id:
           String((config as JsonObject).instagram_account_id ?? "") || null,
@@ -602,7 +721,7 @@ async function processLaunchItem(
         name: adName,
         status: createStatus,
         destination_url:
-          String((config as JsonObject).destination_url ?? "") || null,
+          String(config.ads?.[plan.index]?.destination_url ?? (config as JsonObject).destination_url ?? "") || null,
       },
       { onConflict: "workspace_id,ad_account_id,meta_ad_id" },
     ),
@@ -881,21 +1000,34 @@ async function processJob(
     ["cancelled", "completed", "partial_failure", "failed"].includes(job.status)
   )
     return job;
-  let connection: Awaited<ReturnType<typeof activeConnection>>;
+  const legacy = Boolean(job.legacy_connection_id);
+  let connection: Awaited<ReturnType<typeof activeConnection>> | Awaited<ReturnType<typeof activeLegacyConnection>>;
   try {
-    connection = await activeConnection(client, String(job.workspace_id));
-    if (String(job.connection_id) !== connection.id)
+    connection = legacy
+      ? await activeLegacyConnection(client, String(job.workspace_id))
+      : await activeConnection(client, String(job.workspace_id));
+    if (String(legacy ? job.legacy_connection_id : job.connection_id) !== connection.id)
       throw new MetaError(
         "This job belongs to a previous Meta connection and cannot resume",
         409,
         "configuration",
       );
-    await authorizedAccount(
-      client,
-      String(job.workspace_id),
-      connection.id,
-      job.ad_account_id,
-    );
+    if (legacy) {
+      if (String(job.ad_account_id) !== (connection as Awaited<ReturnType<typeof activeLegacyConnection>>).adAccountId)
+        throw new MetaError("Legacy ad account changed; this job cannot resume", 409, "configuration");
+      await authorizeLegacyLaunchConfiguration(
+        connection.accessToken,
+        String(job.ad_account_id),
+        object(job.configuration) as BulkLaunchConfiguration & JsonObject,
+      );
+    } else {
+      await authorizedAccount(
+        client,
+        String(job.workspace_id),
+        connection.id,
+        job.ad_account_id,
+      );
+    }
   } catch (error) {
     const message = sanitizeText(
       error instanceof Error ? error.message : "Meta connection unavailable",
@@ -944,7 +1076,7 @@ async function processJob(
     .lt("attempts", Number(job.max_attempts ?? 5))
     .lte("next_retry_at", new Date().toISOString())
     .order("item_index")
-    .limit(chunk);
+    .limit(legacy ? Math.min(chunk, 2) : chunk);
   for (const item of items ?? []) {
     const claimed = await client
       .from("meta_bulk_job_items")
@@ -961,7 +1093,7 @@ async function processJob(
     try {
       const result =
         job.job_type === "bulk_launch"
-          ? await processLaunchItem(client, job, item, connection.accessToken)
+          ? await processLaunchItem(client, job, item, connection.accessToken, legacy)
           : await processActionItem(client, job, item, connection.accessToken);
       await client
         .from("meta_bulk_job_items")
@@ -1115,6 +1247,8 @@ Deno.serve(async (req) => {
       items?: JsonObject[];
       job_id?: string;
       workflow_id?: string;
+      defer_processing?: boolean;
+      source?: string;
     };
     if (body.scheduled && isCronRequest(req)) {
       const { data: jobs } = await client
@@ -1142,7 +1276,21 @@ Deno.serve(async (req) => {
     }
     const user = await authenticateRequest(req, client);
     const { workspaceId } = await resolveActiveWorkspace(client, user.id, true);
-    const connection = await activeConnection(client, workspaceId);
+    const source = String(body.source ?? "oauth");
+    if (source !== "oauth" && source !== "legacy")
+      throw new MetaError("Unknown Meta connection source", 400, "validation");
+    const connection = source === "legacy"
+      ? await activeLegacyConnection(client, workspaceId)
+      : await activeConnection(client, workspaceId);
+    if (["cancel", "retry_failed", "process"].includes(String(body.action ?? ""))) {
+      const { data: ownedJob } = await client.from("meta_bulk_jobs")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("id", body.job_id)
+        .eq(source === "legacy" ? "legacy_connection_id" : "connection_id", connection.id)
+        .maybeSingle();
+      if (!ownedJob) throw new MetaError("Job not found for this Meta connection", 404, "validation");
+    }
     if (body.action === "preview") {
       const preview = buildBulkLaunchPlan(body.configuration ?? {});
       return jsonResponse(req, {
@@ -1214,12 +1362,12 @@ Deno.serve(async (req) => {
         job: await processJob(client, String(body.job_id)),
       });
     }
-    const accountId = await authorizedAccount(
-      client,
-      workspaceId,
-      connection.id,
-      body.ad_account_id ?? connection.row.default_ad_account_id,
-    );
+    const accountId = source === "legacy"
+      ? normalizeAdAccountId(body.ad_account_id ?? (connection as Awaited<ReturnType<typeof activeLegacyConnection>>).adAccountId)
+      : await authorizedAccount(client, workspaceId, connection.id,
+        body.ad_account_id ?? connection.row.default_ad_account_id);
+    if (source === "legacy" && accountId !== (connection as Awaited<ReturnType<typeof activeLegacyConnection>>).adAccountId)
+      throw new MetaError("Ad account is not available to this workspace", 403, "permission");
     const idempotencyKey = String(body.idempotency_key ?? "").trim();
     if (!/^[A-Za-z0-9:_-]{12,160}$/.test(idempotencyKey))
       throw new MetaError(
@@ -1238,18 +1386,17 @@ Deno.serve(async (req) => {
     ];
     if (!allowedTypes.includes(jobType))
       throw new MetaError("Unsupported bulk job type", 400, "validation");
+    if (source === "legacy" && jobType !== "bulk_launch")
+      throw new MetaError("Legacy Launch Studio only supports campaign publishing", 400, "validation");
     let preview: JsonObject;
     let items: JsonObject[];
     const configuration = body.configuration ?? {};
     if (jobType === "bulk_launch") {
       const plan = buildBulkLaunchPlan(configuration);
-      await authorizeLaunchConfiguration(
-        client,
-        workspaceId,
-        connection.id,
-        accountId,
-        configuration,
-      );
+      if (source === "legacy")
+        await authorizeLegacyLaunchConfiguration(connection.accessToken, accountId, configuration);
+      else
+        await authorizeLaunchConfiguration(client, workspaceId, connection.id, accountId, configuration);
       preview = { ...plan, items: undefined };
       items = plan.items.map((item) => item as unknown as JsonObject);
     } else {
@@ -1266,28 +1413,39 @@ Deno.serve(async (req) => {
     if (body.workflow_id) {
       const { data } = await client
         .from("meta_workflows")
-        .select("id,configuration")
+        .select("id,configuration,created_by,visibility")
         .eq("workspace_id", workspaceId)
         .eq("id", body.workflow_id)
         .maybeSingle();
       if (!data) throw new MetaError("Workflow not found", 404, "validation");
+      if (data.visibility !== "workspace" && data.created_by !== user.id)
+        throw new MetaError("Workflow is private", 403, "permission");
       workflow = data as JsonObject;
     }
-    const { data: enqueued, error: enqueueError } = await client.rpc(
-      "enqueue_meta_bulk_job",
-      {
-        p_workspace_id: workspaceId,
-        p_connection_id: connection.id,
-        p_ad_account_id: accountId,
-        p_created_by: user.id,
-        p_job_type: jobType,
-        p_idempotency_key: idempotencyKey,
-        p_create_status: status(configuration.create_status),
-        p_configuration: configuration,
-        p_preview: preview,
-        p_items: items,
-      },
-    );
+    const { data: enqueued, error: enqueueError } = source === "legacy"
+      ? await client.rpc("enqueue_meta_legacy_bulk_job", {
+          p_workspace_id: workspaceId,
+          p_legacy_connection_id: connection.id,
+          p_ad_account_id: accountId,
+          p_created_by: user.id,
+          p_idempotency_key: idempotencyKey,
+          p_create_status: status(configuration.create_status),
+          p_configuration: configuration,
+          p_preview: preview,
+          p_items: items,
+        })
+      : await client.rpc("enqueue_meta_bulk_job", {
+          p_workspace_id: workspaceId,
+          p_connection_id: connection.id,
+          p_ad_account_id: accountId,
+          p_created_by: user.id,
+          p_job_type: jobType,
+          p_idempotency_key: idempotencyKey,
+          p_create_status: status(configuration.create_status),
+          p_configuration: configuration,
+          p_preview: preview,
+          p_items: items,
+        });
     if (enqueueError || !enqueued)
       throw enqueueError ?? new Error("Job could not be created");
     const enqueueResult = enqueued as {
@@ -1296,6 +1454,8 @@ Deno.serve(async (req) => {
     };
     const job = enqueueResult.job;
     if (!job?.id) throw new Error("Job could not be created");
+    if (source === "legacy" && String(job.legacy_connection_id ?? "") !== connection.id)
+      throw new MetaError("This launch key belongs to a different Meta connection", 409, "configuration");
     if (workflow) {
       await client.from("meta_workflow_runs").upsert(
         {
@@ -1312,6 +1472,8 @@ Deno.serve(async (req) => {
     }
     if (enqueueResult.deduplicated)
       return jsonResponse(req, { success: true, deduplicated: true, job });
+    if (body.defer_processing === true)
+      return jsonResponse(req, { success: true, job }, 202);
     return jsonResponse(
       req,
       { success: true, job: await processJob(client, String(job.id)) },

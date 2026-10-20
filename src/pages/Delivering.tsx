@@ -534,7 +534,7 @@ export default function Delivering() {
 
       setLoadingShippingPrice(true);
       try {
-        const status = panelOrder.shipping_status || panelOrder.delivery_status || panelOrder.status;
+        const status = panelOrder.shipping_status || panelOrder.delivery_status;
 
         // If status is refused, use refused price
         if (isRefusedStatus(status)) {
@@ -2669,7 +2669,7 @@ export default function Delivering() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] text-gray-500">
-                    {isRefusedStatus(panelOrder.shipping_status || panelOrder.delivery_status || panelOrder.status)
+                    {isRefusedStatus(panelOrder.shipping_status || panelOrder.delivery_status)
                       ? 'Refused Price'
                       : 'Shipping Price'}
                   </span>

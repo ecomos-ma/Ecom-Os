@@ -2,78 +2,75 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Globe from "react-globe.gl";
 import * as THREE from "three";
 import countriesRaw from "../../../node_modules/three-globe/example/country-polygons/ne_110m_admin_0_countries.geojson?raw";
-import { mergeAdjacentGeoPolygons } from "../../lib/mergeAdjacentGeoPolygons";
 import type { LiveOrderEvent } from "../../services/liveViewService";
 
-type GlobePoint = LiveOrderEvent & { lat: number; lng: number; count: number; size: number };
-type Position = [number, number];
-type CountryFeature = { properties?: { NAME?: string; NAME_LONG?: string; MAPCOLOR13?: number }; geometry: { type: "Polygon"; coordinates: Position[][] } | { type: "MultiPolygon"; coordinates: Position[][][] } };
-const isMorocco = (feature: CountryFeature) => feature.properties?.NAME === "Morocco";
-const isSeparateWesternSaharaFeature = (feature: CountryFeature) => {
-  const name = `${feature.properties?.NAME ?? ""} ${feature.properties?.NAME_LONG ?? ""}`.toLowerCase();
-  return name.includes("w. sahara") || name.includes("western sahara");
+type CountryFeature = { properties?: { NAME?: string; NAME_LONG?: string } };
+type GlobePoint = {
+  lat: number;
+  lng: number;
+  count: number;
+  radius: number;
+  city: string | null;
+  country: string | null;
+  events: LiveOrderEvent[];
 };
-const isMoroccoTerritory = (feature: CountryFeature) => isMorocco(feature) || isSeparateWesternSaharaFeature(feature);
 type Props = {
   events: LiveOrderEvent[];
   pulseEvents: LiveOrderEvent[];
   effectsPaused: boolean;
   rotationPaused: boolean;
   focusToken: number;
-  onSelect: (event: LiveOrderEvent) => void;
+  resetToken: number;
+  onSelect: (events: LiveOrderEvent[]) => void;
 };
 
-export default function LiveGlobe({ events, pulseEvents, effectsPaused, rotationPaused, focusToken, onSelect }: Props) {
-  const ref = useRef<any>(null);
-  const framedRef = useRef(false);
+const validCoordinate = (event: LiveOrderEvent) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude);
+const escapeLabel = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+}[character] || character));
+
+export default function LiveGlobe({ events, pulseEvents, effectsPaused, rotationPaused, focusToken, resetToken, onSelect }: Props) {
+  const globeRef = useRef<any>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const framedRef = useRef(false);
+  const lastPulseRef = useRef<string | null>(null);
   const [size, setSize] = useState({ width: 800, height: 640 });
-  const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const globeMaterial = useMemo(() => new THREE.MeshPhongMaterial({ color: "#f8edf3", emissive: "#55142f", emissiveIntensity: 0.055, shininess: 26 }), []);
-  // The globe triangulator needs the two source polygons kept separately for a
-  // reliable fill. Their shared edges are dissolved only for the exterior path.
-  const { polygons, outlinePath } = useMemo(() => {
-    const features = (JSON.parse(countriesRaw) as { features: CountryFeature[] }).features;
-    const north = features.find(isMorocco);
-    const south = features.find(isSeparateWesternSaharaFeature);
-    const outline = north?.geometry.type === "Polygon" && south?.geometry.type === "Polygon"
-      ? mergeAdjacentGeoPolygons(north.geometry.coordinates[0], south.geometry.coordinates[0]) : null;
-    return {
-      polygons: features.filter((feature) => !isMoroccoTerritory(feature)).concat(north && south ? [north, south] : []),
-      outlinePath: outline?.map(([lng, lat]) => ({ lat, lng })) ?? [],
-    };
-  }, []);
+  const [clusterPrecision, setClusterPrecision] = useState(1);
+  const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const countries = useMemo(() => (JSON.parse(countriesRaw) as { features: CountryFeature[] }).features, []);
+  const oceanMaterial = useMemo(() => new THREE.MeshPhongMaterial({
+    color: "#fdf8fa",
+    emissive: "#eed8e1",
+    emissiveIntensity: 0.23,
+    shininess: 16,
+    specular: new THREE.Color("#fffafd"),
+  }), []);
+
   const points = useMemo(() => {
     const clusters = new Map<string, GlobePoint>();
-    for (const event of events.slice(0, 500)) {
-      if (!Number.isFinite(event.latitude) || !Number.isFinite(event.longitude)) continue;
-      const lat = Number(event.latitude), lng = Number(event.longitude);
-      const key = `${lat.toFixed(2)}:${lng.toFixed(2)}`;
-      const existing = clusters.get(key);
-      if (existing) { existing.count += 1; existing.size = Math.min(0.75, 0.16 + Math.log2(existing.count + 1) * 0.12); }
-      else clusters.set(key, { ...event, lat, lng, count: 1, size: 0.24 });
+    for (const event of events.slice(0, 600)) {
+      if (!validCoordinate(event)) continue;
+      const lat = Number(event.latitude);
+      const lng = Number(event.longitude);
+      const key = `${lat.toFixed(clusterPrecision)}:${lng.toFixed(clusterPrecision)}`;
+      const cluster = clusters.get(key);
+      if (cluster) {
+        cluster.events.push(event);
+        cluster.count += 1;
+        cluster.lat = cluster.events.reduce((sum, item) => sum + Number(item.latitude), 0) / cluster.count;
+        cluster.lng = cluster.events.reduce((sum, item) => sum + Number(item.longitude), 0) / cluster.count;
+        cluster.radius = Math.min(0.42, 0.12 + Math.log2(cluster.count + 1) * 0.055);
+      } else {
+        clusters.set(key, { lat, lng, count: 1, radius: 0.15, city: event.city, country: event.country, events: [event] });
+      }
     }
-    return [...clusters.values()].slice(0, 300);
-  }, [events]);
-  const rings = useMemo(() => effectsPaused || reduced ? [] : pulseEvents
-    .filter((event) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude))
-    .slice(0, 16).map((event) => ({ lat: Number(event.latitude), lng: Number(event.longitude), maxR: 3.2 })), [effectsPaused, pulseEvents, reduced]);
-  // Each newly-arrived order gets a short, bright meteor trail that terminates
-  // at the customer's resolved city/IP location. Historical points stay static.
-  const arcs = useMemo(() => effectsPaused || reduced ? [] : pulseEvents
-    .filter((event) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude))
-    .slice(0, 12)
-    .map((event, index) => {
-      const endLat = Number(event.latitude);
-      const endLng = Number(event.longitude);
-      return {
-        startLat: Math.max(-72, Math.min(72, endLat + 28 + (index % 3) * 4)),
-        startLng: ((endLng - 55 - index * 7 + 540) % 360) - 180,
-        endLat,
-        endLng,
-        order: index,
-      };
-    }), [effectsPaused, pulseEvents, reduced]);
+    return [...clusters.values()].slice(0, 350);
+  }, [clusterPrecision, events]);
+
+  const rings = useMemo(() => effectsPaused || reducedMotion ? [] : pulseEvents
+    .filter(validCoordinate).slice(0, 14)
+    .map((event) => ({ lat: Number(event.latitude), lng: Number(event.longitude), maxRadius: 2.2 })),
+  [effectsPaused, pulseEvents, reducedMotion]);
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -81,75 +78,96 @@ export default function LiveGlobe({ events, pulseEvents, effectsPaused, rotation
     const observer = new ResizeObserver(([entry]) => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const width = Math.max(1, Math.round(entry.contentRect.width));
-        const height = Math.max(1, Math.round(entry.contentRect.height));
-        setSize((current) => current.width === width && current.height === height ? current : { width, height });
+        const next = { width: Math.max(1, Math.round(entry.contentRect.width)), height: Math.max(1, Math.round(entry.contentRect.height)) };
+        setSize((current) => current.width === next.width && current.height === next.height ? current : next);
       });
     });
     observer.observe(wrapRef.current);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, []);
+
   useEffect(() => {
-    if (!ref.current) return;
-    const controls = ref.current.controls();
-    controls.autoRotate = !rotationPaused && !reduced;
-    controls.autoRotateSpeed = 0.18;
+    const globe = globeRef.current;
+    if (!globe) return;
+    const controls = globe.controls();
+    controls.autoRotate = !rotationPaused && !reducedMotion;
+    controls.autoRotateSpeed = 0.22;
     controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
     controls.minDistance = 108;
-    controls.maxDistance = 360;
-    const areaBudgetRatio = Math.sqrt(1_800_000 / (size.width * size.height));
-    ref.current.renderer().setPixelRatio(Math.max(0.65, Math.min(window.devicePixelRatio || 1, 1.5, areaBudgetRatio)));
+    controls.maxDistance = 430;
+    const areaRatio = Math.sqrt(1_900_000 / Math.max(1, size.width * size.height));
+    globe.renderer().setPixelRatio(Math.max(0.7, Math.min(window.devicePixelRatio || 1, 1.6, areaRatio)));
     if (!framedRef.current) {
-      ref.current.pointOfView({ lat: 28, lng: -10.5, altitude: 0.88 }, 0);
+      globe.pointOfView({ lat: 29.5, lng: -8.5, altitude: 1.48 }, 0);
       framedRef.current = true;
     }
-  }, [reduced, rotationPaused, size.height, size.width]);
+  }, [reducedMotion, rotationPaused, size.height, size.width]);
+
   useEffect(() => {
-    if (focusToken > 0) ref.current?.pointOfView({ lat: 28, lng: -10.5, altitude: 0.88 }, 850);
-  }, [focusToken]);
+    if (focusToken > 0) globeRef.current?.pointOfView({ lat: 29.5, lng: -8.5, altitude: 0.78 }, reducedMotion ? 0 : 900);
+  }, [focusToken, reducedMotion]);
   useEffect(() => {
-    const syncVisibility = () => {
-      if (document.hidden) ref.current?.pauseAnimation();
-      else ref.current?.resumeAnimation();
-    };
+    if (resetToken > 0) globeRef.current?.pointOfView({ lat: 18, lng: -5, altitude: 1.55 }, reducedMotion ? 0 : 900);
+  }, [resetToken, reducedMotion]);
+  useEffect(() => {
+    if (effectsPaused) return;
+    const newest = pulseEvents.find(validCoordinate);
+    if (!newest || newest.order_id === lastPulseRef.current) return;
+    lastPulseRef.current = newest.order_id;
+    globeRef.current?.pointOfView({ lat: Number(newest.latitude), lng: Number(newest.longitude), altitude: 0.68 }, reducedMotion ? 0 : 1100);
+  }, [effectsPaused, pulseEvents, reducedMotion]);
+  useEffect(() => {
+    const syncVisibility = () => document.hidden ? globeRef.current?.pauseAnimation() : globeRef.current?.resumeAnimation();
     document.addEventListener("visibilitychange", syncVisibility);
     return () => document.removeEventListener("visibilitychange", syncVisibility);
   }, []);
+  useEffect(() => () => oceanMaterial.dispose(), [oceanMaterial]);
 
-  return <div ref={wrapRef} className="live-globe-canvas" aria-label="Order activity globe">
+  return <div ref={wrapRef} className="live-globe-canvas" aria-label="Real-time order activity Earth">
     <Globe
-      ref={ref}
+      ref={globeRef}
       width={size.width}
       height={size.height}
-      backgroundColor="rgba(0,0,0,0)"
-      globeMaterial={globeMaterial}
-      showAtmosphere atmosphereColor="#e4779d" atmosphereAltitude={0.12}
+      backgroundColor="rgba(250,249,251,0)"
+      globeMaterial={oceanMaterial}
+      showAtmosphere
+      atmosphereColor="#f6dce8"
+      atmosphereAltitude={0.13}
       showGraticules={false}
-      polygonsData={polygons}
-      polygonCapColor={(feature: object) => {
-        if (isMoroccoTerritory(feature as CountryFeature)) return "#d9658d";
-        const shade = Number((feature as CountryFeature).properties?.MAPCOLOR13 ?? 0) % 3;
-        return ["#fbdde9", "#f5c9da", "#f8d3e1"][shade];
-      }}
-      polygonSideColor={(feature: object) => isMoroccoTerritory(feature as CountryFeature) ? "#b94c75" : "#e5a9c0"}
-      polygonStrokeColor={(feature: object) => isMoroccoTerritory(feature as CountryFeature) ? "rgba(0,0,0,0)" : "#c7819f"}
-      polygonAltitude={(feature: object) => isMoroccoTerritory(feature as CountryFeature) ? 0.012 : 0.004}
-      polygonLabel={(feature: object) => `<b>${isMoroccoTerritory(feature as CountryFeature) ? "Morocco" : (feature as CountryFeature).properties?.NAME_LONG ?? (feature as CountryFeature).properties?.NAME ?? "Country"}</b>`}
+      polygonsData={countries}
+      polygonCapColor={() => "#f8dce8"}
+      polygonSideColor={() => "#e9b7ca"}
+      polygonStrokeColor={() => "#d48ba7"}
+      polygonAltitude={0.006}
+      polygonLabel={(feature: object) => escapeLabel((feature as CountryFeature).properties?.NAME_LONG ?? (feature as CountryFeature).properties?.NAME ?? "")}
       polygonsTransitionDuration={0}
-      pathsData={outlinePath.length ? [{ points: outlinePath }] : []}
-      pathPoints="points" pathPointLat="lat" pathPointLng="lng"
-      pathColor={() => "#953c62"} pathStroke={0.3}
       pointsData={points}
-      pointLat="lat" pointLng="lng" pointAltitude={0.025} pointRadius="size"
-      pointColor={() => "#c82666"}
-      pointLabel={(point: object) => { const p = point as GlobePoint; return `<b>${p.city ?? p.country ?? "Approximate location"}</b><br/>${p.count} order${p.count === 1 ? "" : "s"}`; }}
-      onPointClick={(point: object) => onSelect(point as GlobePoint)}
-      ringsData={rings} ringColor={() => ["rgba(219,106,143,.8)", "rgba(219,106,143,0)"]}
-      ringMaxRadius="maxR" ringPropagationSpeed={1.8} ringRepeatPeriod={0}
-      arcsData={arcs} arcColor={() => ["rgba(219,106,143,0)", "rgba(219,106,143,.9)"]}
-      arcAltitude={0.28} arcStroke={0.42} arcDashLength={0.12} arcDashGap={1.35}
-      arcDashInitialGap={(arc: object) => (arc as { order: number }).order * 0.08}
-      arcDashAnimateTime={720}
+      pointLat="lat"
+      pointLng="lng"
+      pointAltitude={0.018}
+      pointRadius="radius"
+      pointColor={() => "#f0447d"}
+      pointLabel={(point: object) => {
+        const item = point as GlobePoint;
+        return `<b>${escapeLabel(item.city ?? item.country ?? "Verified location")}</b><br>${item.count} order${item.count === 1 ? "" : "s"}`;
+      }}
+      onPointClick={(point: object) => {
+        const item = point as GlobePoint;
+        globeRef.current?.pointOfView({ lat: item.lat, lng: item.lng, altitude: item.count > 1 ? 0.48 : 0.62 }, reducedMotion ? 0 : 700);
+        onSelect(item.events);
+      }}
+      ringsData={rings}
+      ringLat="lat"
+      ringLng="lng"
+      ringColor={() => ["rgba(240,68,125,.72)", "rgba(240,68,125,0)"]}
+      ringMaxRadius="maxRadius"
+      ringPropagationSpeed={1.5}
+      ringRepeatPeriod={0}
+      onZoom={(view: { altitude: number }) => {
+        const precision = view.altitude > 1.2 ? 0 : view.altitude > 0.55 ? 1 : 2;
+        setClusterPrecision((current) => current === precision ? current : precision);
+      }}
     />
   </div>;
 }

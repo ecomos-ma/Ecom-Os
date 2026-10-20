@@ -19,7 +19,26 @@
       <h1>Offline</h1>
       <p>You're currently offline. EcomOS is ready to reconnect once your network is back.</p>
       <p>Please check your connection, then refresh this page.</p>
-      <p><a href="/">Go back to home</a></p>
+      <p><a href="https://www.ecomos.ma/">Go back to home</a></p>
     </div>
+    <script>
+      let isRecovering = false;
+      async function checkConnection() {
+        if (isRecovering || !navigator.onLine) return;
+        try {
+          await fetch(`https://www.ecomos.ma/favicon.png?offline-check=${Date.now()}`, {
+            mode: "no-cors",
+            cache: "no-store"
+          });
+          isRecovering = true;
+          window.location.replace("https://www.ecomos.ma/");
+        } catch {
+          // Keep showing the offline page until the site can be reached.
+        }
+      }
+      window.addEventListener("online", checkConnection);
+      window.setInterval(checkConnection, 10000);
+      void checkConnection();
+    </script>
   </body>
 </html>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Ecom OS app icon">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#125665"/>
+      <stop offset=".55" stop-color="#083641"/>
+      <stop offset="1" stop-color="#061f2b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="78%" cy="9%" r="85%">
+      <stop stop-color="#42c8d2" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#42c8d2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff"/>
+      <stop offset=".62" stop-color="#edfbfc"/>
+      <stop offset="1" stop-color="#d7f3f5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#background)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+  <rect x="38" y="38" width="436" height="436" rx="116" fill="#d6faff" fill-opacity=".055" stroke="#d6faff" stroke-opacity=".22" stroke-width="2"/>
+  <path d="M114 185c14 100 40 160 75 160 38 0 40-89 67-89s29 89 67 89c35 0 61-60 75-160" fill="none" stroke="url(#mark)" stroke-width="43" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="398" cy="181" r="21" fill="#ed6295"/>
+  <circle cx="398" cy="181" r="8" fill="#ffd8e7"/>
+</svg>

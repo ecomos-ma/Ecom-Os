@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { jsPDF } from "jspdf";
-import { CheckCircle2, Download, FileText, Loader2, Plus, RefreshCw, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, Plus, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { useAuth } from "../hooks/useAuth";
@@ -15,6 +15,8 @@ import {
   loadPayrollSummary,
   PayrollSchemaUnavailableError,
   recordAgentPayment,
+  resolveAgentPaymentDispute,
+  reverseAgentPayment,
   type PayrollInvoice,
   type PayrollInvoiceLine,
   type PayrollPeriod,
@@ -67,6 +69,7 @@ export default function AgentInvoices({ financeView = false }: { financeView?: b
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentStep, setPaymentStep] = useState("");
   const [acknowledging, setAcknowledging] = useState("");
+  const [paymentActionId, setPaymentActionId] = useState("");
   const [invoiceLines, setInvoiceLines] = useState<{ invoiceId: string; rows: PayrollInvoiceLine[] } | null>(null);
   const [loadingLines, setLoadingLines] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -170,6 +173,32 @@ export default function AgentInvoices({ financeView = false }: { financeView?: b
     finally { setAcknowledging(""); }
   };
 
+  const reversePayment = async (paymentId: string) => {
+    if (!workspace?.id || !navigator.onLine) { setError("Reconnect before reversing a transfer."); return; }
+    const reason = window.prompt("Why is this transfer being reversed? This keeps the original ledger entry and recalculates the invoice balance.");
+    if (reason === null) return;
+    if (reason.trim().length < 4) { setError("Enter a clear reversal reason (at least 4 characters)."); return; }
+    if (!window.confirm("Reverse this transfer? The payment record and proof remain in history, but its allocations stop counting as paid.")) return;
+    setPaymentActionId(paymentId); setError("");
+    try { await reverseAgentPayment(workspace.id, paymentId, reason); await refresh(); }
+    catch (cause) { showError(cause, "The transfer could not be reversed."); }
+    finally { setPaymentActionId(""); }
+  };
+
+  const resolveDispute = async (disputeId: string, paymentId: string, status: "resolved" | "dismissed", reverse = false) => {
+    if (!workspace?.id || !navigator.onLine) { setError("Reconnect before resolving this dispute."); return; }
+    const resolution = window.prompt(reverse
+      ? "Explain the resolution and why the transfer must be reversed."
+      : status === "dismissed" ? "Explain why this dispute is being dismissed." : "Explain how this dispute was resolved.");
+    if (resolution === null) return;
+    if (resolution.trim().length < 4) { setError("Enter a clear dispute resolution (at least 4 characters)."); return; }
+    if (reverse && !window.confirm("Resolve this dispute and reverse the transfer? The original records remain in the audit ledger.")) return;
+    setPaymentActionId(paymentId); setError("");
+    try { await resolveAgentPaymentDispute(workspace.id, disputeId, status, resolution, reverse); await refresh(); }
+    catch (cause) { showError(cause, "The dispute could not be resolved."); }
+    finally { setPaymentActionId(""); }
+  };
+
   const openProof = async (storagePath: string) => {
     const tab = window.open("", "_blank");
     try {
@@ -210,8 +239,83 @@ export default function AgentInvoices({ financeView = false }: { financeView?: b
         </div>}
       </aside>
     </section>
-    <section className="mt-5 overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-card"><div className="flex items-center justify-between border-b border-base-border px-5 py-4"><div><h2 className="font-semibold text-ink">Transfers</h2><p className="mt-1 text-sm text-ink-muted">Every recorded transfer remains in the ledger, including disputes.</p></div><span className="rounded-full bg-base-raised px-2.5 py-1 text-xs font-medium text-ink-muted">{payments.length} total</span></div>{payments.length === 0 ? <div className="py-10"><EmptyState title="No transfers recorded" description="Transfers appear here as soon as a payment is recorded." compact /></div> : <div className="divide-y divide-base-border">{payments.map((payment) => { const acknowledged = summary.acknowledgments.find((item) => item.payment_id === payment.id); const proofFile = summary.proofs.find((item) => item.payment_id === payment.id); return <div key={payment.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"><div><p className="font-medium text-ink">{money(payment.amount)} <span className="font-normal text-ink-muted">· {label(payment.payment_method)}</span></p><p className="mt-1 text-xs text-ink-muted">{new Date(payment.paid_at).toLocaleString()}{payment.transaction_reference ? ` · ${payment.transaction_reference}` : ""}</p>{proofFile && <button type="button" onClick={() => void openProof(proofFile.storage_path)} className="mt-2 text-xs font-semibold text-brand underline">View transfer proof</button>}</div><StatusPill status={payment.status === "reversed" ? "reversed" : acknowledged?.outcome ?? "awaiting acknowledgment"} /></div>; })}</div>}</section>
+    <TransferLedger
+      payments={payments}
+      summary={summary}
+      names={names}
+      founder={founder}
+      online={online}
+      busyPaymentId={paymentActionId}
+      onOpenProof={openProof}
+      onReverse={reversePayment}
+      onResolveDispute={resolveDispute}
+    />
   </div>;
+}
+
+function TransferLedger({
+  payments,
+  summary,
+  names,
+  founder,
+  online,
+  busyPaymentId,
+  onOpenProof,
+  onReverse,
+  onResolveDispute,
+}: {
+  payments: PayrollSummary["payments"];
+  summary: PayrollSummary;
+  names: Record<string, string>;
+  founder: boolean;
+  online: boolean;
+  busyPaymentId: string;
+  onOpenProof: (storagePath: string) => Promise<void>;
+  onReverse: (paymentId: string) => Promise<void>;
+  onResolveDispute: (disputeId: string, paymentId: string, status: "resolved" | "dismissed", reverse?: boolean) => Promise<void>;
+}) {
+  return <section className="mt-5 overflow-hidden rounded-xl border border-base-border bg-base-surface shadow-card">
+    <div className="flex items-center justify-between border-b border-base-border px-5 py-4">
+      <div>
+        <h2 className="font-semibold text-ink">Transfers</h2>
+        <p className="mt-1 text-sm text-ink-muted">Recorded transfers are never deleted. Corrections remain visible and auditable.</p>
+      </div>
+      <span className="rounded-full bg-base-raised px-2.5 py-1 text-xs font-medium text-ink-muted">{payments.length} total</span>
+    </div>
+    {payments.length === 0 ? <div className="py-10"><EmptyState title="No transfers recorded" description="Transfers appear here as soon as a payment is recorded." compact /></div> : <div className="divide-y divide-base-border">
+      {payments.map((payment) => {
+        const acknowledgment = summary.acknowledgments.find((item) => item.payment_id === payment.id);
+        const dispute = summary.disputes.find((item) => item.payment_id === payment.id);
+        const proofFile = summary.proofs.find((item) => item.payment_id === payment.id);
+        const busy = busyPaymentId === payment.id;
+        return <article key={payment.id} className="px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium text-ink">{money(payment.amount)} <span className="font-normal text-ink-muted">· {label(payment.payment_method)}</span></p>
+              {founder && <p className="mt-1 text-xs font-medium text-ink-muted">{names[payment.agent_id] || "Agent"}</p>}
+              <p className="mt-1 text-xs text-ink-muted">{new Date(payment.paid_at).toLocaleString()}{payment.transaction_reference ? ` · ${payment.transaction_reference}` : ""}</p>
+              {proofFile && <button type="button" onClick={() => void onOpenProof(proofFile.storage_path)} className="mt-2 text-xs font-semibold text-brand underline">View transfer proof</button>}
+            </div>
+            <StatusPill status={payment.status === "reversed" ? "reversed" : dispute?.status === "open" ? "disputed" : acknowledgment?.outcome ?? "awaiting acknowledgment"} />
+          </div>
+          {dispute && <div className={`mt-3 rounded-lg border px-3 py-3 text-xs ${dispute.status === "open" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-base-border bg-base-raised text-ink-muted"}`}>
+            <div className="flex items-center gap-2 font-semibold"><AlertTriangle size={14} />Dispute {label(dispute.status)}</div>
+            <p className="mt-1 leading-5">{dispute.reason}</p>
+            {dispute.resolution && <p className="mt-1 leading-5"><span className="font-semibold">Resolution:</span> {dispute.resolution}</p>}
+          </div>}
+          {founder && payment.status === "recorded" && <div className="mt-3 flex flex-wrap gap-2">
+            {dispute?.status === "open" && <>
+              <button type="button" disabled={!online || busy} onClick={() => void onResolveDispute(dispute.id, payment.id, "resolved")} className="min-h-10 rounded-md border border-emerald-300 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 disabled:opacity-50">Resolve dispute</button>
+              <button type="button" disabled={!online || busy} onClick={() => void onResolveDispute(dispute.id, payment.id, "dismissed")} className="min-h-10 rounded-md border border-base-border px-3 text-xs font-semibold text-ink disabled:opacity-50">Dismiss dispute</button>
+              <button type="button" disabled={!online || busy} onClick={() => void onResolveDispute(dispute.id, payment.id, "resolved", true)} className="min-h-10 rounded-md border border-danger/30 bg-danger/5 px-3 text-xs font-semibold text-danger disabled:opacity-50"><RotateCcw size={13} className="mr-1 inline" />Resolve & reverse</button>
+            </>}
+            {!dispute || dispute.status !== "open" ? <button type="button" disabled={!online || busy} onClick={() => void onReverse(payment.id)} className="min-h-10 rounded-md border border-danger/30 px-3 text-xs font-semibold text-danger disabled:opacity-50"><RotateCcw size={13} className="mr-1 inline" />Reverse transfer</button> : null}
+            {busy && <span className="inline-flex items-center gap-1.5 text-xs text-ink-muted"><Loader2 size={13} className="animate-spin" />Saving correction…</span>}
+          </div>}
+        </article>;
+      })}
+    </div>}
+  </section>;
 }
 
 function InvoiceTable({ invoices, summary, names, founder, selectedId, onSelect }: { invoices: PayrollInvoice[]; summary: PayrollSummary; names: Record<string, string>; founder: boolean; selectedId?: string; onSelect: (id: string) => void }) {

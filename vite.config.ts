@@ -6,6 +6,7 @@ export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const workerSecret = env.WHATSAPP_WORKER_API_SECRET?.trim();
   const workerUrl = env.WHATSAPP_WORKER_URL?.trim() || "http://127.0.0.1:5000";
+  const confirmationSupabaseUrl = (env.VITE_SUPABASE_URL || env.SUPABASE_URL || "").trim();
   if (command === "serve" && !workerSecret) {
     throw new Error("WHATSAPP_WORKER_API_SECRET is required for the server-side WhatsApp worker proxy");
   }
@@ -38,10 +39,10 @@ export default defineConfig(({ mode, command }) => {
         description: "Modern CRM for E-commerce",
         display: "standalone",
         orientation: "any",
-        start_url: "/",
+        start_url: "/dashboard",
         scope: "/",
-        theme_color: "#e60064",
-        background_color: "#ffffff",
+        theme_color: "#083641",
+        background_color: "#083641",
         icons: [
           { src: "/icon-72.png", sizes: "72x72", type: "image/png" },
           { src: "/icon-96.png", sizes: "96x96", type: "image/png" },
@@ -71,10 +72,12 @@ export default defineConfig(({ mode, command }) => {
     }),
   ],
   build: {
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks(id) {
           const moduleId = id.replace(/\\/g, '/');
+
           if (
             moduleId.includes('/node_modules/react/') ||
             moduleId.includes('/node_modules/react-dom/') ||
@@ -82,9 +85,19 @@ export default defineConfig(({ mode, command }) => {
             moduleId.includes('/node_modules/react-router-dom/')
           ) return 'vendor-react';
           if (moduleId.includes('/node_modules/@supabase/')) return 'vendor-supabase';
-          if (moduleId.includes('/node_modules/recharts/')) return 'vendor-charts';
+          if (moduleId.includes('/node_modules/framer-motion/')) return 'vendor-motion';
           if (moduleId.includes('/node_modules/lucide-react/')) return 'vendor-icons';
           if (
+            moduleId.includes('/node_modules/recharts/') ||
+            moduleId.includes('/node_modules/echarts/')
+          ) return 'vendor-charts';
+          if (
+            moduleId.includes('/node_modules/three/') ||
+            moduleId.includes('/node_modules/react-globe.gl/') ||
+            moduleId.includes('/node_modules/three-stdlib/')
+          ) return 'vendor-3d';
+          if (
+            moduleId.includes('/node_modules/html2canvas/') ||
             moduleId.includes('/node_modules/write-excel-file/') ||
             moduleId.includes('/node_modules/jszip/') ||
             moduleId.includes('/node_modules/jspdf/')
@@ -98,6 +111,24 @@ export default defineConfig(({ mode, command }) => {
     host: '0.0.0.0',
     port: 8080,
     proxy: {
+      ...(confirmationSupabaseUrl ? {
+        '/api/confirmation/save-items': {
+          target: new URL(confirmationSupabaseUrl).origin,
+          changeOrigin: true,
+          secure: true,
+          proxyTimeout: 12000,
+          timeout: 12000,
+          rewrite: () => '/rest/v1/rpc/save_confirmation_order_with_items_v1',
+        },
+        '/api/confirmation/save': {
+          target: new URL(confirmationSupabaseUrl).origin,
+          changeOrigin: true,
+          secure: true,
+          proxyTimeout: 12000,
+          timeout: 12000,
+          rewrite: () => '/rest/v1/rpc/save_confirmation_order_with_lease_v1',
+        },
+      } : {}),
       '/api/whatsapp-worker': {
         target: workerUrl,
         changeOrigin: true,

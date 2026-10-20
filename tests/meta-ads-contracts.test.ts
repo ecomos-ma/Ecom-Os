@@ -41,6 +41,11 @@ const metaCard = read("src/pages/settings/components/MetaIntegrationCard.tsx");
 const manage = read("supabase/functions/meta-manage/index.ts");
 const bulk = read("supabase/functions/meta-bulk/index.ts");
 const rules = read("supabase/functions/meta-rules/index.ts");
+const mediaUpload = read("supabase/functions/meta-media-upload/index.ts");
+const legacyLaunchMigration = read("supabase/migrations/20261018212523_meta_legacy_launch_queue.sql");
+const legacyEdge = read("supabase/functions/meta-legacy/index.ts");
+const studio = read("src/pages/MetaLaunchStudio.tsx");
+const legacyPage = read("src/pages/LegacyAdsManager.tsx");
 
 test("OAuth state is random, hashed, expiring, single-use, and callback-bound", () => {
   assert.match(authStart, /crypto\.getRandomValues\(new Uint8Array\(32\)\)/);
@@ -289,6 +294,87 @@ test("bulk preview supports safe paused distribution and naming", () => {
       }),
     /1,000-ad job safety limit/,
   );
+});
+
+test("visual launch plan preserves the exact dragged ad hierarchy and budget mode", () => {
+  const fourAds = buildBulkLaunchPlan({
+    budget_mode: "ABO",
+    campaign: { name: "Launch" },
+    adsets: [{ name: "One audience", daily_budget: 25 }],
+    creatives: [0, 1, 2, 3].map((index) => ({ name: `Creative ${index}` })),
+    ads: [0, 1, 2, 3].map((index) => ({ name: `Ad ${index}`, adset_index: 0, creative_index: index })),
+  });
+  assert.equal(fourAds.adset_count, 1);
+  assert.equal(fourAds.ad_count, 4);
+  assert.deepEqual(fourAds.items.map((item) => item.adset_index), [0, 0, 0, 0]);
+  assert.equal(fourAds.max_daily_budget, 25);
+
+  const fourAdsets = buildBulkLaunchPlan({
+    budget_mode: "CBO",
+    campaign: { name: "Launch", daily_budget: 80 },
+    adsets: [0, 1, 2, 3].map((index) => ({ name: `Audience ${index}` })),
+    creatives: [0, 1, 2, 3].map((index) => ({ name: `Creative ${index}` })),
+    ads: [0, 1, 2, 3].map((index) => ({ name: `Ad ${index}`, adset_index: index, creative_index: index })),
+  });
+  assert.deepEqual(fourAdsets.items.map((item) => item.adset_index), [0, 1, 2, 3]);
+  assert.equal(fourAdsets.max_daily_budget, 80);
+  assert.throws(() => buildBulkLaunchPlan({
+    budget_mode: "CBO", campaign: { daily_budget: 80 },
+    adsets: [{ name: "Audience", daily_budget: 10 }],
+    creatives: [{ name: "Creative" }],
+    ads: [{ name: "Ad", adset_index: 0, creative_index: 0 }],
+  }), /CBO ad sets cannot/);
+  assert.throws(() => buildBulkLaunchPlan({
+    adsets: [{ name: "Audience", daily_budget: 10 }],
+    creatives: [{ name: "Creative" }],
+    ads: [{ name: "Ad", adset_index: 1, creative_index: 0 }],
+  }), /no valid ad set/);
+});
+
+test("studio media uses an authenticated Meta relay without database file storage", () => {
+  assert.match(mediaUpload, /authenticateRequest\(req, client\)/);
+  assert.match(mediaUpload, /resolveActiveWorkspace\(client, user\.id, true\)/);
+  assert.match(mediaUpload, /verifyTicket/);
+  assert.match(mediaUpload, /metaVideoTransfer/);
+  assert.match(metaService, /uploadVideoInChunks/);
+  assert.match(metaService, /meta-media-upload/);
+  assert.doesNotMatch(metaService, /supabase\.storage/);
+  assert.doesNotMatch(mediaUpload, /\.storage\.|\.from\("meta_creatives"\)/);
+});
+
+test("Legacy Create Ads stays inside the connected manager and uses its manual-token connection", () => {
+  assert.match(legacyPage, /setStudioOpen\(true\)/);
+  assert.match(legacyPage, /<MetaLaunchStudio mode="legacy" legacyStatus=\{status\}/);
+  assert.doesNotMatch(legacyPage, /to="\/ads-manager-legacy\/launch-studio"/);
+  assert.match(studio, /knownLegacyConnection\(known\)/);
+  assert.match(studio, /metaLegacyService\.launchAssets\(\)/);
+  assert.match(studio, /source, job_type: "bulk_launch"/);
+  assert.match(studio, /uploadMetaCreativeFiles\([\s\S]*source\)/);
+  assert.match(legacyEdge, /action === "launch_assets"/);
+  assert.match(meta, /activeLegacyConnection/);
+  assert.match(meta, /decryptSecret\(String\(data\.access_token_encrypted\)\)/);
+  assert.match(bulk, /source === "legacy"/);
+  assert.match(bulk, /authorizeLegacyLaunchConfiguration/);
+  assert.match(bulk, /enqueue_meta_legacy_bulk_job/);
+  assert.match(bulk, /processLaunchItem\(client, job, item, connection\.accessToken, legacy\)/);
+  assert.match(mediaUpload, /source === "legacy"/);
+  assert.match(mediaUpload, /source !== "legacy"/);
+  assert.match(legacyLaunchMigration, /meta_bulk_jobs_one_connection_check/);
+  assert.match(legacyLaunchMigration, /security invoker set search_path = ''/);
+  assert.match(legacyLaunchMigration, /revoke all on function public\.enqueue_meta_legacy_bulk_job/);
+  assert.doesNotMatch(studio, /access_token_encrypted/);
+});
+
+test("manual Meta assets distinguish undeployed functions from empty account assets", () => {
+  assert.match(legacyEdge, /fields: "promote_pages"/);
+  assert.match(legacyEdge, /Promise\.allSettled/);
+  assert.match(legacyEdge, /\[\.\.\.accountPages, \.\.\.userPages, \.\.\.businessPages\]/);
+  assert.match(legacyEdge, /issues\.pixels =/);
+  assert.match(studio, /backendReady && !connection\.pages\.length/);
+  assert.match(studio, /backendReady && !availablePixels\.length/);
+  assert.match(studio, /Refresh Meta assets/);
+  assert.match(bulk, /`\$\{pixelId\}\/adaccounts`/);
+  assert.doesNotMatch(studio, /No Pixel is available on this manual token/);
 });
 
 test("rules require all conditions and enforce stale and daily safety caps", () => {

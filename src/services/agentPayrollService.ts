@@ -1,7 +1,16 @@
 import { supabase } from "../lib/supabase";
 
 export type AssignmentMode = "shared" | "separated";
+export type ConfirmationDistributionMode = "manual" | "automatic_equal" | "automatic_smart";
 export type AssignmentRecipient = "agent" | "whatsapp_automation";
+
+export interface ConfirmationAssignmentSettings {
+  assignmentMode: AssignmentMode;
+  distributionMode: ConfirmationDistributionMode;
+  smartBatchSize: number;
+  offlineGraceSeconds: number;
+  workLeaseSeconds: number;
+}
 
 export interface PayrollInvoice {
   id: string;
@@ -32,13 +41,22 @@ export interface PayrollPayment {
 export interface PaymentAllocation { payment_id: string; invoice_id: string; amount: number; }
 export interface PayrollInvoiceLine { id: string; invoice_id: string; line_type: string; description: string; quantity: number; unit_amount: number; amount: number; }
 export interface PayrollPeriod { id: string; starts_at: string; ends_at: string; }
+export interface PayrollDispute {
+  id: string;
+  payment_id: string;
+  status: "open" | "resolved" | "dismissed";
+  reason: string;
+  resolution: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
 export interface PayrollSummary {
   invoices: PayrollInvoice[];
   periods: PayrollPeriod[];
   payments: PayrollPayment[];
   allocations: PaymentAllocation[];
   acknowledgments: Array<{ payment_id: string; outcome: string; actual_amount: number | null }>;
-  disputes: Array<{ payment_id: string; status: string }>;
+  disputes: PayrollDispute[];
   proofs: Array<{ id: string; payment_id: string; storage_path: string; file_name: string }>;
   rules: Array<Record<string, unknown>>;
   bankAccounts: Array<Record<string, unknown>>;
@@ -74,7 +92,7 @@ export async function loadPayrollSummary(workspaceId: string): Promise<PayrollSu
     supabase.from("agent_payments").select("id,workspace_id,agent_id,amount,currency,payment_method,transaction_reference,paid_at,status").eq("workspace_id", workspaceId).order("paid_at", { ascending: false }),
     supabase.from("agent_payment_allocations").select("payment_id,invoice_id,amount").eq("workspace_id", workspaceId),
     supabase.from("agent_payment_acknowledgments").select("payment_id,outcome,actual_amount").eq("workspace_id", workspaceId),
-    supabase.from("agent_payment_disputes").select("payment_id,status").eq("workspace_id", workspaceId),
+    supabase.from("agent_payment_disputes").select("id,payment_id,status,reason,resolution,resolved_at,created_at").eq("workspace_id", workspaceId),
     supabase.from("agent_payment_proofs").select("id,payment_id,storage_path,file_name").eq("workspace_id", workspaceId),
     supabase.from("agent_payment_rules").select("id,agent_id,name,enabled,created_at").eq("workspace_id", workspaceId),
     supabase.from("agent_bank_accounts").select("id,agent_id,account_holder,bank_name,rib_iban,swift,currency,payment_notes,is_default").eq("workspace_id", workspaceId),
@@ -113,6 +131,66 @@ export async function loadAssignmentMode(workspaceId: string): Promise<Assignmen
   const { data, error } = await supabase.from("workspace_confirmation_assignment_settings").select("assignment_mode").eq("workspace_id", workspaceId).maybeSingle();
   raise(error);
   return data?.assignment_mode === "separated" ? "separated" : "shared";
+}
+
+export async function loadConfirmationAssignmentSettings(workspaceId: string): Promise<ConfirmationAssignmentSettings> {
+  const { data, error } = await supabase
+    .from("workspace_confirmation_assignment_settings")
+    .select("assignment_mode,distribution_mode,smart_batch_size,offline_grace_seconds,work_lease_seconds")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (error) {
+    const message = `${error.code || ""} ${error.message || ""}`.toLowerCase();
+    const additiveColumnsPending = error.code === "42703" || message.includes("distribution_mode") || message.includes("schema cache");
+    if (!additiveColumnsPending) raise(error);
+    return {
+      assignmentMode: await loadAssignmentMode(workspaceId),
+      distributionMode: "automatic_equal",
+      smartBatchSize: 3,
+      offlineGraceSeconds: 180,
+      workLeaseSeconds: 180,
+    };
+  }
+  return {
+    assignmentMode: data?.assignment_mode === "separated" ? "separated" : "shared",
+    distributionMode: data?.distribution_mode === "manual" || data?.distribution_mode === "automatic_smart"
+      ? data.distribution_mode
+      : "automatic_equal",
+    smartBatchSize: Math.max(1, Math.min(50, Number(data?.smart_batch_size ?? 3))),
+    offlineGraceSeconds: Math.max(60, Math.min(3600, Number(data?.offline_grace_seconds ?? 180))),
+    workLeaseSeconds: Math.max(60, Math.min(900, Number(data?.work_lease_seconds ?? 180))),
+  };
+}
+
+export async function saveConfirmationDistributionSettings(
+  workspaceId: string,
+  settings: Pick<ConfirmationAssignmentSettings, "distributionMode" | "smartBatchSize" | "offlineGraceSeconds" | "workLeaseSeconds">,
+) {
+  const { data, error } = await supabase.rpc("set_confirmation_distribution_settings_v1", {
+    p_workspace_id: workspaceId,
+    p_distribution_mode: settings.distributionMode,
+    p_smart_batch_size: settings.smartBatchSize,
+    p_offline_grace_seconds: settings.offlineGraceSeconds,
+    p_work_lease_seconds: settings.workLeaseSeconds,
+  });
+  raise(error);
+  return data as Record<string, unknown>;
+}
+
+export async function runConfirmationDistribution(workspaceId: string, orderIds?: string[]) {
+  const { data, error } = await supabase.rpc("run_confirmation_distribution_v1", {
+    p_workspace_id: workspaceId,
+    p_order_ids: orderIds?.length ? orderIds : null,
+  });
+  raise(error);
+  return (data ?? {}) as {
+    assigned_count: number;
+    online_agent_count?: number;
+    share_percent?: number;
+    smart_batch_size?: number;
+    distribution_mode: ConfirmationDistributionMode;
+    reason?: string;
+  };
 }
 
 export async function setAssignmentMode(workspaceId: string, mode: AssignmentMode) {
@@ -174,4 +252,36 @@ export async function attachPaymentProof(workspaceId: string, paymentId: string,
 export async function acknowledgePayment(paymentId: string, outcome: "received_full" | "not_received" | "received_different", actualAmount?: number, explanation?: string) {
   const { error } = await supabase.rpc("acknowledge_agent_payment_v1", { p_payment_id: paymentId, p_outcome: outcome, p_actual_amount: actualAmount ?? null, p_explanation: explanation ?? null });
   raise(error);
+}
+
+export async function reverseAgentPayment(workspaceId: string, paymentId: string, reason: string) {
+  const normalizedReason = reason.trim();
+  if (normalizedReason.length < 4) throw new Error("Enter a clear reversal reason (at least 4 characters).");
+  const { data, error } = await supabase.rpc("reverse_agent_payment_v1", {
+    p_workspace_id: workspaceId,
+    p_payment_id: paymentId,
+    p_reason: normalizedReason,
+  });
+  raise(error);
+  return data as { payment_id: string; status: "reversed"; idempotent: boolean; invoices_recalculated?: number };
+}
+
+export async function resolveAgentPaymentDispute(
+  workspaceId: string,
+  disputeId: string,
+  resolutionStatus: "resolved" | "dismissed",
+  resolution: string,
+  reversePayment = false,
+) {
+  const normalizedResolution = resolution.trim();
+  if (normalizedResolution.length < 4) throw new Error("Enter a clear dispute resolution (at least 4 characters).");
+  const { data, error } = await supabase.rpc("resolve_agent_payment_dispute_v1", {
+    p_workspace_id: workspaceId,
+    p_dispute_id: disputeId,
+    p_resolution_status: resolutionStatus,
+    p_resolution: normalizedResolution,
+    p_reverse_payment: reversePayment,
+  });
+  raise(error);
+  return data as { dispute_id: string; payment_id: string; status: "resolved" | "dismissed"; payment_status: "recorded" | "reversed" };
 }

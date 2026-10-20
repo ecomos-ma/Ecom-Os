@@ -19,6 +19,14 @@ test("founder bypass is resolved before workspace billing RPCs", () => {
   assert.match(auth, /if \(founderBypass\) \{[\s\S]*?setOperationalAccess\(true\)[\s\S]*?setDefaultRoute\("\/dashboard"\)/);
 });
 
+test("active invited team members bypass customer billing and legal startup calls", () => {
+  const membershipQuery = auth.indexOf('.from("profile_workspaces")');
+  const accessRpc = auth.indexOf('supabase.rpc("resolve_workspace_access_v1"');
+  assert.ok(membershipQuery > 0 && accessRpc > membershipQuery);
+  assert.match(auth, /if \(!isInvitedTeamMember && \(!localProfile\.terms_version_accepted/);
+  assert.match(auth, /if \(hasActiveTeamMembership\) \{[\s\S]*?team_member_workspace_access[\s\S]*?\} else \{[\s\S]*?resolve_workspace_access_v1/);
+});
+
 test("every public billing gate recognizes the protected founder identity", () => {
   assert.match(protectedRoute, /!founderAccess && operationalAccess !== true/);
   assert.match(login, /if \(founderAccess\) \{\s*route = "\/dashboard"/);

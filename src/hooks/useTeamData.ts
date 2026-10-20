@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "./useAuth";
 import { normalizeAllowedSections } from "../lib/rbac";
-import { normalizeStatus as normalizeShippingStatus } from "../utils/status";
 import { normalizeStatusOrNull } from "../lib/statusEngine";
+import { normalizeStatus as normalizeShippingStatus } from "../utils/status";
+import { calculateTeamOrderRates, hasConfirmedOutcome } from "../lib/teamConfirmationMetrics";
 
 export interface TeamMember {
     id: string;
@@ -84,6 +85,13 @@ export interface MemberPerformance {
     upsells: number;
 }
 
+export interface OnlineDistributionResult {
+    assigned_count: number;
+    online_agent_count: number;
+    share_percent?: number;
+    reason?: "NO_ONLINE_AGENTS";
+}
+
 function startOfLocalDay(daysAgo = 0) {
     const date = new Date();
     date.setHours(0, 0, 0, 0);
@@ -95,6 +103,27 @@ function isOpenConfirmationStatus(status: string | null | undefined) {
     return ["new", "pending", "scheduled", "busy", "no_answer", "unreachable", "wrong_number"].includes(
         String(normalizeStatusOrNull(status ?? "") ?? "").toLowerCase(),
     );
+}
+
+async function loadAllAssignedOrders(workspaceId: string, includeUpsell = true) {
+    const rows: Array<Record<string, any>> = [];
+    for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabase.from("orders")
+            .select(`"Order ID", status, delivery_status, shipping_status, total, assigned_to, created_at${includeUpsell ? ", is_upsell" : ""}`)
+            .eq("workspace_id", workspaceId)
+            .not("assigned_to", "is", null)
+            .order("Order ID", { ascending: true })
+            .range(offset, offset + 999);
+        if (error) return { data: rows, error };
+        rows.push(...(data ?? []));
+        if ((data ?? []).length < 1000) return { data: rows, error: null };
+    }
+}
+
+function effectiveShippingStatus(order: Record<string, any>) {
+    const statuses = [order.shipping_status, order.delivery_status].map(normalizeShippingStatus);
+    return (["DELIVERED", "COMING_BACK", "OUT_FOR_DELIVERY", "READY", "CONFIRMED", "NEW"] as const)
+        .find((status) => statuses.includes(status)) ?? "NEW";
 }
 
 export function useTeamData() {
@@ -118,9 +147,9 @@ export function useTeamData() {
             // workspaces, so filtering profiles.workspace_id hides valid invitees.
             const workspaceMembersRes = await supabase
                 .from("profile_workspaces")
-                .select("profile_id, is_owner, role, status, created_at")
+                .select("profile_id, is_owner, role, status, allowed_sections, created_at")
                 .eq("workspace_id", wid)
-                .eq("status", "active");
+                .neq("status", "removed");
             if (workspaceMembersRes.error) throw workspaceMembersRes.error;
             const workspaceMembersData = workspaceMembersRes.data ?? [];
             const memberProfileIds = workspaceMembersData.map((membership: any) => membership.profile_id);
@@ -159,11 +188,7 @@ export function useTeamData() {
                     .gte("created_at", yesterdayStart)
                     .order("created_at", { ascending: false })
                     .limit(5000),
-                supabase
-                    .from("orders")
-                    .select('"Order ID", status, delivery_status, shipping_status, total, assigned_to, created_at, is_upsell')
-                    .eq("workspace_id", wid)
-                    .not("assigned_to", "is", null),
+                loadAllAssignedOrders(wid),
                 supabase
                     .from("confirmation_activities")
                     .select("order_id, agent_id, activity_type, created_at")
@@ -207,8 +232,8 @@ export function useTeamData() {
                     full_name: p.full_name,
                     email: p.email ?? "",
                     role: workspaceMember?.role || p.role || "agent", // Use profile_workspaces role first, fallback to profiles.role
-                    status: p.is_active === false ? "disabled" : "active",
-                    allowed_sections: normalizeAllowedSections(p.allowed_sections ?? []),
+                    status: workspaceMember?.status === "active" && p.is_active !== false ? "active" : "disabled",
+                    allowed_sections: normalizeAllowedSections(workspaceMember?.allowed_sections ?? p.allowed_sections ?? []),
                     joined_at: workspaceMember?.created_at ?? p.created_at,
                     created_at: p.created_at,
                     is_owner: workspaceMember?.is_owner || false, // From profile_workspaces
@@ -240,11 +265,7 @@ export function useTeamData() {
             // is_upsell is additive. Older databases should still show the
             // real assignment metrics instead of turning every card into zero.
             if (ordersRes.error) {
-                const { data: legacyOrders, error: legacyOrdersError } = await supabase
-                    .from("orders")
-                    .select('"Order ID", status, delivery_status, shipping_status, total, assigned_to, created_at')
-                    .eq("workspace_id", wid)
-                    .not("assigned_to", "is", null);
+                const { data: legacyOrders, error: legacyOrdersError } = await loadAllAssignedOrders(wid, false);
                 if (legacyOrdersError) throw legacyOrdersError;
                 orders = legacyOrders ?? [];
             }
@@ -257,19 +278,19 @@ export function useTeamData() {
             for (const m of merged) {
                 const myOrders = orders.filter((o: any) => o.assigned_to === m.id);
                 const confirmationStatuses = myOrders.map((o: any) => normalizeStatusOrNull(o.status));
-                const shippingStatuses = myOrders.map((o: any) => normalizeShippingStatus(o.shipping_status || o.delivery_status || ""));
-                const confirmed = confirmationStatuses.filter((status) => status === "confirmed" || status === "shipped" || status === "delivered").length;
-                const delivered = shippingStatuses.filter((status) => status === "DELIVERED").length;
+                const shippingStatuses = myOrders.map(effectiveShippingStatus);
+                const rates = calculateTeamOrderRates(myOrders.map((o: any, index: number) => ({ status: confirmationStatuses[index], shipping: shippingStatuses[index] })));
+                const { confirmed, delivered } = rates;
                 const cancelled = confirmationStatuses.filter((status) => status === "cancelled" || status === "returned" || status === "refused").length;
                 const noAnswer = confirmationStatuses.filter((status) => status === "no_answer" || status === "unreachable" || status === "wrong_number").length;
                 const refused = confirmationStatuses.filter((status) => status === "refused" || status === "blacklisted" || status === "duplicate").length;
                 const callbacks = confirmationStatuses.filter((status) => status === "scheduled" || status === "busy").length;
-                const contacted = confirmationStatuses.filter((status) => status !== null && status !== "new" && status !== "pending").length;
+                const contacted = confirmationStatuses.filter((status, index) => hasConfirmedOutcome(status, shippingStatuses[index]) || (status !== null && status !== "new" && status !== "pending")).length;
                 const review = confirmationStatuses.filter((status) => status === "cancelled" || status === "refused" || status === "blacklisted" || status === "duplicate" || status === "out_of_stock").length;
                 const revenue = myOrders
-                    .filter((o: any) => normalizeShippingStatus(o.shipping_status || o.delivery_status || "") === "DELIVERED")
+                    .filter((o: any) => effectiveShippingStatus(o) === "DELIVERED")
                     .reduce((s: number, o: any) => s + Number(o.total || 0), 0);
-                const active = myOrders.filter((o: any) => isOpenConfirmationStatus(o.status)).length;
+                const active = myOrders.filter((o: any) => isOpenConfirmationStatus(o.status) && !hasConfirmedOutcome(normalizeStatusOrNull(o.status), effectiveShippingStatus(o))).length;
                 const memberLogs = logs.filter((entry: any) => entry.profile_id === m.id);
                 const memberActivities = activities.filter((entry: any) => entry.agent_id === m.id);
                 const calls = memberActivities.filter((entry: any) => entry.activity_type === "CALL_STARTED").length;
@@ -292,7 +313,6 @@ export function useTeamData() {
                         return calledAt !== undefined && Number.isFinite(createdAt) && calledAt >= createdAt ? Math.floor((calledAt - createdAt) / 1000) : null;
                     })
                     .filter((value: number | null): value is number => value !== null);
-                const deliveryPopulation = delivered + shippingStatuses.filter((status) => status === "COMING_BACK").length;
                 const currentCallSeconds = m.active_call && m.active_call_started_at
                     ? Math.max(0, Math.floor((Date.now() - new Date(m.active_call_started_at).getTime()) / 1000))
                     : 0;
@@ -311,14 +331,17 @@ export function useTeamData() {
                     no_answer: noAnswer,
                     refused,
                     pending: active,
-                    confirmation_rate: myOrders.length > 0 ? (confirmed / myOrders.length) * 100 : 0,
+                    confirmation_rate: rates.confirmationRate,
                     revenue_generated: revenue,
                     avg_daily_orders: 0,
                     active_count: active,
                     contacted,
                     callbacks: memberCallbacks || callbacks,
                     review,
-                    delivery_rate: deliveryPopulation > 0 ? (delivered / deliveryPopulation) * 100 : 0,
+                    // Of orders with an actual confirmed/shipping outcome,
+                    // what proportion was delivered? Pending deliveries stay
+                    // in the denominator instead of inflating this to 100%.
+                    delivery_rate: rates.deliveryRate,
                     calls,
                     total_call_seconds: recordedCallSeconds + currentCallSeconds,
                     session_seconds: trackedSessionSeconds,
@@ -415,22 +438,25 @@ export function useTeamData() {
         return error?.code === "PGRST202" || error?.code === "42883" || message.includes("could not find the function") || message.includes("schema cache");
     };
 
-    const assignOrder = useCallback(async (orderId: string, assignedTo: string) => {
+    const assignOrders = useCallback(async (orderIds: string[], assignedTo: string) => {
         if (!wid) throw new Error("Workspace is not available");
+        const uniqueOrderIds = Array.from(new Set(orderIds)).slice(0, 1000);
+        if (uniqueOrderIds.length === 0) throw new Error("Select at least one order.");
         // The live orders schema uses the quoted "Order ID" key. Never query
         // a synthetic orders.id column: imported YouCan orders do not have it.
-        const { data: order, error: lookupError } = await supabase
+        const { data: orders, error: lookupError } = await supabase
             .from("orders")
             .select('"Order ID"')
             .eq("workspace_id", wid)
-            .eq("Order ID", orderId)
-            .maybeSingle();
+            .in("Order ID", uniqueOrderIds);
         if (lookupError) throw lookupError;
-        const canonicalOrderId = (order as any)?.["Order ID"];
-        if (!canonicalOrderId) throw new Error("The selected order is no longer available in this workspace.");
+        const canonicalOrderIds = (orders ?? []).map((order: any) => order["Order ID"] as string).filter(Boolean);
+        if (canonicalOrderIds.length !== uniqueOrderIds.length) {
+            throw new Error("One or more selected orders are no longer available in this workspace.");
+        }
         const { error } = await supabase.rpc("assign_team_orders_v1", {
             p_workspace_id: wid,
-            p_order_ids: [canonicalOrderId],
+            p_order_ids: canonicalOrderIds,
             p_assigned_to: assignedTo,
         });
         if (!error) return;
@@ -439,26 +465,32 @@ export function useTeamData() {
         // Compatibility for databases that have not received the new RPC yet.
         // This writes both sources of truth so assigned agents can see orders
         // immediately, while the migration keeps future assignments atomic.
-        const { data: updatedOrder, error: updateError } = await supabase
+        const { data: updatedOrders, error: updateError } = await supabase
             .from("orders")
             .update({ assigned_to: assignedTo })
             .eq("workspace_id", wid)
-            .eq("Order ID", canonicalOrderId)
-            .select('"Order ID"')
-            .maybeSingle();
+            .in("Order ID", canonicalOrderIds)
+            .select('"Order ID"');
         if (updateError) throw updateError;
-        if (!updatedOrder) throw new Error("This order could not be assigned. Please refresh the workspace and try again.");
+        if ((updatedOrders ?? []).length !== canonicalOrderIds.length) {
+            throw new Error("Some selected orders could not be assigned. Please refresh the workspace and try again.");
+        }
         const { error: historyError } = await supabase
             .from("order_assignments")
-            .insert({
+            .insert(canonicalOrderIds.map((canonicalOrderId) => ({
                 workspace_id: wid,
                 order_id: canonicalOrderId,
                 assigned_to: assignedTo,
                 assigned_by: session?.user?.id ?? null,
                 result: "pending",
-            });
+                notes: "manual",
+            })));
         if (historyError) throw historyError;
     }, [wid, session?.user?.id]);
+
+    const assignOrder = useCallback(async (orderId: string, assignedTo: string) => {
+        await assignOrders([orderId], assignedTo);
+    }, [assignOrders]);
 
     const autoAssignConfirmationOrders = useCallback(async (perAgentLimit = 20) => {
         if (!wid) throw new Error("Workspace is not available");
@@ -471,6 +503,20 @@ export function useTeamData() {
             throw error;
         }
         return data as { assigned_count?: number } | null;
+    }, [wid]);
+
+    const distributeOnlineConfirmationOrders = useCallback(async (orderIds?: string[], rebalanceAll = false) => {
+        if (!wid) throw new Error("Workspace is not available");
+        const { data, error } = await supabase.rpc("distribute_online_confirmation_orders_v2", {
+            p_workspace_id: wid,
+            p_order_ids: orderIds?.length ? Array.from(new Set(orderIds)).slice(0, 1000) : null,
+            p_rebalance_all: rebalanceAll,
+        });
+        if (error) {
+            if (isAssignmentRpcUnavailable(error)) return null;
+            throw error;
+        }
+        return (data ?? null) as OnlineDistributionResult | null;
     }, [wid]);
 
     const updateAgentStatus = useCallback(async (profileId: string, status: string) => {
@@ -497,7 +543,9 @@ export function useTeamData() {
         updateMemberRole,
         removeMember,
         assignOrder,
+        assignOrders,
         autoAssignConfirmationOrders,
+        distributeOnlineConfirmationOrders,
         updateAgentStatus,
         setInvitations,
     };

@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import {
   canReadAllOrders,
   fetchLiveViewSnapshot,
-  requestRecentIpResolution,
+  requestOrderGeolocation,
   subscribeToLiveView,
   type LiveOrderEvent,
   type LiveViewFilters,
@@ -29,6 +29,7 @@ export function useLiveView(workspaceId?: string) {
   const refreshTimer = useRef<number | null>(null);
   const bootedAt = useRef(Date.now());
   const seen = useRef(new Set<string>());
+  const pendingGeocodes = useRef(new Set<string>());
 
   const refresh = useCallback(async (quiet = false) => {
     if (!workspaceId) return;
@@ -54,17 +55,22 @@ export function useLiveView(workspaceId?: string) {
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
     if (!workspaceId || adminGlobal) return;
-    const timer = window.setTimeout(() => void requestRecentIpResolution(workspaceId), 900);
+    const timer = window.setTimeout(() => void requestOrderGeolocation(workspaceId), 900);
     return () => window.clearTimeout(timer);
   }, [adminGlobal, workspaceId]);
   useEffect(() => {
     if (!workspaceId) return;
     bootedAt.current = Date.now();
-    const channel = subscribeToLiveView(workspaceId, adminGlobal, (event) => {
+    const channel = subscribeToLiveView(workspaceId, adminGlobal, (event, eventType) => {
       const eventTime = Date.parse(event.occurred_at);
-      if (eventTime < bootedAt.current - 5000 || seen.current.has(event.order_id)) return;
+      const isRecent = eventTime >= bootedAt.current - 5000;
+      if (eventType === "INSERT" && !adminGlobal && event.latitude === null && !pendingGeocodes.current.has(event.order_id)) {
+        pendingGeocodes.current.add(event.order_id);
+        void requestOrderGeolocation(workspaceId, event.order_id).finally(() => pendingGeocodes.current.delete(event.order_id));
+      }
+      if (!isRecent && !seen.current.has(event.order_id)) return;
       seen.current.add(event.order_id);
-      setNewEvents((current) => [event, ...current].slice(0, 30));
+      setNewEvents((current) => [event, ...current.filter((item) => item.order_id !== event.order_id)].slice(0, 30));
     }, scheduleRefresh, setConnection);
     const reconcile = window.setInterval(() => void refresh(true), 60_000);
     return () => {

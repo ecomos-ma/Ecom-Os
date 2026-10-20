@@ -21,7 +21,7 @@ export type LiveOrderEvent = {
   country_code: string | null;
   latitude: number | null;
   longitude: number | null;
-  geo_source: "ip" | "city" | "provider_city" | "region" | "country" | "unknown";
+  geo_source: "coordinates" | "address" | "city" | "provider_city" | "unknown";
   geo_confidence: "high" | "medium" | "low";
 };
 
@@ -64,7 +64,7 @@ export async function fetchLiveViewSnapshot(
 export function subscribeToLiveView(
   workspaceId: string,
   adminGlobal: boolean,
-  onInsert: (event: LiveOrderEvent) => void,
+  onEvent: (event: LiveOrderEvent, eventType: "INSERT" | "UPDATE" | "DELETE") => void,
   onChange: () => void,
   onStatus: (status: string) => void,
 ): RealtimeChannel {
@@ -73,16 +73,16 @@ export function subscribeToLiveView(
     ? { event: "*" as const, schema: "public", table: "live_view_events" }
     : { event: "*" as const, schema: "public", table: "live_view_events", filter: `workspace_id=eq.${workspaceId}` };
   channel.on("postgres_changes", config, (payload) => {
-    if (payload.eventType === "INSERT") onInsert(payload.new as LiveOrderEvent);
+    if (payload.eventType !== "DELETE") onEvent(payload.new as LiveOrderEvent, payload.eventType);
     onChange();
   });
   channel.subscribe((status) => onStatus(status));
   return channel;
 }
 
-export async function requestRecentIpResolution(workspaceId: string): Promise<void> {
+export async function requestOrderGeolocation(workspaceId: string, orderId?: string): Promise<void> {
   await supabase.functions.invoke("live-view-geolocate", {
-    body: { workspace_id: workspaceId, limit: 12 },
+    body: { workspace_id: workspaceId, order_id: orderId, limit: orderId ? 1 : 8 },
   });
 }
 

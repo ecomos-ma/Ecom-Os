@@ -12,7 +12,7 @@ const getEnvVar = (key: string): string | undefined => {
 };
 
 const configuredUrl = (getEnvVar("VITE_SUPABASE_URL") || getEnvVar("SUPABASE_URL"))?.trim();
-const configuredKey = (getEnvVar("VITE_SUPABASE_ANON_KEY") || getEnvVar("SUPABASE_SERVICE_ROLE_KEY"))?.trim();
+const configuredKey = (getEnvVar("VITE_SUPABASE_ANON_KEY") || getEnvVar("SUPABASE_ANON_KEY"))?.trim();
 
 const configurationProblems: string[] = [];
 if (!configuredUrl) configurationProblems.push("VITE_SUPABASE_URL");

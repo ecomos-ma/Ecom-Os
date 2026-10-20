@@ -154,7 +154,7 @@ export function ReturnToStockModal({ isOpen, onClose }: ReturnToStockModalProps)
             if (error) throw error;
 
             const results: OrderResult[] = (data ?? []).map((o: any) => {
-                const rawStatus = String(o.shipping_status || o.delivery_status || o.status || "");
+                const rawStatus = String(o.shipping_status || o.delivery_status || "");
                 const displayTracking = o.tracking_number || o.coliaty_parcel_code || o.order_number;
                 const eligible = isReturnableStatus(rawStatus);
 

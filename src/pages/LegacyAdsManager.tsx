@@ -1,7 +1,10 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -23,6 +26,7 @@ import {
   Pause,
   Play,
   RefreshCw,
+  Rocket,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -45,6 +49,8 @@ import {
   type MetaLegacyMetrics,
   type MetaLegacyStatus,
 } from "../services/metaLegacyService";
+
+const MetaLaunchStudio = lazy(() => import("./MetaLaunchStudio"));
 
 const METRICS = [
   { key: "spend", label: "Spend", format: "currency" },
@@ -215,6 +221,7 @@ export default function LegacyAdsManager() {
   const { isDemoMode, session } = useAuth();
 
   const [status, setStatus] = useState<MetaLegacyStatus | null>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [campaigns, setCampaigns] = useState<MetaLegacyCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -242,11 +249,13 @@ export default function LegacyAdsManager() {
   const [updatingCampaignId, setUpdatingCampaignId] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [campaignLoadError, setCampaignLoadError] = useState<string | null>(null);
+  const autoSyncAttemptedRef = useRef<string | null>(null);
 
   const { workspaceId, createGuard } = useWorkspaceScope(
     useCallback(() => {
       // Immediately clear all data from the previous workspace.
       setStatus(null);
+      setStudioOpen(false);
       setCampaigns([]);
       setLoading(true);
       setDetailCampaign(null);
@@ -256,6 +265,7 @@ export default function LegacyAdsManager() {
       setStatusError(null);
       setCampaignLoadError(null);
       setPage(0);
+      autoSyncAttemptedRef.current = null;
       // Reinitialise date filters from localStorage.
       const range = dashboardDateRange();
       setDatePreset(range.preset);
@@ -465,7 +475,7 @@ export default function LegacyAdsManager() {
     }
   };
 
-  const syncNow = async () => {
+  const syncNow = useCallback(async (options?: { automatic?: boolean }) => {
     if (!workspaceId) return;
     setBusy(true);
     try {
@@ -486,13 +496,44 @@ export default function LegacyAdsManager() {
             JSON.stringify(result.overview),
           );
         } catch { /* Successful Meta sync is independent of browser storage. */ }
-      toast.success(`Synced ${result.synced} Meta campaigns.`);
+      toast.success(options?.automatic
+        ? `Meta campaigns recovered: ${result.synced} imported.`
+        : `Synced ${result.synced} Meta campaigns.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Meta sync failed.");
     } finally {
       setBusy(false);
     }
-  };
+  }, [workspaceId, currentRange, loadCampaigns, persistCampaigns]);
+
+  useEffect(() => {
+    if (
+      loading ||
+      busy ||
+      !workspaceId ||
+      !status?.connected ||
+      status.connection?.last_successful_sync_at ||
+      campaigns.length > 0
+    ) return;
+
+    // A valid manual connection can outlive a failed/aborted first import.
+    // Recover it once on page load instead of leaving a healthy account on an
+    // empty dashboard forever. The per-connection guard prevents retry loops;
+    // the manual Sync button remains available after a genuine provider error.
+    const connectionKey = `${workspaceId}:${status.connection?.id ?? "connected"}`;
+    if (autoSyncAttemptedRef.current === connectionKey) return;
+    autoSyncAttemptedRef.current = connectionKey;
+    void syncNow({ automatic: true });
+  }, [
+    busy,
+    campaigns.length,
+    loading,
+    status?.connected,
+    status?.connection?.id,
+    status?.connection?.last_successful_sync_at,
+    syncNow,
+    workspaceId,
+  ]);
 
   const disconnect = async () => {
     if (!window.confirm("Disconnect the manual Meta token for this workspace?")) {
@@ -734,6 +775,12 @@ export default function LegacyAdsManager() {
     );
   }
 
+  if (studioOpen && status?.connected) {
+    return <Suspense fallback={<div className="grid min-h-[55vh] place-items-center"><RefreshCw className="animate-spin text-brand-accent" size={28} /></div>}>
+      <MetaLaunchStudio mode="legacy" legacyStatus={status} onExit={() => { setStudioOpen(false); void refresh(); }} />
+    </Suspense>;
+  }
+
   return (
     <>
     <div className="space-y-5">
@@ -742,6 +789,7 @@ export default function LegacyAdsManager() {
         subtitle="Live account insights and saved campaign performance from your manual Meta connection."
         action={
           <div className="flex flex-wrap gap-2">
+            {status?.connected && <button type="button" onClick={() => setStudioOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white"><Rocket size={15} /> Create Ads</button>}
             <button
               type="button"
               onClick={() => void syncNow()}
